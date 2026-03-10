@@ -23,6 +23,11 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+#include <openssl/ssl.h>
+#include <openssl/err.h>
+#endif
 #endif
 
 #include "syshead.h"
@@ -2169,6 +2174,16 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 }
 #endif /* if defined(_WIN32) */
 
+#if defined(ENABLE_CRYPTO_OPENSSL)
+/* Forward declarations for outer TLS helpers defined later in this file. */
+static void outer_tls_log_errors(void);
+void link_socket_outer_tls_client_setup(struct link_socket *sock,
+                                        const char *sni_name);
+void link_socket_outer_tls_server_setup(struct link_socket *sock,
+                                        const char *cert_file,
+                                        const char *key_file);
+#endif
+
 /* finalize socket initialization */
 void
 link_socket_init_phase2(struct context *c)
@@ -2280,6 +2295,28 @@ link_socket_init_phase2(struct context *c)
         goto done;
     }
 
+#if defined(ENABLE_CRYPTO_OPENSSL)
+    /* Outer TLS handshake — must happen while the socket is still blocking,
+     * i.e. before phase2_set_socket_flags() switches it to non-blocking. */
+    if (c->options.tls_tunnel && proto_is_tcp(sock->info.proto))
+    {
+        if (sock->info.proto == PROTO_TCP_CLIENT)
+        {
+            link_socket_outer_tls_client_setup(sock, c->options.tls_server_name);
+        }
+        else /* PROTO_TCP_SERVER */
+        {
+            const char *cert = c->options.tls_tunnel_cert
+                               ? c->options.tls_tunnel_cert
+                               : c->options.cert_file;
+            const char *key  = c->options.tls_tunnel_key
+                               ? c->options.tls_tunnel_key
+                               : c->options.priv_key_file;
+            link_socket_outer_tls_server_setup(sock, cert, key);
+        }
+    }
+#endif
+
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
 
@@ -2297,6 +2334,177 @@ done:
         }
     }
 }
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+
+/*
+ * Outer TLS tunnel support (--tls-tunnel).
+ *
+ * Wraps the raw TCP socket in a TLS session so that SNI-aware proxies such
+ * as Traefik can route OpenVPN traffic by hostname on port 443 alongside
+ * regular HTTPS services, using "tls: passthrough: true".
+ *
+ * The handshake is performed on the still-blocking socket (before
+ * phase2_set_socket_flags() switches it to non-blocking), so a plain
+ * SSL_connect / SSL_accept call is sufficient.  Subsequent reads and
+ * writes are handled by link_socket_read_tcp() and link_socket_write_tcp()
+ * which call SSL_read / SSL_write and translate WANT_READ / WANT_WRITE
+ * back to EAGAIN for the event-loop.
+ */
+
+static void
+outer_tls_log_errors(void)
+{
+    unsigned long e;
+    while ((e = ERR_get_error()))
+    {
+        msg(D_TLS_ERRORS, "outer TLS: %s", ERR_error_string(e, NULL));
+    }
+}
+
+/*
+ * Set up the outer TLS layer for a connecting client.
+ *
+ * Uses the system CA store to verify the server certificate so that
+ * Let's Encrypt (or any public CA) certificates work out of the box.
+ * SNI is taken from opt->tls_server_name.
+ */
+void
+link_socket_outer_tls_client_setup(struct link_socket *sock,
+                                   const char *sni_name)
+{
+    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx)
+    {
+        msg(M_FATAL, "outer TLS: SSL_CTX_new() failed");
+    }
+
+    /* Use the system CA store so public certs (e.g. Let's Encrypt) verify. */
+    if (!SSL_CTX_set_default_verify_paths(ctx))
+    {
+        outer_tls_log_errors();
+        msg(M_WARN, "outer TLS: could not load system CA store, "
+            "server certificate will not be verified");
+    }
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
+
+    SSL *ssl = SSL_new(ctx);
+    if (!ssl)
+    {
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: SSL_new() failed");
+    }
+
+    SSL_set_fd(ssl, sock->sd);
+
+    if (sni_name)
+    {
+        SSL_set_tlsext_host_name(ssl, sni_name);
+        SSL_set1_host(ssl, sni_name); /* for hostname verification */
+    }
+
+    if (SSL_connect(ssl) != 1)
+    {
+        outer_tls_log_errors();
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: client handshake failed");
+    }
+
+    msg(M_INFO, "Outer TLS tunnel established%s%s",
+        sni_name ? " (SNI: " : "", sni_name ? sni_name : "");
+    if (sni_name)
+    {
+        msg(M_INFO, ")");
+    }
+
+    sock->outer_tls_ctx = ctx;
+    sock->outer_tls_ssl = ssl;
+}
+
+/*
+ * Set up the outer TLS layer for an accepting server.
+ *
+ * The server auto-detects whether the client is using --tls-tunnel by
+ * peeking at the first byte: 0x16 is the TLS record-type for Handshake.
+ * Legacy clients (no --tls-tunnel) connect with the raw OpenVPN framing
+ * and are served normally, providing full backwards compatibility.
+ */
+void
+link_socket_outer_tls_server_setup(struct link_socket *sock,
+                                   const char *cert_file,
+                                   const char *key_file)
+{
+    /* Peek to see if this is TLS (0x16 = TLS Handshake record type). */
+    unsigned char first_byte = 0;
+    ssize_t n = recv(sock->sd, &first_byte, 1, MSG_PEEK);
+    if (n <= 0 || first_byte != 0x16)
+    {
+        /* Not a TLS ClientHello — legacy client, skip outer TLS. */
+        msg(M_INFO, "outer TLS: legacy client detected, skipping tunnel");
+        return;
+    }
+
+    if (!cert_file || !key_file)
+    {
+        msg(M_FATAL, "outer TLS: --tls-tunnel-cert and --tls-tunnel-key "
+            "are required on the server");
+    }
+
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    if (!ctx)
+    {
+        msg(M_FATAL, "outer TLS: SSL_CTX_new() failed");
+    }
+
+    if (!SSL_CTX_use_certificate_chain_file(ctx, cert_file))
+    {
+        outer_tls_log_errors();
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: failed to load certificate '%s'", cert_file);
+    }
+
+    if (!SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM))
+    {
+        outer_tls_log_errors();
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: failed to load key '%s'", key_file);
+    }
+
+    if (!SSL_CTX_check_private_key(ctx))
+    {
+        outer_tls_log_errors();
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: certificate and key do not match");
+    }
+
+    /* No client-cert required for the outer layer; inner VPN auth handles it. */
+    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
+
+    SSL *ssl = SSL_new(ctx);
+    if (!ssl)
+    {
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: SSL_new() failed");
+    }
+
+    SSL_set_fd(ssl, sock->sd);
+
+    if (SSL_accept(ssl) != 1)
+    {
+        outer_tls_log_errors();
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        msg(M_FATAL, "outer TLS: server handshake failed");
+    }
+
+    msg(M_INFO, "Outer TLS tunnel accepted");
+
+    sock->outer_tls_ctx = ctx;
+    sock->outer_tls_ssl = ssl;
+}
+
+#endif /* ENABLE_CRYPTO_OPENSSL */
 
 void
 link_socket_close(struct link_socket *sock)
@@ -2343,6 +2551,21 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+        if (sock->outer_tls_ssl)
+        {
+            SSL_shutdown((SSL *)sock->outer_tls_ssl);
+            SSL_free((SSL *)sock->outer_tls_ssl);
+            sock->outer_tls_ssl = NULL;
+        }
+        if (sock->outer_tls_ctx)
+        {
+            SSL_CTX_free((SSL_CTX *)sock->outer_tls_ctx);
+            sock->outer_tls_ctx = NULL;
+        }
+#endif
+
         if (!gremlin)
         {
             free(sock);
@@ -3260,6 +3483,38 @@ link_socket_read_tcp(struct link_socket *sock,
 #else
         struct buffer frag;
         stream_buf_get_next(&sock->stream_buf, &frag);
+#if defined(ENABLE_CRYPTO_OPENSSL)
+        if (sock->outer_tls_ssl)
+        {
+            int ret = SSL_read((SSL *)sock->outer_tls_ssl,
+                               BPTR(&frag), BLEN(&frag));
+            if (ret > 0)
+            {
+                len = ret;
+            }
+            else
+            {
+                int ssl_err = SSL_get_error((SSL *)sock->outer_tls_ssl, ret);
+                if (ssl_err == SSL_ERROR_WANT_READ
+                    || ssl_err == SSL_ERROR_WANT_WRITE)
+                {
+                    errno = EAGAIN;
+                    len = -1;
+                }
+                else if (ssl_err == SSL_ERROR_ZERO_RETURN)
+                {
+                    len = 0; /* graceful close */
+                }
+                else
+                {
+                    outer_tls_log_errors();
+                    errno = EIO;
+                    len = -1;
+                }
+            }
+        }
+        else
+#endif /* ENABLE_CRYPTO_OPENSSL */
         len = recv(sock->sd, BPTR(&frag), BLEN(&frag), MSG_NOSIGNAL);
 #endif
 
@@ -3416,6 +3671,28 @@ link_socket_write_tcp(struct link_socket *sock,
     ASSERT(len <= sock->stream_buf.maxlen);
     len = htonps(len);
     ASSERT(buf_write_prepend(buf, &len, sizeof(len)));
+#if defined(ENABLE_CRYPTO_OPENSSL)
+    if (sock->outer_tls_ssl)
+    {
+        int ret = SSL_write((SSL *)sock->outer_tls_ssl,
+                            BPTR(buf), BLEN(buf));
+        if (ret > 0)
+        {
+            return ret;
+        }
+        int ssl_err = SSL_get_error((SSL *)sock->outer_tls_ssl, ret);
+        if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE)
+        {
+            errno = EAGAIN;
+        }
+        else
+        {
+            outer_tls_log_errors();
+            errno = EIO;
+        }
+        return -1;
+    }
+#endif
 #ifdef _WIN32
     return link_socket_write_win32(sock, buf, to);
 #else
