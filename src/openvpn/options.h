@@ -658,6 +658,9 @@ struct options
 
     const char *tls_crypt_v2_verify_script;
 
+    /** SNI hostname to send in TLS ClientHello (--tls-server-name) */
+    const char *tls_server_name;
+
     /* Allow only one session */
     bool single_session;
 

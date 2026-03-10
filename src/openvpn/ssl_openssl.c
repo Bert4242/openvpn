@@ -1954,6 +1954,14 @@ key_state_ssl_init(struct key_state_ssl *ks_ssl, const struct tls_root_ctx *ssl_
     else
     {
         SSL_set_connect_state(ks_ssl->ssl);
+        if (session->opt->tls_server_name)
+        {
+            if (!SSL_set_tlsext_host_name(ks_ssl->ssl, session->opt->tls_server_name))
+            {
+                crypto_msg(M_FATAL, "SSL_set_tlsext_host_name('%s') failed",
+                           session->opt->tls_server_name);
+            }
+        }
     }
 
     SSL_set_bio(ks_ssl->ssl, ks_ssl->ct_in, ks_ssl->ct_out);
