@@ -1260,17 +1260,8 @@ key_state_ssl_init(struct key_state_ssl *ks_ssl,
     mbed_ok(mbedtls_ssl_setup(ks_ssl->ctx, ks_ssl->ssl_config));
     /* We do verification in our own callback depending on the
      * exact configuration. We do not rely on the default hostname
-     * verification. Set hostname only to trigger SNI in ClientHello
-     * when --tls-server-name is configured (client-side only). */
-    if (!is_server && session->opt->tls_disguise_sni)
-    {
-        ASSERT(mbed_ok(mbedtls_ssl_set_hostname(ks_ssl->ctx,
-                                                session->opt->tls_disguise_sni)));
-    }
-    else
-    {
-        ASSERT(mbed_ok(mbedtls_ssl_set_hostname(ks_ssl->ctx, NULL)));
-    }
+     * verification. */
+    ASSERT(mbed_ok(mbedtls_ssl_set_hostname(ks_ssl->ctx, NULL)));
 
 #if HAVE_MBEDTLS_SSL_SET_EXPORT_KEYS_CB
     /* Initialize keying material exporter, new style. */

@@ -368,8 +368,6 @@ struct tls_options
     bool tls_crypt_v2;
     const char *tls_crypt_v2_verify_script;
 
-    /** SNI hostname sent in TLS ClientHello (--tls-server-name) */
-    const char *tls_disguise_sni;
 
     /** TLS handshake wrapping state */
     struct tls_wrap_ctx tls_wrap;

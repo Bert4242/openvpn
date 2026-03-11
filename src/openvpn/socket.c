@@ -2285,13 +2285,13 @@ link_socket_init_phase2(struct context *c)
         goto done;
     }
 
-    if (c->options.tls_disguise && proto_is_tcp(sock->info.proto))
+    if (proto_is_tcp(sock->info.proto))
     {
-        if (sock->info.proto == PROTO_TCP_CLIENT)
+        if (sock->info.proto == PROTO_TCP_CLIENT && c->options.tls_disguise_client_sni)
         {
-            tls_disguise_send_client_hello(sock->sd, c->options.tls_disguise_sni);
+            tls_disguise_send_client_hello(sock->sd, c->options.tls_disguise_client_sni);
         }
-        else /* PROTO_TCP_SERVER */
+        else if (sock->info.proto == PROTO_TCP_SERVER && c->options.tls_disguise_server)
         {
             tls_disguise_discard_client_hello(sock->sd);
         }
@@ -2452,7 +2452,14 @@ tls_disguise_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side: send a fake TLS ClientHello, then switch to OpenVPN protocol.
+ * Client side: send a fake TLS ClientHello (--tls-disguise-client-sni), then
+ * auto-detect whether the connection is going through an SNI-routing proxy
+ * (e.g. Traefik passthrough) or directly to a patched OpenVPN server.
+ *
+ * After sending, peek at any immediate server response:
+ *   - No response (timeout): correct — passthrough proxy or patched direct server.
+ *   - Connection closed:     server likely not patched (missing --tls-disguise-server).
+ *   - TLS ServerHello:       proxy is TLS-terminating, not passthrough — wrong config.
  *
  * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
@@ -2464,7 +2471,7 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_FATAL, "--tls-disguise: failed to build ClientHello");
+        msg(M_FATAL, "--tls-disguise-client-sni: failed to build ClientHello");
     }
 
     ssize_t sent = 0;
@@ -2473,21 +2480,55 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise: send() failed: %s", strerror(errno));
+            msg(M_FATAL, "--tls-disguise-client-sni: send() failed: %s", strerror(errno));
         }
         sent += n;
     }
 
-    msg(M_INFO, "--tls-disguise: sent fake ClientHello%s%s",
-        sni ? " (SNI: " : "", sni ? sni : "");
-    if (sni)
+    msg(M_INFO, "--tls-disguise-client-sni: sent fake ClientHello (SNI: %s)", sni);
+
+    /* Auto-detect: peek at server response within 300 ms.
+     * Correct behaviour (patched server or passthrough proxy): no bytes sent back.
+     * Anything else indicates a configuration problem — diagnose and abort. */
+    struct pollfd pfd = { .fd = sd, .events = POLLIN | POLLHUP | POLLERR };
+    int ret = poll(&pfd, 1, 300);
+
+    if (ret < 0)
     {
-        msg(M_INFO, ")");
+        msg(M_FATAL, "--tls-disguise-client-sni: poll() failed: %s", strerror(errno));
+    }
+    if (ret == 0)
+    {
+        /* Timeout — no immediate response.  Either the proxy forwarded the bytes
+         * to a patched OpenVPN server (which discarded them silently), or we are
+         * connected directly to a patched server.  Either way: proceed. */
+        return;
+    }
+
+    if (pfd.revents & (POLLHUP | POLLERR))
+    {
+        msg(M_FATAL, "--tls-disguise-client-sni: server closed connection after "
+            "ClientHello — ensure the server has --tls-disguise-server set");
+    }
+
+    if (pfd.revents & POLLIN)
+    {
+        uint8_t first = 0;
+        if (recv(sd, &first, 1, MSG_PEEK) > 0 && first == 0x16)
+        {
+            msg(M_FATAL, "--tls-disguise-client-sni: server replied with a TLS "
+                "ServerHello — the proxy is TLS-terminating, not passthrough. "
+                "Check that Traefik is configured with 'tls: passthrough: true'.");
+        }
+        /* Some other byte: unexpected but non-fatal; OpenVPN will handle it. */
+        msg(M_WARN, "--tls-disguise-client-sni: unexpected byte 0x%02x from server "
+            "after ClientHello", first);
     }
 }
 
 /*
- * Server side: read and discard the fake ClientHello from the client.
+ * Server side (--tls-disguise-server): read and discard the fake ClientHello
+ * sent by clients using --tls-disguise-client-sni.
  *
  * Traefik (passthrough mode) forwards the full byte stream — including the
  * ClientHello it peeked at — to us.  We consume those bytes so the next
@@ -2504,8 +2545,8 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n <= 0 || first != 0x16)
     {
-        /* Not a TLS record — legacy client without --tls-disguise. */
-        msg(M_INFO, "--tls-disguise: legacy client detected, skipping disguise");
+        /* Not a TLS record — legacy client without --tls-disguise-client-sni. */
+        msg(M_INFO, "--tls-disguise-server: legacy client detected, skipping disguise");
         return;
     }
 
@@ -2517,7 +2558,7 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise: recv() failed reading ClientHello header");
+            msg(M_FATAL, "--tls-disguise-server: recv() failed reading ClientHello header");
         }
         got += n;
     }
@@ -2534,12 +2575,12 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise: recv() failed reading ClientHello body");
+            msg(M_FATAL, "--tls-disguise-server: recv() failed reading ClientHello body");
         }
         remaining -= (uint16_t)n;
     }
 
-    msg(M_INFO, "--tls-disguise: discarded ClientHello (%u bytes), "
+    msg(M_INFO, "--tls-disguise-server: discarded ClientHello (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
 }
 
