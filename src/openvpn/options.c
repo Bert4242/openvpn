@@ -639,14 +639,14 @@ static const char usage_message[] =
     "                  fresh tls-crypt-v2 server key, and store to keyfile\n"
     "--tls-crypt-v2-verify cmd : Run command cmd to verify the metadata of the\n"
     "                  client-supplied tls-crypt-v2 client key\n"
-    "--sni-passthrough name : (Client) Prepend an SNI routing header to every\n"
+    "--sni-passthrough-hostname name : (Client) Prepend an SNI routing header to every\n"
     "                  TCP connection so that SNI-aware proxies (e.g. Traefik\n"
     "                  passthrough) route the stream to the right backend by\n"
     "                  hostname.  name is the hostname the proxy must route to\n"
     "                  this OpenVPN server.  No extra encryption is added.\n"
     "                  The server must have --sni-passthrough-server set.\n"
     "--sni-passthrough-server : (Server) Detect and discard the SNI routing\n"
-    "                  header sent by clients using --sni-passthrough, then\n"
+    "                  header sent by clients using --sni-passthrough-hostname, then\n"
     "                  proceed with the OpenVPN protocol.  Legacy clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally — full backwards compatibility.\n"
@@ -9287,10 +9287,10 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->tls_crypt_v2_verify_script = p[1];
     }
-    else if (streq(p[0], "sni-passthrough") && p[1] && !p[2])
+    else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_passthrough = p[1];
+        options->sni_passthrough_hostname = p[1];
     }
     else if (streq(p[0], "sni-passthrough-server") && !p[1])
     {

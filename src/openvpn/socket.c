@@ -2287,9 +2287,9 @@ link_socket_init_phase2(struct context *c)
 
     if (proto_is_tcp(sock->info.proto))
     {
-        if (sock->info.proto == PROTO_TCP_CLIENT && c->options.sni_passthrough)
+        if (sock->info.proto == PROTO_TCP_CLIENT && c->options.sni_passthrough_hostname)
         {
-            sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough);
+            sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough_hostname);
         }
         else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server)
         {
@@ -2316,7 +2316,7 @@ done:
 }
 
 /*
- * SNI passthrough support (--sni-passthrough / --sni-passthrough-server).
+ * SNI passthrough support (--sni-passthrough-hostname / --sni-passthrough-server).
  *
  * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
  * as Traefik (passthrough mode) on any port, without any double encryption.
@@ -2325,7 +2325,7 @@ done:
  * and route the connection accordingly.  They expect those bytes to be
  * formatted as a ClientHello record (the standard carrier for SNI in TCP).
  *
- *   Client (--sni-passthrough <hostname>):
+ *   Client (--sni-passthrough-hostname <hostname>):
  *     Prepends a single SNI routing header — a minimal ClientHello record
  *     carrying the given hostname — before the OpenVPN protocol bytes.
  *     The proxy reads the hostname, routes the stream to the right backend,
@@ -2460,7 +2460,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side (--sni-passthrough): send the SNI routing header, then return.
+ * Client side (--sni-passthrough-hostname):send the SNI routing header, then return.
  * The OpenVPN protocol follows immediately after.
  * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
@@ -2472,7 +2472,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_FATAL, "--sni-passthrough: failed to build SNI routing header");
+        msg(M_FATAL, "--sni-passthrough-hostname:failed to build SNI routing header");
     }
 
     ssize_t sent = 0;
@@ -2481,17 +2481,17 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough: send() failed: %s", strerror(errno));
+            msg(M_FATAL, "--sni-passthrough-hostname:send() failed: %s", strerror(errno));
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough: sent SNI routing header (hostname: %s)", sni);
+    msg(M_INFO, "--sni-passthrough-hostname:sent SNI routing header (hostname: %s)", sni);
 }
 
 /*
  * Server side (--sni-passthrough-server): read and discard the SNI routing
- * header sent by clients using --sni-passthrough.
+ * header sent by clients using --sni-passthrough-hostname.
  *
  * The proxy forwards the full byte stream — including the routing header it
  * read the hostname from — to us.  We consume those bytes so the next read
@@ -2508,7 +2508,7 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n <= 0 || first != 0x16)
     {
-        /* Not an SNI routing header — legacy client without --sni-passthrough. */
+        /* Not an SNI routing header — legacy client without --sni-passthrough-hostname. */
         msg(M_INFO, "--sni-passthrough-server: legacy client detected, no routing header");
         return;
     }
