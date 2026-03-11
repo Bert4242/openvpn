@@ -658,17 +658,17 @@ struct options
 
     const char *tls_crypt_v2_verify_script;
 
-    /** SNI hostname for the fake TLS ClientHello (--sni-passthrough).
-     *  When set, the client prepends a fake ClientHello carrying this SNI hostname
-     *  before the OpenVPN protocol, so SNI-aware TCP proxies (e.g. Traefik
-     *  tls: passthrough: true) can route the connection by hostname.  Works for
-     *  both direct and proxied connections as long as the server also has
+    /** Hostname to embed in the SNI routing header (--sni-passthrough).
+     *  When set, the client prepends an SNI routing header before the OpenVPN
+     *  protocol so that SNI-aware TCP proxies (e.g. Traefik passthrough) can
+     *  route the connection to the right backend by hostname.  Works for both
+     *  direct and proxied connections as long as the server also has
      *  --sni-passthrough-server set. */
     const char *sni_passthrough;
 
-    /** Enable server-side auto-detection and discarding of the fake TLS ClientHello
-     *  sent by clients that use --sni-passthrough (--sni-passthrough-server).
-     *  Peeks the first byte: 0x16 = SNI passthrough client (discard ClientHello);
+    /** Enable server-side detection and discarding of the SNI routing header
+     *  sent by clients using --sni-passthrough (--sni-passthrough-server).
+     *  Peeks the first byte: 0x16 = routing header present (discard it);
      *  anything else = legacy client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
 

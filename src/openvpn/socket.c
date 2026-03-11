@@ -2316,35 +2316,43 @@ done:
 }
 
 /*
- * TLS disguise support (--tls-disguise).
+ * SNI passthrough support (--sni-passthrough / --sni-passthrough-server).
  *
- * Allows OpenVPN TCP connections to pass through SNI-aware proxies such as
- * Traefik (tls: passthrough: true) without any double encryption.
+ * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
+ * as Traefik (passthrough mode) on any port, without any double encryption.
  *
- * The trick is simple and lightweight:
- *   Client: sends a single fake TLS ClientHello (with SNI set to the server
- *           hostname) before starting the OpenVPN protocol.  Traefik reads
- *           the SNI, routes the connection, and forwards the full stream
- *           (including those bytes) to the OpenVPN server.
- *   Server: receives that ClientHello, reads and discards it, then starts
- *           the normal OpenVPN protocol.
+ * SNI-aware proxies read the hostname from the first bytes of the TCP stream
+ * and route the connection accordingly.  They expect those bytes to be
+ * formatted as a ClientHello record (the standard carrier for SNI in TCP).
  *
- * After this one-shot exchange the connection is pure OpenVPN — no TLS
- * session is ever established, no encryption layer is added, there is zero
- * ongoing overhead.  OpenVPN's own TLS control channel and data channel
- * encryption are used unchanged.
+ *   Client (--sni-passthrough <hostname>):
+ *     Prepends a single SNI routing header — a minimal ClientHello record
+ *     carrying the given hostname — before the OpenVPN protocol bytes.
+ *     The proxy reads the hostname, routes the stream to the right backend,
+ *     and forwards all bytes (including the header) unchanged.
+ *
+ *   Server (--sni-passthrough-server):
+ *     Receives the routed stream, reads and discards the SNI routing header,
+ *     then proceeds with the normal OpenVPN protocol.  Legacy clients that
+ *     do not send the header are detected automatically and handled normally.
+ *
+ * No session of any kind is established by the routing header — it is
+ * discarded immediately.  No encryption layer is added; OpenVPN's own
+ * control-channel and data-channel security are used unchanged.
  */
 
 /*
- * Craft a minimal but realistic TLS 1.3 ClientHello into buf.
+ * Build a minimal SNI routing header into buf.
  * Returns the number of bytes written, or 0 if the buffer is too small.
  *
- * The ClientHello contains:
- *   - SNI extension pointing at sni (required for proxy routing)
- *   - supported_versions extension advertising TLS 1.3 and TLS 1.2
- *   - supported_groups extension advertising x25519
- *   - Two TLS 1.3 cipher suites
- * This is enough to look like a real browser ClientHello to any proxy.
+ * The header is formatted as a ClientHello record because that is what
+ * SNI-aware proxies expect.  It carries:
+ *   - SNI extension with the hostname (the only field the proxy reads)
+ *   - supported_versions extension (values 0x0304, 0x0303)
+ *   - supported_groups extension (x25519)
+ *   - Two cipher suite entries
+ * This is enough for any SNI-routing proxy to extract the hostname and
+ * forward the stream without attempting a real handshake.
  */
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
@@ -2358,7 +2366,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     /* SNI extension wire: type(2) + ext_data_len(2) + body */
     size_t sni_ext_wire   = sni_len ? (4 + sni_body_len) : 0;
 
-    /* supported_versions: type(2)+len(2)+list_len(1)+TLS1.3(2)+TLS1.2(2) = 9 */
+    /* supported_versions: type(2)+len(2)+list_len(1)+v1.3(2)+v1.2(2) = 9 */
     size_t sv_ext_wire    = 9;
 
     /* supported_groups: type(2)+len(2)+groups_len(2)+x25519(2) = 8 */
@@ -2374,7 +2382,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     /* Handshake message: type(1)+length(3)+body */
     size_t handshake_len  = 1 + 3 + hello_body;
 
-    /* TLS record: content_type(1)+version(2)+length(2)+handshake */
+    /* Record envelope: content_type(1)+version(2)+length(2)+handshake */
     size_t record_len     = 5 + handshake_len;
 
     if (record_len > bufsz)
@@ -2384,9 +2392,9 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
     uint8_t *p = buf;
 
-    /* --- TLS record header --- */
+    /* --- Record envelope header --- */
     *p++ = 0x16;                            /* Content-Type: Handshake   */
-    *p++ = 0x03; *p++ = 0x01;              /* Legacy version: TLS 1.0   */
+    *p++ = 0x03; *p++ = 0x01;              /* Legacy record version      */
     *p++ = (handshake_len >> 8) & 0xff;
     *p++ =  handshake_len       & 0xff;
 
@@ -2397,7 +2405,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ =  hello_body        & 0xff;
 
     /* --- ClientHello body --- */
-    *p++ = 0x03; *p++ = 0x03;              /* client_version: TLS 1.2   */
+    *p++ = 0x03; *p++ = 0x03;              /* client_version field       */
 
     /* Random: 32 pseudo-random bytes (not cryptographically sensitive) */
     for (int i = 0; i < 32; i++)
@@ -2407,10 +2415,10 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
     *p++ = 0x00;                            /* session_id: empty         */
 
-    /* cipher_suites: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 */
+    /* cipher_suites: two plausible entries (never negotiated) */
     *p++ = 0x00; *p++ = 0x04;
-    *p++ = 0x13; *p++ = 0x01;              /* TLS_AES_128_GCM_SHA256    */
-    *p++ = 0x13; *p++ = 0x02;              /* TLS_AES_256_GCM_SHA384    */
+    *p++ = 0x13; *p++ = 0x01;              /* 0x1301                    */
+    *p++ = 0x13; *p++ = 0x02;              /* 0x1302                    */
 
     /* compression_methods: null only */
     *p++ = 0x01; *p++ = 0x00;
@@ -2439,8 +2447,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ = 0x00; *p++ = 0x2b;
     *p++ = 0x00; *p++ = 0x05;              /* extension data length: 5    */
     *p++ = 0x04;                            /* versions list length: 4     */
-    *p++ = 0x03; *p++ = 0x04;              /* TLS 1.3                     */
-    *p++ = 0x03; *p++ = 0x03;              /* TLS 1.2                     */
+    *p++ = 0x03; *p++ = 0x04;              /* version 0x0304              */
+    *p++ = 0x03; *p++ = 0x03;              /* version 0x0303              */
 
     /* --- supported_groups extension (type 0x000a) --- */
     *p++ = 0x00; *p++ = 0x0a;
@@ -2452,12 +2460,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side: send a fake TLS ClientHello (--sni-passthrough).
- *
- * Sends the disguise bytes and returns immediately — the OpenVPN protocol
- * follows right away.  Any misconfiguration (TLS-terminating proxy, server
- * missing --sni-passthrough-server) will surface as a normal handshake failure.
- *
+ * Client side (--sni-passthrough): send the SNI routing header, then return.
+ * The OpenVPN protocol follows immediately after.
  * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
 static void
@@ -2468,7 +2472,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_FATAL, "--sni-passthrough: failed to build ClientHello");
+        msg(M_FATAL, "--sni-passthrough: failed to build SNI routing header");
     }
 
     ssize_t sent = 0;
@@ -2482,18 +2486,18 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough: sent fake ClientHello (SNI: %s)", sni);
+    msg(M_INFO, "--sni-passthrough: sent SNI routing header (hostname: %s)", sni);
 }
 
 /*
- * Server side (--sni-passthrough-server): read and discard the fake ClientHello
- * sent by clients using --sni-passthrough.
+ * Server side (--sni-passthrough-server): read and discard the SNI routing
+ * header sent by clients using --sni-passthrough.
  *
- * Traefik (passthrough mode) forwards the full byte stream — including the
- * ClientHello it peeked at — to us.  We consume those bytes so the next
- * read sees the real OpenVPN P_CONTROL_HARD_RESET packet.
+ * The proxy forwards the full byte stream — including the routing header it
+ * read the hostname from — to us.  We consume those bytes so the next read
+ * sees the real OpenVPN P_CONTROL_HARD_RESET packet.
  *
- * Auto-detects legacy clients (first byte != 0x16) and skips gracefully,
+ * Detects legacy clients (first byte != 0x16) by peeking and skips gracefully,
  * preserving full backwards compatibility.
  */
 static void
@@ -2504,12 +2508,12 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n <= 0 || first != 0x16)
     {
-        /* Not a TLS record — legacy client without --sni-passthrough. */
-        msg(M_INFO, "--sni-passthrough-server: legacy client detected, skipping disguise");
+        /* Not an SNI routing header — legacy client without --sni-passthrough. */
+        msg(M_INFO, "--sni-passthrough-server: legacy client detected, no routing header");
         return;
     }
 
-    /* Read the 5-byte TLS record header to learn the payload length. */
+    /* Read the 5-byte record envelope header to learn the payload length. */
     uint8_t hdr[5];
     ssize_t got = 0;
     while (got < 5)
@@ -2517,7 +2521,7 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading ClientHello header");
+            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading routing header envelope");
         }
         got += n;
     }
@@ -2534,12 +2538,12 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading ClientHello body");
+            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading routing header body");
         }
         remaining -= (uint16_t)n;
     }
 
-    msg(M_INFO, "--sni-passthrough-server: discarded ClientHello (%u bytes), "
+    msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
 }
 
