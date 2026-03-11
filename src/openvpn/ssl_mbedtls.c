@@ -1262,10 +1262,10 @@ key_state_ssl_init(struct key_state_ssl *ks_ssl,
      * exact configuration. We do not rely on the default hostname
      * verification. Set hostname only to trigger SNI in ClientHello
      * when --tls-server-name is configured (client-side only). */
-    if (!is_server && session->opt->tls_server_name)
+    if (!is_server && session->opt->tls_disguise_sni)
     {
         ASSERT(mbed_ok(mbedtls_ssl_set_hostname(ks_ssl->ctx,
-                                                session->opt->tls_server_name)));
+                                                session->opt->tls_disguise_sni)));
     }
     else
     {

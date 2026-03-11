@@ -2285,11 +2285,11 @@ link_socket_init_phase2(struct context *c)
         goto done;
     }
 
-    if (c->options.tls_tunnel && proto_is_tcp(sock->info.proto))
+    if (c->options.tls_disguise && proto_is_tcp(sock->info.proto))
     {
         if (sock->info.proto == PROTO_TCP_CLIENT)
         {
-            tls_disguise_send_client_hello(sock->sd, c->options.tls_server_name);
+            tls_disguise_send_client_hello(sock->sd, c->options.tls_disguise_sni);
         }
         else /* PROTO_TCP_SERVER */
         {
@@ -2316,7 +2316,7 @@ done:
 }
 
 /*
- * TLS disguise support (--tls-tunnel).
+ * TLS disguise support (--tls-disguise).
  *
  * Allows OpenVPN TCP connections to pass through SNI-aware proxies such as
  * Traefik (tls: passthrough: true) without any double encryption.
@@ -2464,7 +2464,7 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_FATAL, "--tls-tunnel: failed to build ClientHello");
+        msg(M_FATAL, "--tls-disguise: failed to build ClientHello");
     }
 
     ssize_t sent = 0;
@@ -2473,12 +2473,12 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-tunnel: send() failed: %s", strerror(errno));
+            msg(M_FATAL, "--tls-disguise: send() failed: %s", strerror(errno));
         }
         sent += n;
     }
 
-    msg(M_INFO, "--tls-tunnel: sent fake ClientHello%s%s",
+    msg(M_INFO, "--tls-disguise: sent fake ClientHello%s%s",
         sni ? " (SNI: " : "", sni ? sni : "");
     if (sni)
     {
@@ -2504,8 +2504,8 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n <= 0 || first != 0x16)
     {
-        /* Not a TLS record — legacy client without --tls-tunnel. */
-        msg(M_INFO, "--tls-tunnel: legacy client detected, skipping disguise");
+        /* Not a TLS record — legacy client without --tls-disguise. */
+        msg(M_INFO, "--tls-disguise: legacy client detected, skipping disguise");
         return;
     }
 
@@ -2517,7 +2517,7 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-tunnel: recv() failed reading ClientHello header");
+            msg(M_FATAL, "--tls-disguise: recv() failed reading ClientHello header");
         }
         got += n;
     }
@@ -2534,12 +2534,12 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-tunnel: recv() failed reading ClientHello body");
+            msg(M_FATAL, "--tls-disguise: recv() failed reading ClientHello body");
         }
         remaining -= (uint16_t)n;
     }
 
-    msg(M_INFO, "--tls-tunnel: discarded ClientHello (%u bytes), "
+    msg(M_INFO, "--tls-disguise: discarded ClientHello (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
 }
 

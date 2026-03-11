@@ -659,12 +659,12 @@ struct options
     const char *tls_crypt_v2_verify_script;
 
     /** SNI hostname to send in TLS ClientHello (--tls-server-name) */
-    const char *tls_server_name;
+    const char *tls_disguise_sni;
 
     /** Send a fake TLS ClientHello before the OpenVPN protocol (--tls-tunnel).
      *  Allows SNI-aware proxies (e.g. Traefik) to route traffic by hostname.
      *  No actual TLS session is established; no extra encryption is added. */
-    bool tls_tunnel;
+    bool tls_disguise;
 
     /* Allow only one session */
     bool single_session;

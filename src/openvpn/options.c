@@ -639,16 +639,18 @@ static const char usage_message[] =
     "                  fresh tls-crypt-v2 server key, and store to keyfile\n"
     "--tls-crypt-v2-verify cmd : Run command cmd to verify the metadata of the\n"
     "                  client-supplied tls-crypt-v2 client key\n"
-    "--tls-server-name name : Set the TLS SNI hostname sent in the ClientHello.\n"
-    "                  Used with --tls-tunnel to select the SNI sent in the outer\n"
-    "                  TLS handshake, enabling SNI-based routing through proxies\n"
-    "                  such as Traefik with tls passthrough.\n"
-    "--tls-tunnel    : Send a fake TLS ClientHello before the OpenVPN protocol so\n"
-    "                  that SNI-aware TCP proxies (e.g. Traefik tls passthrough)\n"
-    "                  can route by hostname.  No TLS session is established and\n"
-    "                  no extra encryption is added.  Use --tls-server-name on the\n"
-    "                  client to set the SNI.  The server discards the ClientHello\n"
-    "                  and starts the OpenVPN protocol immediately after.\n"
+    "--tls-disguise-sni name : Hostname to embed as SNI in the fake TLS ClientHello\n"
+    "                  sent by --tls-disguise.  Must match the hostname Traefik\n"
+    "                  (or any SNI-aware proxy) routes to this OpenVPN server.\n"
+    "                  Client-only option; ignored without --tls-disguise.\n"
+    "--tls-disguise  : Disguise the start of a TCP connection as HTTPS so that\n"
+    "                  SNI-aware proxies (e.g. Traefik tls: passthrough: true)\n"
+    "                  route the connection by hostname to the right backend.\n"
+    "                  Client: sends one fake TLS ClientHello (SNI from\n"
+    "                  --tls-disguise-sni), then switches to OpenVPN protocol.\n"
+    "                  Server: reads and discards that ClientHello, then starts\n"
+    "                  the OpenVPN protocol.  No TLS session is ever established\n"
+    "                  and no extra encryption is added.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9286,15 +9288,15 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->tls_crypt_v2_verify_script = p[1];
     }
-    else if (streq(p[0], "tls-server-name") && p[1] && !p[2])
+    else if (streq(p[0], "tls-disguise-sni") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_server_name = p[1];
+        options->tls_disguise_sni = p[1];
     }
-    else if (streq(p[0], "tls-tunnel") && !p[1])
+    else if (streq(p[0], "tls-disguise") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_tunnel = true;
+        options->tls_disguise = true;
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {

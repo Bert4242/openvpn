@@ -3320,7 +3320,7 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
     to.verify_command = options->tls_verify;
     to.verify_x509_type = (options->verify_x509_type & 0xff);
     to.verify_x509_name = options->verify_x509_name;
-    to.tls_server_name = options->tls_server_name;
+    to.tls_disguise_sni = options->tls_disguise_sni;
     to.crl_file = options->crl_file;
     to.crl_file_inline = options->crl_file_inline;
     to.ssl_flags = options->ssl_flags;
