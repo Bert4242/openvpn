@@ -661,12 +661,10 @@ struct options
     /** SNI hostname to send in TLS ClientHello (--tls-server-name) */
     const char *tls_server_name;
 
-    /** Wrap TCP in an outer TLS layer for SNI-based proxy routing (--tls-tunnel) */
+    /** Send a fake TLS ClientHello before the OpenVPN protocol (--tls-tunnel).
+     *  Allows SNI-aware proxies (e.g. Traefik) to route traffic by hostname.
+     *  No actual TLS session is established; no extra encryption is added. */
     bool tls_tunnel;
-    /** Server cert for outer TLS (--tls-tunnel-cert); defaults to --cert if unset */
-    const char *tls_tunnel_cert;
-    /** Server key for outer TLS (--tls-tunnel-key); defaults to --key if unset */
-    const char *tls_tunnel_key;
 
     /* Allow only one session */
     bool single_session;

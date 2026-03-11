@@ -643,15 +643,12 @@ static const char usage_message[] =
     "                  Used with --tls-tunnel to select the SNI sent in the outer\n"
     "                  TLS handshake, enabling SNI-based routing through proxies\n"
     "                  such as Traefik with tls passthrough.\n"
-    "--tls-tunnel    : Wrap the TCP connection in an outer TLS layer before the\n"
-    "                  OpenVPN protocol.  Allows a TLS-aware proxy (e.g. Traefik)\n"
-    "                  to route traffic by SNI without terminating the VPN session.\n"
-    "                  Client: connects to the proxy with --tls-server-name as SNI.\n"
-    "                  Server: accepts the outer TLS using --tls-tunnel-cert/key.\n"
-    "--tls-tunnel-cert file : PEM certificate for the outer TLS layer (server only).\n"
-    "                  Defaults to the value of --cert if not specified.\n"
-    "--tls-tunnel-key file : PEM private key for the outer TLS layer (server only).\n"
-    "                  Defaults to the value of --key if not specified.\n"
+    "--tls-tunnel    : Send a fake TLS ClientHello before the OpenVPN protocol so\n"
+    "                  that SNI-aware TCP proxies (e.g. Traefik tls passthrough)\n"
+    "                  can route by hostname.  No TLS session is established and\n"
+    "                  no extra encryption is added.  Use --tls-server-name on the\n"
+    "                  client to set the SNI.  The server discards the ClientHello\n"
+    "                  and starts the OpenVPN protocol immediately after.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9298,16 +9295,6 @@ add_option(struct options *options,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->tls_tunnel = true;
-    }
-    else if (streq(p[0], "tls-tunnel-cert") && p[1] && !p[2])
-    {
-        VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_tunnel_cert = p[1];
-    }
-    else if (streq(p[0], "tls-tunnel-key") && p[1] && !p[2])
-    {
-        VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_tunnel_key = p[1];
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {

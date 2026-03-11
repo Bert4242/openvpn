@@ -244,10 +244,6 @@ struct link_socket
 #ifdef ENABLE_DEBUG
     int gremlin; /* --gremlin bits */
 #endif
-
-    /* outer TLS tunnel for SNI-based proxy routing (--tls-tunnel) */
-    void *outer_tls_ctx; /* SSL_CTX* — owned, freed on close */
-    void *outer_tls_ssl; /* SSL*     — per-connection state  */
 };
 
 /*

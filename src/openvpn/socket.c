@@ -23,11 +23,6 @@
 
 #ifdef HAVE_CONFIG_H
 #include "config.h"
-
-#if defined(ENABLE_CRYPTO_OPENSSL)
-#include <openssl/ssl.h>
-#include <openssl/err.h>
-#endif
 #endif
 
 #include "syshead.h"
@@ -2174,15 +2169,10 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 }
 #endif /* if defined(_WIN32) */
 
-#if defined(ENABLE_CRYPTO_OPENSSL)
-/* Forward declarations for outer TLS helpers defined later in this file. */
-static void outer_tls_log_errors(void);
-void link_socket_outer_tls_client_setup(struct link_socket *sock,
-                                        const char *sni_name);
-void link_socket_outer_tls_server_setup(struct link_socket *sock,
-                                        const char *cert_file,
-                                        const char *key_file);
-#endif
+/* Forward declarations for TLS disguise helpers defined later in this file. */
+static void tls_disguise_send_client_hello(socket_descriptor_t sd,
+                                           const char *sni);
+static void tls_disguise_discard_client_hello(socket_descriptor_t sd);
 
 /* finalize socket initialization */
 void
@@ -2295,27 +2285,17 @@ link_socket_init_phase2(struct context *c)
         goto done;
     }
 
-#if defined(ENABLE_CRYPTO_OPENSSL)
-    /* Outer TLS handshake — must happen while the socket is still blocking,
-     * i.e. before phase2_set_socket_flags() switches it to non-blocking. */
     if (c->options.tls_tunnel && proto_is_tcp(sock->info.proto))
     {
         if (sock->info.proto == PROTO_TCP_CLIENT)
         {
-            link_socket_outer_tls_client_setup(sock, c->options.tls_server_name);
+            tls_disguise_send_client_hello(sock->sd, c->options.tls_server_name);
         }
         else /* PROTO_TCP_SERVER */
         {
-            const char *cert = c->options.tls_tunnel_cert
-                               ? c->options.tls_tunnel_cert
-                               : c->options.cert_file;
-            const char *key  = c->options.tls_tunnel_key
-                               ? c->options.tls_tunnel_key
-                               : c->options.priv_key_file;
-            link_socket_outer_tls_server_setup(sock, cert, key);
+            tls_disguise_discard_client_hello(sock->sd);
         }
     }
-#endif
 
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
@@ -2335,176 +2315,233 @@ done:
     }
 }
 
-#if defined(ENABLE_CRYPTO_OPENSSL)
-
 /*
- * Outer TLS tunnel support (--tls-tunnel).
+ * TLS disguise support (--tls-tunnel).
  *
- * Wraps the raw TCP socket in a TLS session so that SNI-aware proxies such
- * as Traefik can route OpenVPN traffic by hostname on port 443 alongside
- * regular HTTPS services, using "tls: passthrough: true".
+ * Allows OpenVPN TCP connections to pass through SNI-aware proxies such as
+ * Traefik (tls: passthrough: true) without any double encryption.
  *
- * The handshake is performed on the still-blocking socket (before
- * phase2_set_socket_flags() switches it to non-blocking), so a plain
- * SSL_connect / SSL_accept call is sufficient.  Subsequent reads and
- * writes are handled by link_socket_read_tcp() and link_socket_write_tcp()
- * which call SSL_read / SSL_write and translate WANT_READ / WANT_WRITE
- * back to EAGAIN for the event-loop.
+ * The trick is simple and lightweight:
+ *   Client: sends a single fake TLS ClientHello (with SNI set to the server
+ *           hostname) before starting the OpenVPN protocol.  Traefik reads
+ *           the SNI, routes the connection, and forwards the full stream
+ *           (including those bytes) to the OpenVPN server.
+ *   Server: receives that ClientHello, reads and discards it, then starts
+ *           the normal OpenVPN protocol.
+ *
+ * After this one-shot exchange the connection is pure OpenVPN — no TLS
+ * session is ever established, no encryption layer is added, there is zero
+ * ongoing overhead.  OpenVPN's own TLS control channel and data channel
+ * encryption are used unchanged.
  */
 
-static void
-outer_tls_log_errors(void)
+/*
+ * Craft a minimal but realistic TLS 1.3 ClientHello into buf.
+ * Returns the number of bytes written, or 0 if the buffer is too small.
+ *
+ * The ClientHello contains:
+ *   - SNI extension pointing at sni (required for proxy routing)
+ *   - supported_versions extension advertising TLS 1.3 and TLS 1.2
+ *   - supported_groups extension advertising x25519
+ *   - Two TLS 1.3 cipher suites
+ * This is enough to look like a real browser ClientHello to any proxy.
+ */
+static size_t
+tls_disguise_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
-    unsigned long e;
-    while ((e = ERR_get_error()))
+    size_t sni_len = sni ? strlen(sni) : 0;
+
+    /* Extension sizes (all big-endian, calculated bottom-up): */
+
+    /* SNI extension body: list_len(2) + name_type(1) + name_len(2) + name */
+    size_t sni_body_len   = 2 + 1 + 2 + sni_len;
+    /* SNI extension wire: type(2) + ext_data_len(2) + body */
+    size_t sni_ext_wire   = sni_len ? (4 + sni_body_len) : 0;
+
+    /* supported_versions: type(2)+len(2)+list_len(1)+TLS1.3(2)+TLS1.2(2) = 9 */
+    size_t sv_ext_wire    = 9;
+
+    /* supported_groups: type(2)+len(2)+groups_len(2)+x25519(2) = 8 */
+    size_t sg_ext_wire    = 8;
+
+    size_t exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire;
+
+    /* ClientHello body: version(2)+random(32)+sess_id_len(1)+
+     * cipher_suites_len(2)+2 ciphers(4)+comp_len(1)+null_comp(1)+
+     * exts_len(2)+extensions */
+    size_t hello_body     = 2 + 32 + 1 + 2 + 4 + 1 + 1 + 2 + exts_total;
+
+    /* Handshake message: type(1)+length(3)+body */
+    size_t handshake_len  = 1 + 3 + hello_body;
+
+    /* TLS record: content_type(1)+version(2)+length(2)+handshake */
+    size_t record_len     = 5 + handshake_len;
+
+    if (record_len > bufsz)
     {
-        msg(D_TLS_ERRORS, "outer TLS: %s", ERR_error_string(e, NULL));
+        return 0;
     }
+
+    uint8_t *p = buf;
+
+    /* --- TLS record header --- */
+    *p++ = 0x16;                            /* Content-Type: Handshake   */
+    *p++ = 0x03; *p++ = 0x01;              /* Legacy version: TLS 1.0   */
+    *p++ = (handshake_len >> 8) & 0xff;
+    *p++ =  handshake_len       & 0xff;
+
+    /* --- Handshake header --- */
+    *p++ = 0x01;                            /* HandshakeType: ClientHello */
+    *p++ = (hello_body >> 16) & 0xff;
+    *p++ = (hello_body >>  8) & 0xff;
+    *p++ =  hello_body        & 0xff;
+
+    /* --- ClientHello body --- */
+    *p++ = 0x03; *p++ = 0x03;              /* client_version: TLS 1.2   */
+
+    /* Random: 32 pseudo-random bytes (not cryptographically sensitive) */
+    for (int i = 0; i < 32; i++)
+    {
+        *p++ = (uint8_t)(rand() & 0xff);
+    }
+
+    *p++ = 0x00;                            /* session_id: empty         */
+
+    /* cipher_suites: TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384 */
+    *p++ = 0x00; *p++ = 0x04;
+    *p++ = 0x13; *p++ = 0x01;              /* TLS_AES_128_GCM_SHA256    */
+    *p++ = 0x13; *p++ = 0x02;              /* TLS_AES_256_GCM_SHA384    */
+
+    /* compression_methods: null only */
+    *p++ = 0x01; *p++ = 0x00;
+
+    /* extensions length */
+    *p++ = (exts_total >> 8) & 0xff;
+    *p++ =  exts_total       & 0xff;
+
+    /* --- SNI extension (type 0x0000) --- */
+    if (sni_len)
+    {
+        size_t name_entry = 1 + 2 + sni_len; /* name_type + name_len + name */
+        *p++ = 0x00; *p++ = 0x00;            /* extension type: server_name */
+        *p++ = (sni_body_len >> 8) & 0xff;
+        *p++ =  sni_body_len       & 0xff;
+        *p++ = (name_entry   >> 8) & 0xff;   /* server_name_list length     */
+        *p++ =  name_entry         & 0xff;
+        *p++ = 0x00;                          /* name_type: host_name        */
+        *p++ = (sni_len      >> 8) & 0xff;
+        *p++ =  sni_len            & 0xff;
+        memcpy(p, sni, sni_len);
+        p += sni_len;
+    }
+
+    /* --- supported_versions extension (type 0x002b) --- */
+    *p++ = 0x00; *p++ = 0x2b;
+    *p++ = 0x00; *p++ = 0x05;              /* extension data length: 5    */
+    *p++ = 0x04;                            /* versions list length: 4     */
+    *p++ = 0x03; *p++ = 0x04;              /* TLS 1.3                     */
+    *p++ = 0x03; *p++ = 0x03;              /* TLS 1.2                     */
+
+    /* --- supported_groups extension (type 0x000a) --- */
+    *p++ = 0x00; *p++ = 0x0a;
+    *p++ = 0x00; *p++ = 0x04;              /* extension data length: 4    */
+    *p++ = 0x00; *p++ = 0x02;             /* groups list length: 2       */
+    *p++ = 0x00; *p++ = 0x1d;             /* x25519                      */
+
+    return (size_t)(p - buf);
 }
 
 /*
- * Set up the outer TLS layer for a connecting client.
+ * Client side: send a fake TLS ClientHello, then switch to OpenVPN protocol.
  *
- * Uses the system CA store to verify the server certificate so that
- * Let's Encrypt (or any public CA) certificates work out of the box.
- * SNI is taken from opt->tls_server_name.
+ * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
-void
-link_socket_outer_tls_client_setup(struct link_socket *sock,
-                                   const char *sni_name)
+static void
+tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
 {
-    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
-    if (!ctx)
+    uint8_t buf[512];
+    size_t len = tls_disguise_build_client_hello(buf, sizeof(buf), sni);
+
+    if (!len)
     {
-        msg(M_FATAL, "outer TLS: SSL_CTX_new() failed");
+        msg(M_FATAL, "--tls-tunnel: failed to build ClientHello");
     }
 
-    /* Use the system CA store so public certs (e.g. Let's Encrypt) verify. */
-    if (!SSL_CTX_set_default_verify_paths(ctx))
+    ssize_t sent = 0;
+    while (sent < (ssize_t)len)
     {
-        outer_tls_log_errors();
-        msg(M_WARN, "outer TLS: could not load system CA store, "
-            "server certificate will not be verified");
-    }
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, NULL);
-
-    SSL *ssl = SSL_new(ctx);
-    if (!ssl)
-    {
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: SSL_new() failed");
+        ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
+        if (n <= 0)
+        {
+            msg(M_FATAL, "--tls-tunnel: send() failed: %s", strerror(errno));
+        }
+        sent += n;
     }
 
-    SSL_set_fd(ssl, sock->sd);
-
-    if (sni_name)
-    {
-        SSL_set_tlsext_host_name(ssl, sni_name);
-        SSL_set1_host(ssl, sni_name); /* for hostname verification */
-    }
-
-    if (SSL_connect(ssl) != 1)
-    {
-        outer_tls_log_errors();
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: client handshake failed");
-    }
-
-    msg(M_INFO, "Outer TLS tunnel established%s%s",
-        sni_name ? " (SNI: " : "", sni_name ? sni_name : "");
-    if (sni_name)
+    msg(M_INFO, "--tls-tunnel: sent fake ClientHello%s%s",
+        sni ? " (SNI: " : "", sni ? sni : "");
+    if (sni)
     {
         msg(M_INFO, ")");
     }
-
-    sock->outer_tls_ctx = ctx;
-    sock->outer_tls_ssl = ssl;
 }
 
 /*
- * Set up the outer TLS layer for an accepting server.
+ * Server side: read and discard the fake ClientHello from the client.
  *
- * The server auto-detects whether the client is using --tls-tunnel by
- * peeking at the first byte: 0x16 is the TLS record-type for Handshake.
- * Legacy clients (no --tls-tunnel) connect with the raw OpenVPN framing
- * and are served normally, providing full backwards compatibility.
+ * Traefik (passthrough mode) forwards the full byte stream — including the
+ * ClientHello it peeked at — to us.  We consume those bytes so the next
+ * read sees the real OpenVPN P_CONTROL_HARD_RESET packet.
+ *
+ * Auto-detects legacy clients (first byte != 0x16) and skips gracefully,
+ * preserving full backwards compatibility.
  */
-void
-link_socket_outer_tls_server_setup(struct link_socket *sock,
-                                   const char *cert_file,
-                                   const char *key_file)
+static void
+tls_disguise_discard_client_hello(socket_descriptor_t sd)
 {
-    /* Peek to see if this is TLS (0x16 = TLS Handshake record type). */
-    unsigned char first_byte = 0;
-    ssize_t n = recv(sock->sd, &first_byte, 1, MSG_PEEK);
-    if (n <= 0 || first_byte != 0x16)
+    /* Peek at the first byte to detect legacy clients. */
+    uint8_t first = 0;
+    ssize_t n = recv(sd, &first, 1, MSG_PEEK);
+    if (n <= 0 || first != 0x16)
     {
-        /* Not a TLS ClientHello — legacy client, skip outer TLS. */
-        msg(M_INFO, "outer TLS: legacy client detected, skipping tunnel");
+        /* Not a TLS record — legacy client without --tls-tunnel. */
+        msg(M_INFO, "--tls-tunnel: legacy client detected, skipping disguise");
         return;
     }
 
-    if (!cert_file || !key_file)
+    /* Read the 5-byte TLS record header to learn the payload length. */
+    uint8_t hdr[5];
+    ssize_t got = 0;
+    while (got < 5)
     {
-        msg(M_FATAL, "outer TLS: --tls-tunnel-cert and --tls-tunnel-key "
-            "are required on the server");
+        n = recv(sd, hdr + got, 5 - got, 0);
+        if (n <= 0)
+        {
+            msg(M_FATAL, "--tls-tunnel: recv() failed reading ClientHello header");
+        }
+        got += n;
     }
 
-    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-    if (!ctx)
+    /* hdr[3..4] is the payload length in big-endian. */
+    uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
+
+    /* Read and discard the ClientHello payload. */
+    uint8_t discard[4096];
+    uint16_t remaining = payload;
+    while (remaining > 0)
     {
-        msg(M_FATAL, "outer TLS: SSL_CTX_new() failed");
+        size_t want = remaining < sizeof(discard) ? remaining : sizeof(discard);
+        n = recv(sd, discard, want, 0);
+        if (n <= 0)
+        {
+            msg(M_FATAL, "--tls-tunnel: recv() failed reading ClientHello body");
+        }
+        remaining -= (uint16_t)n;
     }
 
-    if (!SSL_CTX_use_certificate_chain_file(ctx, cert_file))
-    {
-        outer_tls_log_errors();
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: failed to load certificate '%s'", cert_file);
-    }
-
-    if (!SSL_CTX_use_PrivateKey_file(ctx, key_file, SSL_FILETYPE_PEM))
-    {
-        outer_tls_log_errors();
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: failed to load key '%s'", key_file);
-    }
-
-    if (!SSL_CTX_check_private_key(ctx))
-    {
-        outer_tls_log_errors();
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: certificate and key do not match");
-    }
-
-    /* No client-cert required for the outer layer; inner VPN auth handles it. */
-    SSL_CTX_set_verify(ctx, SSL_VERIFY_NONE, NULL);
-
-    SSL *ssl = SSL_new(ctx);
-    if (!ssl)
-    {
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: SSL_new() failed");
-    }
-
-    SSL_set_fd(ssl, sock->sd);
-
-    if (SSL_accept(ssl) != 1)
-    {
-        outer_tls_log_errors();
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        msg(M_FATAL, "outer TLS: server handshake failed");
-    }
-
-    msg(M_INFO, "Outer TLS tunnel accepted");
-
-    sock->outer_tls_ctx = ctx;
-    sock->outer_tls_ssl = ssl;
+    msg(M_INFO, "--tls-tunnel: discarded ClientHello (%u bytes), "
+        "switching to OpenVPN protocol", (unsigned)(5 + payload));
 }
-
-#endif /* ENABLE_CRYPTO_OPENSSL */
 
 void
 link_socket_close(struct link_socket *sock)
@@ -2551,20 +2588,6 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
-
-#if defined(ENABLE_CRYPTO_OPENSSL)
-        if (sock->outer_tls_ssl)
-        {
-            SSL_shutdown((SSL *)sock->outer_tls_ssl);
-            SSL_free((SSL *)sock->outer_tls_ssl);
-            sock->outer_tls_ssl = NULL;
-        }
-        if (sock->outer_tls_ctx)
-        {
-            SSL_CTX_free((SSL_CTX *)sock->outer_tls_ctx);
-            sock->outer_tls_ctx = NULL;
-        }
-#endif
 
         if (!gremlin)
         {
@@ -3483,38 +3506,6 @@ link_socket_read_tcp(struct link_socket *sock,
 #else
         struct buffer frag;
         stream_buf_get_next(&sock->stream_buf, &frag);
-#if defined(ENABLE_CRYPTO_OPENSSL)
-        if (sock->outer_tls_ssl)
-        {
-            int ret = SSL_read((SSL *)sock->outer_tls_ssl,
-                               BPTR(&frag), BLEN(&frag));
-            if (ret > 0)
-            {
-                len = ret;
-            }
-            else
-            {
-                int ssl_err = SSL_get_error((SSL *)sock->outer_tls_ssl, ret);
-                if (ssl_err == SSL_ERROR_WANT_READ
-                    || ssl_err == SSL_ERROR_WANT_WRITE)
-                {
-                    errno = EAGAIN;
-                    len = -1;
-                }
-                else if (ssl_err == SSL_ERROR_ZERO_RETURN)
-                {
-                    len = 0; /* graceful close */
-                }
-                else
-                {
-                    outer_tls_log_errors();
-                    errno = EIO;
-                    len = -1;
-                }
-            }
-        }
-        else
-#endif /* ENABLE_CRYPTO_OPENSSL */
         len = recv(sock->sd, BPTR(&frag), BLEN(&frag), MSG_NOSIGNAL);
 #endif
 
@@ -3671,28 +3662,6 @@ link_socket_write_tcp(struct link_socket *sock,
     ASSERT(len <= sock->stream_buf.maxlen);
     len = htonps(len);
     ASSERT(buf_write_prepend(buf, &len, sizeof(len)));
-#if defined(ENABLE_CRYPTO_OPENSSL)
-    if (sock->outer_tls_ssl)
-    {
-        int ret = SSL_write((SSL *)sock->outer_tls_ssl,
-                            BPTR(buf), BLEN(buf));
-        if (ret > 0)
-        {
-            return ret;
-        }
-        int ssl_err = SSL_get_error((SSL *)sock->outer_tls_ssl, ret);
-        if (ssl_err == SSL_ERROR_WANT_READ || ssl_err == SSL_ERROR_WANT_WRITE)
-        {
-            errno = EAGAIN;
-        }
-        else
-        {
-            outer_tls_log_errors();
-            errno = EIO;
-        }
-        return -1;
-    }
-#endif
 #ifdef _WIN32
     return link_socket_write_win32(sock, buf, to);
 #else
