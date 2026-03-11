@@ -2169,10 +2169,10 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 }
 #endif /* if defined(_WIN32) */
 
-/* Forward declarations for TLS disguise helpers defined later in this file. */
-static void tls_disguise_send_client_hello(socket_descriptor_t sd,
+/* Forward declarations for SNI passthrough helpers defined later in this file. */
+static void sni_passthrough_send_client_hello(socket_descriptor_t sd,
                                            const char *sni);
-static void tls_disguise_discard_client_hello(socket_descriptor_t sd);
+static void sni_passthrough_discard_client_hello(socket_descriptor_t sd);
 
 /* finalize socket initialization */
 void
@@ -2287,13 +2287,13 @@ link_socket_init_phase2(struct context *c)
 
     if (proto_is_tcp(sock->info.proto))
     {
-        if (sock->info.proto == PROTO_TCP_CLIENT && c->options.tls_disguise_client_sni)
+        if (sock->info.proto == PROTO_TCP_CLIENT && c->options.sni_passthrough)
         {
-            tls_disguise_send_client_hello(sock->sd, c->options.tls_disguise_client_sni);
+            sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough);
         }
-        else if (sock->info.proto == PROTO_TCP_SERVER && c->options.tls_disguise_server)
+        else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server)
         {
-            tls_disguise_discard_client_hello(sock->sd);
+            sni_passthrough_discard_client_hello(sock->sd);
         }
     }
 
@@ -2347,7 +2347,7 @@ done:
  * This is enough to look like a real browser ClientHello to any proxy.
  */
 static size_t
-tls_disguise_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
     size_t sni_len = sni ? strlen(sni) : 0;
 
@@ -2452,23 +2452,23 @@ tls_disguise_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side: send a fake TLS ClientHello (--tls-disguise-client-sni).
+ * Client side: send a fake TLS ClientHello (--sni-passthrough).
  *
  * Sends the disguise bytes and returns immediately — the OpenVPN protocol
  * follows right away.  Any misconfiguration (TLS-terminating proxy, server
- * missing --tls-disguise-server) will surface as a normal handshake failure.
+ * missing --sni-passthrough-server) will surface as a normal handshake failure.
  *
  * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
 static void
-tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
+sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 {
     uint8_t buf[512];
-    size_t len = tls_disguise_build_client_hello(buf, sizeof(buf), sni);
+    size_t len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni);
 
     if (!len)
     {
-        msg(M_FATAL, "--tls-disguise-client-sni: failed to build ClientHello");
+        msg(M_FATAL, "--sni-passthrough: failed to build ClientHello");
     }
 
     ssize_t sent = 0;
@@ -2477,17 +2477,17 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise-client-sni: send() failed: %s", strerror(errno));
+            msg(M_FATAL, "--sni-passthrough: send() failed: %s", strerror(errno));
         }
         sent += n;
     }
 
-    msg(M_INFO, "--tls-disguise-client-sni: sent fake ClientHello (SNI: %s)", sni);
+    msg(M_INFO, "--sni-passthrough: sent fake ClientHello (SNI: %s)", sni);
 }
 
 /*
- * Server side (--tls-disguise-server): read and discard the fake ClientHello
- * sent by clients using --tls-disguise-client-sni.
+ * Server side (--sni-passthrough-server): read and discard the fake ClientHello
+ * sent by clients using --sni-passthrough.
  *
  * Traefik (passthrough mode) forwards the full byte stream — including the
  * ClientHello it peeked at — to us.  We consume those bytes so the next
@@ -2497,15 +2497,15 @@ tls_disguise_send_client_hello(socket_descriptor_t sd, const char *sni)
  * preserving full backwards compatibility.
  */
 static void
-tls_disguise_discard_client_hello(socket_descriptor_t sd)
+sni_passthrough_discard_client_hello(socket_descriptor_t sd)
 {
     /* Peek at the first byte to detect legacy clients. */
     uint8_t first = 0;
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n <= 0 || first != 0x16)
     {
-        /* Not a TLS record — legacy client without --tls-disguise-client-sni. */
-        msg(M_INFO, "--tls-disguise-server: legacy client detected, skipping disguise");
+        /* Not a TLS record — legacy client without --sni-passthrough. */
+        msg(M_INFO, "--sni-passthrough-server: legacy client detected, skipping disguise");
         return;
     }
 
@@ -2517,7 +2517,7 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise-server: recv() failed reading ClientHello header");
+            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading ClientHello header");
         }
         got += n;
     }
@@ -2534,12 +2534,12 @@ tls_disguise_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--tls-disguise-server: recv() failed reading ClientHello body");
+            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading ClientHello body");
         }
         remaining -= (uint16_t)n;
     }
 
-    msg(M_INFO, "--tls-disguise-server: discarded ClientHello (%u bytes), "
+    msg(M_INFO, "--sni-passthrough-server: discarded ClientHello (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
 }
 

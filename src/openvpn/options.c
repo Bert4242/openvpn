@@ -639,18 +639,18 @@ static const char usage_message[] =
     "                  fresh tls-crypt-v2 server key, and store to keyfile\n"
     "--tls-crypt-v2-verify cmd : Run command cmd to verify the metadata of the\n"
     "                  client-supplied tls-crypt-v2 client key\n"
-    "--tls-disguise-client-sni name : (Client) Disguise the TCP connection as\n"
-    "                  HTTPS so SNI-aware proxies (e.g. Traefik passthrough) route\n"
-    "                  the connection by hostname to the right backend.\n"
-    "                  name is the SNI hostname in the fake TLS ClientHello; it must\n"
-    "                  match what the proxy routes to this OpenVPN server.\n"
-    "                  Sends one fake ClientHello before the OpenVPN protocol.\n"
+    "--sni-passthrough name : (Client) Prepend a fake TLS ClientHello carrying\n"
+    "                  the SNI hostname name to every TCP connection, so that\n"
+    "                  SNI-aware TCP proxies (e.g. Traefik passthrough) can route\n"
+    "                  the connection to the right backend by hostname.\n"
+    "                  name must match the hostname the proxy routes to this server.\n"
     "                  No TLS session is established; no extra encryption is added.\n"
-    "                  The server must have --tls-disguise-server set.\n"
-    "--tls-disguise-server : (Server) Auto-detect and discard a fake TLS ClientHello\n"
-    "                  from clients using --tls-disguise-client-sni, then switch to\n"
-    "                  the OpenVPN protocol.  Legacy clients (no fake ClientHello)\n"
-    "                  are detected by peeking the first byte and handled normally.\n"
+    "                  The server must have --sni-passthrough-server set.\n"
+    "--sni-passthrough-server : (Server) Auto-detect and discard the fake TLS\n"
+    "                  ClientHello sent by clients using --sni-passthrough, then\n"
+    "                  proceed with the OpenVPN protocol.  Legacy clients (no fake\n"
+    "                  ClientHello) are detected by peeking the first byte and\n"
+    "                  handled normally — full backwards compatibility.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9288,15 +9288,15 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->tls_crypt_v2_verify_script = p[1];
     }
-    else if (streq(p[0], "tls-disguise-client-sni") && p[1] && !p[2])
+    else if (streq(p[0], "sni-passthrough") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_disguise_client_sni = p[1];
+        options->sni_passthrough = p[1];
     }
-    else if (streq(p[0], "tls-disguise-server") && !p[1])
+    else if (streq(p[0], "sni-passthrough-server") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->tls_disguise_server = true;
+        options->sni_passthrough_server = true;
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {

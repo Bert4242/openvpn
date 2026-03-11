@@ -658,18 +658,19 @@ struct options
 
     const char *tls_crypt_v2_verify_script;
 
-    /** SNI hostname for the fake TLS ClientHello (--tls-disguise-client-sni).
-     *  When set, the client sends a fake ClientHello before the OpenVPN protocol
-     *  so SNI-aware proxies (e.g. Traefik tls: passthrough: true) can route the
-     *  connection by hostname.  Works for both direct and proxied connections as
-     *  long as the server also has --tls-disguise-server set. */
-    const char *tls_disguise_client_sni;
+    /** SNI hostname for the fake TLS ClientHello (--sni-passthrough).
+     *  When set, the client prepends a fake ClientHello carrying this SNI hostname
+     *  before the OpenVPN protocol, so SNI-aware TCP proxies (e.g. Traefik
+     *  tls: passthrough: true) can route the connection by hostname.  Works for
+     *  both direct and proxied connections as long as the server also has
+     *  --sni-passthrough-server set. */
+    const char *sni_passthrough;
 
     /** Enable server-side auto-detection and discarding of the fake TLS ClientHello
-     *  sent by clients that use --tls-disguise-client-sni (--tls-disguise-server).
-     *  Peeks the first byte: 0x16 = disguised client (discard ClientHello);
+     *  sent by clients that use --sni-passthrough (--sni-passthrough-server).
+     *  Peeks the first byte: 0x16 = SNI passthrough client (discard ClientHello);
      *  anything else = legacy client (proceed normally, full backwards compat). */
-    bool tls_disguise_server;
+    bool sni_passthrough_server;
 
     /* Allow only one session */
     bool single_session;
