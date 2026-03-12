@@ -2863,61 +2863,66 @@ stream_buf_added(struct stream_buf *sb,
     }
 
     /* SNI passthrough: detect and consume the SNI routing header sent by
-     * --sni-passthrough-hostname clients before the OpenVPN stream begins. */
-    if (sb->sni_passthrough_state == SNI_PT_PENDING && sb->buf.len >= 1)
+     * --sni-passthrough-hostname clients before the OpenVPN stream begins.
+     * After the first packet sni_passthrough_state is SNI_PT_DISABLED (0),
+     * so the entire block costs one always-not-taken branch per fragment. */
+    if (sb->sni_passthrough_state != SNI_PT_DISABLED)
     {
-        if (BPTR(&sb->buf)[0] != 0x16)
+        if (sb->sni_passthrough_state == SNI_PT_PENDING && sb->buf.len >= 1)
         {
-            /* Legacy client without --sni-passthrough-hostname. */
-            msg(M_INFO, "--sni-passthrough-server: legacy client (no routing header)");
-            sb->sni_passthrough_state = SNI_PT_DISABLED;
-        }
-        else
-        {
-            sb->sni_passthrough_state = SNI_PT_CONSUMING;
-        }
-    }
-    if (sb->sni_passthrough_state == SNI_PT_CONSUMING)
-    {
-        /* Wait for the 5-byte TLS record envelope header. */
-        if (sb->sni_passthrough_total < 0 && sb->buf.len >= 5)
-        {
-            const uint8_t *hdr = BPTR(&sb->buf);
-            uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
-            sb->sni_passthrough_total = 5 + (int)payload;
-
-            if (sb->sni_passthrough_total > sb->maxlen)
+            if (BPTR(&sb->buf)[0] != 0x16)
             {
-                msg(M_WARN, "--sni-passthrough-server: routing header too large (%d bytes)",
-                    sb->sni_passthrough_total);
-                sb->error = true;
-                return false;
+                /* Legacy client without --sni-passthrough-hostname. */
+                msg(M_INFO, "--sni-passthrough-server: legacy client (no routing header)");
+                sb->sni_passthrough_state = SNI_PT_DISABLED;
+            }
+            else
+            {
+                sb->sni_passthrough_state = SNI_PT_CONSUMING;
             }
         }
-        if (sb->sni_passthrough_total < 0 || sb->buf.len < sb->sni_passthrough_total)
+        if (sb->sni_passthrough_state == SNI_PT_CONSUMING)
         {
-            /* Not enough data yet; wait for more. */
-            stream_buf_set_next(sb);
-            return false;
-        }
+            /* Wait for the 5-byte TLS record envelope header. */
+            if (sb->sni_passthrough_total < 0 && sb->buf.len >= 5)
+            {
+                const uint8_t *hdr = BPTR(&sb->buf);
+                uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
+                sb->sni_passthrough_total = 5 + (int)payload;
 
-        /* Full routing header received; discard it and reset the buffer so
-         * normal OpenVPN stream parsing sees a clean slate. */
-        int total = sb->sni_passthrough_total;
-        int remaining = sb->buf.len - total;
-        msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%d bytes), "
-            "switching to OpenVPN protocol", total);
+                if (sb->sni_passthrough_total > sb->maxlen)
+                {
+                    msg(M_WARN, "--sni-passthrough-server: routing header too large (%d bytes)",
+                        sb->sni_passthrough_total);
+                    sb->error = true;
+                    return false;
+                }
+            }
+            if (sb->sni_passthrough_total < 0 || sb->buf.len < sb->sni_passthrough_total)
+            {
+                /* Not enough data yet; wait for more. */
+                stream_buf_set_next(sb);
+                return false;
+            }
 
-        /* Move any bytes that arrived after the header to the buffer origin. */
-        uint8_t *src = BPTR(&sb->buf) + total;
-        sb->buf = sb->buf_init; /* reset offset/len to origin */
-        if (remaining > 0)
-        {
-            memmove(BPTR(&sb->buf), src, remaining);
-            sb->buf.len = remaining;
+            /* Full routing header received; discard it and reset the buffer so
+             * normal OpenVPN stream parsing sees a clean slate. */
+            int total = sb->sni_passthrough_total;
+            int remaining = sb->buf.len - total;
+            msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%d bytes), "
+                "switching to OpenVPN protocol", total);
+
+            /* Move any bytes that arrived after the header to the buffer origin. */
+            uint8_t *src = BPTR(&sb->buf) + total;
+            sb->buf = sb->buf_init; /* reset offset/len to origin */
+            if (remaining > 0)
+            {
+                memmove(BPTR(&sb->buf), src, remaining);
+                sb->buf.len = remaining;
+            }
+            sb->sni_passthrough_state = SNI_PT_DISABLED;
+            /* Fall through to normal OpenVPN stream parsing. */
         }
-        sb->sni_passthrough_state = SNI_PT_DISABLED;
-        /* Fall through to normal OpenVPN stream parsing. */
     }
 
     /* if length unknown, see if we can get the length prefix from
