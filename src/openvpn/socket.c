@@ -2480,8 +2480,8 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_WARN, "--sni-passthrough-hostname: failed to build SNI routing header");
-        return false;
+        msg(M_NONFATAL, "--sni-passthrough-hostname: failed to build SNI routing header");
+        goto error;
     }
 
     ssize_t sent = 0;
@@ -2490,14 +2490,17 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_WARN, "--sni-passthrough-hostname: send() failed: %s", strerror(errno));
-            return false;
+            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-hostname: send() failed");
+            goto error;
         }
         sent += n;
     }
 
     msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header (hostname: %s)", sni);
     return true;
+
+error:
+    return false;
 }
 
 /*
@@ -2532,8 +2535,8 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_WARN, "--sni-passthrough-server: connection closed while reading routing header");
-            return false;
+            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header");
+            goto error;
         }
         got += n;
     }
@@ -2550,8 +2553,8 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_WARN, "--sni-passthrough-server: connection closed while reading routing header body");
-            return false;
+            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header body");
+            goto error;
         }
         remaining -= (uint16_t)n;
     }
@@ -2559,6 +2562,9 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
     return true;
+
+error:
+    return false;
 }
 
 void
