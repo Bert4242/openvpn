@@ -368,7 +368,6 @@ struct tls_options
     bool tls_crypt_v2;
     const char *tls_crypt_v2_verify_script;
 
-
     /** TLS handshake wrapping state */
     struct tls_wrap_ctx tls_wrap;
 
