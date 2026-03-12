@@ -476,6 +476,15 @@ socket_defined(const socket_descriptor_t sd)
 #define PORT_SHARE 0
 #endif
 
+/*
+ * SNI passthrough capability (--sni-passthrough-hostname / --sni-passthrough-server)
+ */
+#if defined(ENABLE_SNI_PASSTHROUGH)
+#define SNI_PASSTHROUGH 1
+#else
+#define SNI_PASSTHROUGH 0
+#endif
+
 #ifdef ENABLE_CRYPTO_MBEDTLS
 #define ENABLE_PREDICTION_RESISTANCE
 #endif /* ENABLE_CRYPTO_MBEDTLS */

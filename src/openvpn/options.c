@@ -639,6 +639,7 @@ static const char usage_message[] =
     "                  fresh tls-crypt-v2 server key, and store to keyfile\n"
     "--tls-crypt-v2-verify cmd : Run command cmd to verify the metadata of the\n"
     "                  client-supplied tls-crypt-v2 client key\n"
+#if SNI_PASSTHROUGH
     "--sni-passthrough-hostname name : (Client) Prepend an SNI routing header to every\n"
     "                  TCP connection so that SNI-aware proxies (e.g. Traefik\n"
     "                  passthrough) route the stream to the right backend by\n"
@@ -650,6 +651,8 @@ static const char usage_message[] =
     "                  proceed with the OpenVPN protocol.  Legacy clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally — full backwards compatibility.\n"
+#endif
+
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9287,6 +9290,7 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->tls_crypt_v2_verify_script = p[1];
     }
+#if SNI_PASSTHROUGH
     else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
@@ -9297,6 +9301,7 @@ add_option(struct options *options,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_passthrough_server = true;
     }
+#endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);

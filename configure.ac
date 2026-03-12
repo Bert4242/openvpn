@@ -144,6 +144,13 @@ AC_ARG_ENABLE(
 )
 
 AC_ARG_ENABLE(
+	[sni-passthrough],
+	[AS_HELP_STRING([--disable-sni-passthrough], [disable SNI passthrough support (--sni-passthrough-hostname/--sni-passthrough-server) @<:@default=yes@:>@])],
+	,
+	[enable_sni_passthrough="yes"]
+)
+
+AC_ARG_ENABLE(
 	[debug],
 	[AS_HELP_STRING([--disable-debug], [disable debugging support (disable gremlin and verb 7+ messages) @<:@default=yes@:>@])],
 	,
@@ -1336,6 +1343,7 @@ test "${enable_debug}" = "yes" && AC_DEFINE([ENABLE_DEBUG], [1], [Enable debuggi
 test "${enable_small}" = "yes" && AC_DEFINE([ENABLE_SMALL], [1], [Enable smaller executable size])
 test "${enable_fragment}" = "yes" && AC_DEFINE([ENABLE_FRAGMENT], [1], [Enable internal fragmentation support])
 test "${enable_port_share}" = "yes" && AC_DEFINE([ENABLE_PORT_SHARE], [1], [Enable TCP Server port sharing])
+test "${enable_sni_passthrough}" = "yes" && AC_DEFINE([ENABLE_SNI_PASSTHROUGH], [1], [Enable SNI passthrough support])
 
 test "${enable_crypto_ofb_cfb}" = "yes" && AC_DEFINE([ENABLE_OFB_CFB_MODE], [1], [Enable OFB and CFB cipher modes])
 if test "${have_export_keying_material}" = "yes"; then

@@ -658,6 +658,7 @@ struct options
 
     const char *tls_crypt_v2_verify_script;
 
+#if SNI_PASSTHROUGH
     /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
      *  When set, the client prepends an SNI routing header before the OpenVPN
      *  protocol so that SNI-aware TCP proxies (e.g. Traefik passthrough) can
@@ -671,6 +672,7 @@ struct options
      *  Peeks the first byte: 0x16 = routing header present (discard it);
      *  anything else = legacy client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
+#endif
 
     /* Allow only one session */
     bool single_session;

@@ -1870,10 +1870,12 @@ link_socket_init_phase1(struct context *c, int mode)
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
+#if SNI_PASSTHROUGH
     if (o->sni_passthrough_server)
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
+#endif
     sock->mark = o->mark;
     sock->bind_dev = o->bind_dev;
 
@@ -2173,9 +2175,11 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 }
 #endif /* if defined(_WIN32) */
 
+#if SNI_PASSTHROUGH
 /* Forward declaration for SNI passthrough helper defined later in this file. */
 static bool sni_passthrough_send_client_hello(socket_descriptor_t sd,
                                               const char *sni);
+#endif
 
 /* finalize socket initialization */
 void
@@ -2288,6 +2292,7 @@ link_socket_init_phase2(struct context *c)
         goto done;
     }
 
+#if SNI_PASSTHROUGH
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
         && c->options.sni_passthrough_hostname)
@@ -2298,6 +2303,7 @@ link_socket_init_phase2(struct context *c)
             goto done;
         }
     }
+#endif
 
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
@@ -2317,6 +2323,7 @@ done:
     }
 }
 
+#if SNI_PASSTHROUGH
 /*
  * SNI passthrough support (--sni-passthrough-hostname / --sni-passthrough-server).
  *
@@ -2498,6 +2505,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 error:
     return false;
 }
+#endif /* if SNI_PASSTHROUGH */
 
 void
 link_socket_close(struct link_socket *sock)
@@ -2790,10 +2798,12 @@ stream_buf_init(struct stream_buf *sb,
                            ? PS_ENABLED
                            : PS_DISABLED;
 #endif
+#if SNI_PASSTHROUGH
     sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
                                 ? SNI_PT_PENDING
                                 : SNI_PT_DISABLED;
     sb->sni_passthrough_total = -1;
+#endif
     stream_buf_reset(sb);
 
     dmsg(D_STREAM_DEBUG, "STREAM: INIT maxlen=%d", sb->maxlen);
@@ -2862,6 +2872,7 @@ stream_buf_added(struct stream_buf *sb,
         sb->buf.len += length_added;
     }
 
+#if SNI_PASSTHROUGH
     /* SNI passthrough: detect and consume the SNI routing header sent by
      * --sni-passthrough-hostname clients before the OpenVPN stream begins.
      * After the first packet sni_passthrough_state is SNI_PT_DISABLED (0),
@@ -2924,6 +2935,7 @@ stream_buf_added(struct stream_buf *sb,
             /* Fall through to normal OpenVPN stream parsing. */
         }
     }
+#endif /* if SNI_PASSTHROUGH */
 
     /* if length unknown, see if we can get the length prefix from
      * the head of the buffer */
