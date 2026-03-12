@@ -2612,7 +2612,6 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
-
         if (!gremlin)
         {
             free(sock);
