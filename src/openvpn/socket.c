@@ -2170,7 +2170,7 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 #endif /* if defined(_WIN32) */
 
 /* Forward declarations for SNI passthrough helpers defined later in this file. */
-static void sni_passthrough_send_client_hello(socket_descriptor_t sd,
+static bool sni_passthrough_send_client_hello(socket_descriptor_t sd,
                                            const char *sni);
 static bool sni_passthrough_discard_client_hello(socket_descriptor_t sd);
 
@@ -2289,7 +2289,11 @@ link_socket_init_phase2(struct context *c)
     {
         if (sock->info.proto == PROTO_TCP_CLIENT && c->options.sni_passthrough_hostname)
         {
-            sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough_hostname);
+            if (!sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough_hostname))
+            {
+                register_signal(sig_info, SIGUSR1, "sni-passthrough-send-error");
+                goto done;
+            }
         }
         else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server)
         {
@@ -2464,11 +2468,11 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side (--sni-passthrough-hostname):send the SNI routing header, then return.
+ * Client side (--sni-passthrough-hostname): send the SNI routing header, then return.
  * The OpenVPN protocol follows immediately after.
  * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
  */
-static void
+static bool
 sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 {
     uint8_t buf[512];
@@ -2476,7 +2480,8 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_FATAL, "--sni-passthrough-hostname:failed to build SNI routing header");
+        msg(M_WARN, "--sni-passthrough-hostname: failed to build SNI routing header");
+        return false;
     }
 
     ssize_t sent = 0;
@@ -2485,12 +2490,14 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough-hostname:send() failed: %s", strerror(errno));
+            msg(M_WARN, "--sni-passthrough-hostname: send() failed: %s", strerror(errno));
+            return false;
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough-hostname:sent SNI routing header (hostname: %s)", sni);
+    msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header (hostname: %s)", sni);
+    return true;
 }
 
 /*
