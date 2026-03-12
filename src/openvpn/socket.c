@@ -2517,7 +2517,17 @@ error:
 static bool
 sni_passthrough_discard_client_hello(socket_descriptor_t sd)
 {
-    /* Peek at the first byte to detect legacy clients. */
+    /* Peek at the first byte to tell apart an SNI routing header from a
+     * legacy OpenVPN client that connects directly without one.
+     *
+     * 0x16 is the TLS record Content-Type value for "Handshake" (RFC 8446
+     * §5.1).  Every ClientHello — including our fake SNI routing header —
+     * starts with this byte.
+     *
+     * A plain OpenVPN TCP packet starts with a 2-byte big-endian payload
+     * length.  For the initial HARD_RESET that length is between 14 and 255
+     * (see is_openvpn_protocol() in ps.c), so the first byte is always 0x00.
+     * 0x00 != 0x16, so the two formats never overlap. */
     uint8_t first = 0;
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
     if (n < 0)
