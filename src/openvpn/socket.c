@@ -2351,7 +2351,8 @@ done:
 
 /*
  * Build a minimal SNI routing header into buf.
- * Returns the number of bytes written, or 0 if the buffer is too small.
+ * Returns the number of bytes written, or 0 on failure (missing hostname or
+ * buffer too small).
  *
  * The header is formatted as a ClientHello record because that is what
  * SNI-aware proxies expect.  It carries:
@@ -2365,14 +2366,18 @@ done:
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
-    size_t sni_len = sni ? strlen(sni) : 0;
+    if (!sni || !*sni)
+    {
+        return 0;
+    }
+    size_t sni_len = strlen(sni);
 
     /* Extension sizes (all big-endian, calculated bottom-up): */
 
     /* SNI extension body: list_len(2) + name_type(1) + name_len(2) + name */
     size_t sni_body_len   = 2 + 1 + 2 + sni_len;
     /* SNI extension wire: type(2) + ext_data_len(2) + body */
-    size_t sni_ext_wire   = sni_len ? (4 + sni_body_len) : 0;
+    size_t sni_ext_wire   = 4 + sni_body_len;
 
     /* supported_versions: type(2)+len(2)+list_len(1)+v1.3(2)+v1.2(2) = 9 */
     size_t sv_ext_wire    = 9;
@@ -2436,20 +2441,17 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ =  exts_total       & 0xff;
 
     /* --- SNI extension (type 0x0000) --- */
-    if (sni_len)
-    {
-        size_t name_entry = 1 + 2 + sni_len; /* name_type + name_len + name */
-        *p++ = 0x00; *p++ = 0x00;            /* extension type: server_name */
-        *p++ = (sni_body_len >> 8) & 0xff;
-        *p++ =  sni_body_len       & 0xff;
-        *p++ = (name_entry   >> 8) & 0xff;   /* server_name_list length     */
-        *p++ =  name_entry         & 0xff;
-        *p++ = 0x00;                          /* name_type: host_name        */
-        *p++ = (sni_len      >> 8) & 0xff;
-        *p++ =  sni_len            & 0xff;
-        memcpy(p, sni, sni_len);
-        p += sni_len;
-    }
+    size_t name_entry = 1 + 2 + sni_len;     /* name_type + name_len + name */
+    *p++ = 0x00; *p++ = 0x00;                /* extension type: server_name */
+    *p++ = (sni_body_len >> 8) & 0xff;
+    *p++ =  sni_body_len       & 0xff;
+    *p++ = (name_entry   >> 8) & 0xff;       /* server_name_list length     */
+    *p++ =  name_entry         & 0xff;
+    *p++ = 0x00;                              /* name_type: host_name        */
+    *p++ = (sni_len      >> 8) & 0xff;
+    *p++ =  sni_len            & 0xff;
+    memcpy(p, sni, sni_len);
+    p += sni_len;
 
     /* --- supported_versions extension (type 0x002b) --- */
     *p++ = 0x00; *p++ = 0x2b;
