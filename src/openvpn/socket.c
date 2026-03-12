@@ -2520,48 +2520,60 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     /* Peek at the first byte to detect legacy clients. */
     uint8_t first = 0;
     ssize_t n = recv(sd, &first, 1, MSG_PEEK);
-    if (n <= 0 || first != 0x16)
+    if (n < 0)
     {
-        /* Not an SNI routing header — legacy client without --sni-passthrough-hostname. */
+        msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed on peek");
+        goto error;
+    }
+    else if (n == 0)
+    {
+        msg(D_LINK_ERRORS, "--sni-passthrough-server: connection closed before first byte");
+        goto error;
+    }
+    else if (first != 0x16)
+    {
+        /* Legacy client without --sni-passthrough-hostname, proceed normally. */
         msg(M_INFO, "--sni-passthrough-server: legacy client detected, no routing header");
         return true;
     }
-
-    /* Read the 5-byte record envelope header to learn the payload length. */
-    uint8_t hdr[5];
-    ssize_t got = 0;
-    while (got < 5)
+    else
     {
-        n = recv(sd, hdr + got, 5 - got, 0);
-        if (n <= 0)
+        /* Read the 5-byte record envelope header to learn the payload length. */
+        uint8_t hdr[5];
+        ssize_t got = 0;
+        while (got < 5)
         {
-            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header");
-            goto error;
+            n = recv(sd, hdr + got, 5 - got, 0);
+            if (n <= 0)
+            {
+                msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header");
+                goto error;
+            }
+            got += n;
         }
-        got += n;
-    }
 
-    /* hdr[3..4] is the payload length in big-endian. */
-    uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
+        /* hdr[3..4] is the payload length in big-endian. */
+        uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
 
-    /* Read and discard the routing header payload. */
-    uint8_t discard[4096];
-    uint16_t remaining = payload;
-    while (remaining > 0)
-    {
-        size_t want = remaining < sizeof(discard) ? remaining : sizeof(discard);
-        n = recv(sd, discard, want, 0);
-        if (n <= 0)
+        /* Read and discard the routing header payload. */
+        uint8_t discard[4096];
+        uint16_t remaining = payload;
+        while (remaining > 0)
         {
-            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header body");
-            goto error;
+            size_t want = remaining < sizeof(discard) ? remaining : sizeof(discard);
+            n = recv(sd, discard, want, 0);
+            if (n <= 0)
+            {
+                msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-server: recv() failed reading routing header body");
+                goto error;
+            }
+            remaining -= (uint16_t)n;
         }
-        remaining -= (uint16_t)n;
-    }
 
-    msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%u bytes), "
-        "switching to OpenVPN protocol", (unsigned)(5 + payload));
-    return true;
+        msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%u bytes), "
+            "switching to OpenVPN protocol", (unsigned)(5 + payload));
+        return true;
+    }
 
 error:
     return false;
