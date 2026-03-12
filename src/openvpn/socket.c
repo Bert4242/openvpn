@@ -2295,7 +2295,8 @@ link_socket_init_phase2(struct context *c)
                 goto done;
             }
         }
-        else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server)
+        else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server
+                 && sock->mode != LS_MODE_TCP_LISTEN)
         {
             if (!sni_passthrough_discard_client_hello(sock->sd))
             {
