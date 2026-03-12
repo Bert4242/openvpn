@@ -2172,7 +2172,7 @@ create_socket_dco_win(struct context *c, struct link_socket *sock,
 /* Forward declarations for SNI passthrough helpers defined later in this file. */
 static void sni_passthrough_send_client_hello(socket_descriptor_t sd,
                                            const char *sni);
-static void sni_passthrough_discard_client_hello(socket_descriptor_t sd);
+static bool sni_passthrough_discard_client_hello(socket_descriptor_t sd);
 
 /* finalize socket initialization */
 void
@@ -2293,7 +2293,11 @@ link_socket_init_phase2(struct context *c)
         }
         else if (sock->info.proto == PROTO_TCP_SERVER && c->options.sni_passthrough_server)
         {
-            sni_passthrough_discard_client_hello(sock->sd);
+            if (!sni_passthrough_discard_client_hello(sock->sd))
+            {
+                register_signal(sig_info, SIGUSR1, "sni-passthrough-read-error");
+                goto done;
+            }
         }
     }
 
@@ -2500,7 +2504,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
  * Detects legacy clients (first byte != 0x16) by peeking and skips gracefully,
  * preserving full backwards compatibility.
  */
-static void
+static bool
 sni_passthrough_discard_client_hello(socket_descriptor_t sd)
 {
     /* Peek at the first byte to detect legacy clients. */
@@ -2510,7 +2514,7 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     {
         /* Not an SNI routing header — legacy client without --sni-passthrough-hostname. */
         msg(M_INFO, "--sni-passthrough-server: legacy client detected, no routing header");
-        return;
+        return true;
     }
 
     /* Read the 5-byte record envelope header to learn the payload length. */
@@ -2521,7 +2525,8 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, hdr + got, 5 - got, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading routing header envelope");
+            msg(M_WARN, "--sni-passthrough-server: connection closed while reading routing header");
+            return false;
         }
         got += n;
     }
@@ -2529,7 +2534,7 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
     /* hdr[3..4] is the payload length in big-endian. */
     uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
 
-    /* Read and discard the ClientHello payload. */
+    /* Read and discard the routing header payload. */
     uint8_t discard[4096];
     uint16_t remaining = payload;
     while (remaining > 0)
@@ -2538,13 +2543,15 @@ sni_passthrough_discard_client_hello(socket_descriptor_t sd)
         n = recv(sd, discard, want, 0);
         if (n <= 0)
         {
-            msg(M_FATAL, "--sni-passthrough-server: recv() failed reading routing header body");
+            msg(M_WARN, "--sni-passthrough-server: connection closed while reading routing header body");
+            return false;
         }
         remaining -= (uint16_t)n;
     }
 
     msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%u bytes), "
         "switching to OpenVPN protocol", (unsigned)(5 + payload));
+    return true;
 }
 
 void
