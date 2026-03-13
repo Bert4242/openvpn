@@ -2325,7 +2325,8 @@ done:
 
 #if SNI_PASSTHROUGH
 /*
- * SNI passthrough support (--sni-passthrough-hostname / --sni-passthrough-server).
+ * SNI passthrough support
+ * (--sni-passthrough-hostname / --sni-passthrough-server).
  *
  * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
  * as Traefik (passthrough mode) on any port, without any double encryption.
@@ -2367,44 +2368,57 @@ done:
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
+    size_t sni_len;
+    size_t sni_body_len;
+    size_t sni_ext_wire;
+    size_t sv_ext_wire;
+    size_t sg_ext_wire;
+    size_t exts_total;
+    size_t hello_body;
+    size_t handshake_len;
+    size_t record_len;
+    size_t name_entry;
+    uint8_t *p;
+    int i;
+
     if (!sni || !*sni)
     {
         return 0;
     }
-    size_t sni_len = strlen(sni);
+    sni_len = strlen(sni);
 
     /* Extension sizes (all big-endian, calculated bottom-up): */
 
     /* SNI extension body: list_len(2) + name_type(1) + name_len(2) + name */
-    size_t sni_body_len   = 2 + 1 + 2 + sni_len;
+    sni_body_len   = 2 + 1 + 2 + sni_len;
     /* SNI extension wire: type(2) + ext_data_len(2) + body */
-    size_t sni_ext_wire   = 4 + sni_body_len;
+    sni_ext_wire   = 4 + sni_body_len;
 
     /* supported_versions: type(2)+len(2)+list_len(1)+v1.3(2)+v1.2(2) = 9 */
-    size_t sv_ext_wire    = 9;
+    sv_ext_wire    = 9;
 
     /* supported_groups: type(2)+len(2)+groups_len(2)+x25519(2) = 8 */
-    size_t sg_ext_wire    = 8;
+    sg_ext_wire    = 8;
 
-    size_t exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire;
+    exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire;
 
     /* ClientHello body: version(2)+random(32)+sess_id_len(1)+
      * cipher_suites_len(2)+2 ciphers(4)+comp_len(1)+null_comp(1)+
      * exts_len(2)+extensions */
-    size_t hello_body     = 2 + 32 + 1 + 2 + 4 + 1 + 1 + 2 + exts_total;
+    hello_body     = 2 + 32 + 1 + 2 + 4 + 1 + 1 + 2 + exts_total;
 
     /* Handshake message: type(1)+length(3)+body */
-    size_t handshake_len  = 1 + 3 + hello_body;
+    handshake_len  = 1 + 3 + hello_body;
 
     /* Record envelope: content_type(1)+version(2)+length(2)+handshake */
-    size_t record_len     = 5 + handshake_len;
+    record_len     = 5 + handshake_len;
 
     if (record_len > bufsz)
     {
         return 0;
     }
 
-    uint8_t *p = buf;
+    p = buf;
 
     /* --- Record envelope header --- */
     *p++ = 0x16;                            /* Content-Type: Handshake   */
@@ -2422,7 +2436,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ = 0x03; *p++ = 0x03;              /* client_version field       */
 
     /* Random: 32 pseudo-random bytes (not cryptographically sensitive) */
-    for (int i = 0; i < 32; i++)
+    for (i = 0; i < 32; i++)
     {
         *p++ = (uint8_t)(rand() & 0xff);
     }
@@ -2442,8 +2456,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ =  exts_total       & 0xff;
 
     /* --- SNI extension (type 0x0000) --- */
-    size_t name_entry = 1 + 2 + sni_len;     /* name_type + name_len + name */
-    *p++ = 0x00; *p++ = 0x00;                /* extension type: server_name */
+    name_entry = 1 + 2 + sni_len;          /* name_type + name_len + name */
+    *p++ = 0x00; *p++ = 0x00;              /* extension type: server_name */
     *p++ = (sni_body_len >> 8) & 0xff;
     *p++ =  sni_body_len       & 0xff;
     *p++ = (name_entry   >> 8) & 0xff;       /* server_name_list length     */
@@ -2471,35 +2485,41 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 }
 
 /*
- * Client side (--sni-passthrough-hostname): send the SNI routing header, then return.
- * The OpenVPN protocol follows immediately after.
- * The socket must be in blocking mode (as it is before phase2_set_socket_flags).
+ * Client side (--sni-passthrough-hostname): send the SNI routing header,
+ * then return.  The OpenVPN protocol follows immediately after.
+ * The socket must be in blocking mode (before phase2_set_socket_flags).
  */
 static bool
 sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 {
     uint8_t buf[512];
-    size_t len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni);
+    size_t len;
+    ssize_t sent;
+
+    len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni);
 
     if (!len)
     {
-        msg(M_NONFATAL, "--sni-passthrough-hostname: failed to build SNI routing header");
+        msg(M_NONFATAL,
+            "--sni-passthrough-hostname: failed to build SNI routing header");
         goto error;
     }
 
-    ssize_t sent = 0;
+    sent = 0;
     while (sent < (ssize_t)len)
     {
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-hostname: send() failed");
+            msg(D_LINK_ERRORS | M_ERRNO,
+                "--sni-passthrough-hostname: send() failed");
             goto error;
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header (hostname: %s)", sni);
+    msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header"
+        " (hostname: %s)", sni);
     return true;
 
 error:
@@ -2884,7 +2904,8 @@ stream_buf_added(struct stream_buf *sb,
             if (BPTR(&sb->buf)[0] != 0x16)
             {
                 /* Legacy client without --sni-passthrough-hostname. */
-                msg(M_INFO, "--sni-passthrough-server: legacy client (no routing header)");
+                msg(M_INFO, "--sni-passthrough-server: legacy client"
+                    " (no routing header)");
                 sb->sni_passthrough_state = SNI_PT_DISABLED;
             }
             else
@@ -2894,6 +2915,10 @@ stream_buf_added(struct stream_buf *sb,
         }
         if (sb->sni_passthrough_state == SNI_PT_CONSUMING)
         {
+            int total;
+            int remaining;
+            uint8_t *src;
+
             /* Wait for the 5-byte TLS record envelope header. */
             if (sb->sni_passthrough_total < 0 && sb->buf.len >= 5)
             {
@@ -2903,13 +2928,15 @@ stream_buf_added(struct stream_buf *sb,
 
                 if (sb->sni_passthrough_total > sb->maxlen)
                 {
-                    msg(M_WARN, "--sni-passthrough-server: routing header too large (%d bytes)",
-                        sb->sni_passthrough_total);
+                    msg(M_WARN,
+                        "--sni-passthrough-server: routing header too large"
+                        " (%d bytes)", sb->sni_passthrough_total);
                     sb->error = true;
                     return false;
                 }
             }
-            if (sb->sni_passthrough_total < 0 || sb->buf.len < sb->sni_passthrough_total)
+            if (sb->sni_passthrough_total < 0
+                || sb->buf.len < sb->sni_passthrough_total)
             {
                 /* Not enough data yet; wait for more. */
                 stream_buf_set_next(sb);
@@ -2918,13 +2945,14 @@ stream_buf_added(struct stream_buf *sb,
 
             /* Full routing header received; discard it and reset the buffer so
              * normal OpenVPN stream parsing sees a clean slate. */
-            int total = sb->sni_passthrough_total;
-            int remaining = sb->buf.len - total;
-            msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header (%d bytes), "
-                "switching to OpenVPN protocol", total);
+            total = sb->sni_passthrough_total;
+            remaining = sb->buf.len - total;
+            msg(M_INFO,
+                "--sni-passthrough-server: discarded SNI routing header"
+                " (%d bytes), switching to OpenVPN protocol", total);
 
-            /* Move any bytes that arrived after the header to the buffer origin. */
-            uint8_t *src = BPTR(&sb->buf) + total;
+            /* Move any bytes that arrived after the header to the origin. */
+            src = BPTR(&sb->buf) + total;
             sb->buf = sb->buf_init; /* reset offset/len to origin */
             if (remaining > 0)
             {
@@ -3529,9 +3557,10 @@ link_socket_read_tcp(struct link_socket *sock,
          */
         if (sock->sd == SOCKET_UNDEFINED)
         {
-            msg(M_INFO, "BUG: link_socket_read_tcp(): sock->sd==-1, reset client instance" );
-            sock->stream_reset = true;              /* reset client instance */
-            return buf->len = 0;                    /* nothing to read */
+            msg(M_INFO, "BUG: link_socket_read_tcp(): sock->sd==-1,"
+                " reset client instance");
+            sock->stream_reset = true;  /* reset client instance */
+            return buf->len = 0;        /* nothing to read */
         }
 
 #ifdef _WIN32

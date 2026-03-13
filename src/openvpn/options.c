@@ -640,17 +640,18 @@ static const char usage_message[] =
     "--tls-crypt-v2-verify cmd : Run command cmd to verify the metadata of the\n"
     "                  client-supplied tls-crypt-v2 client key\n"
 #if SNI_PASSTHROUGH
-    "--sni-passthrough-hostname name : (Client) Prepend an SNI routing header to every\n"
-    "                  TCP connection so that SNI-aware proxies (e.g. Traefik\n"
-    "                  passthrough) route the stream to the right backend by\n"
-    "                  hostname.  name is the hostname the proxy must route to\n"
-    "                  this OpenVPN server.  No extra encryption is added.\n"
-    "                  The server must have --sni-passthrough-server set.\n"
+    "--sni-passthrough-hostname name : (Client) Prepend an SNI routing\n"
+    "                  header to every TCP connection so that SNI-aware proxies\n"
+    "                  (e.g. Traefik passthrough) route the stream to the right\n"
+    "                  backend by hostname.  name is the hostname the proxy must\n"
+    "                  route to this OpenVPN server.  No extra encryption is\n"
+    "                  added.  The server must have --sni-passthrough-server\n"
+    "                  set.\n"
     "--sni-passthrough-server : (Server) Detect and discard the SNI routing\n"
-    "                  header sent by clients using --sni-passthrough-hostname, then\n"
-    "                  proceed with the OpenVPN protocol.  Legacy clients\n"
+    "                  header sent by clients using --sni-passthrough-hostname,\n"
+    "                  then proceed with the OpenVPN protocol.  Legacy clients\n"
     "                  (no routing header) are detected by peeking the first\n"
-    "                  byte and handled normally — full backwards compatibility.\n"
+    "                  byte and handled normally.\n"
 #endif
 
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
@@ -2198,10 +2199,13 @@ alloc_connection_entry(struct options *options, const int msglevel)
     if (l->len == l->capacity)
     {
         int capacity = l->capacity + CONNECTION_LIST_SIZE;
-        struct connection_entry **ce = gc_realloc(l->array, capacity*sizeof(struct connection_entry *), &options->gc);
+        struct connection_entry **ce = gc_realloc(l->array,
+                                                  capacity * sizeof(*ce),
+                                                  &options->gc);
         if (ce == NULL)
         {
-            msg(msglevel, "Unable to process more connection options: out of memory. Number of entries = %d", l->len);
+            msg(msglevel, "Unable to process more connection options:"
+                " out of memory. Number of entries = %d", l->len);
             return NULL;
         }
         l->array = ce;
@@ -2231,10 +2235,13 @@ alloc_remote_entry(struct options *options, const int msglevel)
     if (l->len == l->capacity)
     {
         int capacity = l->capacity + CONNECTION_LIST_SIZE;
-        struct remote_entry **re = gc_realloc(l->array, capacity*sizeof(struct remote_entry *), &options->gc);
+        struct remote_entry **re = gc_realloc(l->array,
+                                              capacity * sizeof(*re),
+                                              &options->gc);
         if (re == NULL)
         {
-            msg(msglevel, "Unable to process more remote options: out of memory. Number of entries = %d", l->len);
+            msg(msglevel, "Unable to process more remote options:"
+                " out of memory. Number of entries = %d", l->len);
             return NULL;
         }
         l->array = re;
@@ -3694,7 +3701,6 @@ options_process_mutate_prf(struct options *o)
                 "--force-tls-key-material-export");
             o->force_key_material_export = true;
         }
-
     }
 }
 
@@ -7544,14 +7550,15 @@ add_option(struct options *options,
     else if (streq(p[0], "connect-freq-initial") && p[1] && p[2] && !p[3])
     {
         long cf_max, cf_per;
+        char *e1, *e2;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        char *e1, *e2;
         cf_max = strtol(p[1], &e1, 10);
         cf_per = strtol(p[2], &e2, 10);
         if (cf_max < 0 || cf_per < 0 || *e1 != '\0' || *e2 != '\0')
         {
-            msg(msglevel, "--connect-freq-initial parameters must be integers and >= 0");
+            msg(msglevel, "--connect-freq-initial parameters must be"
+                " integers and >= 0");
             goto err;
         }
         options->cf_initial_max = cf_max;
