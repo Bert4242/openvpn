@@ -643,6 +643,20 @@ static const char usage_message[] =
     "                  client-supplied tls-crypt-v2 client key\n"
     "--tls-crypt-v2-max-age n : Only accept tls-crypt-v2 client keys that have a\n"
     "                  timestamp which is at most n days old.\n"
+#if SNI_PASSTHROUGH
+    "--sni-passthrough-hostname name : (Client) Prepend an SNI routing\n"
+    "                  header to every TCP connection so that SNI-aware proxies\n"
+    "                  (e.g. Traefik passthrough) route the stream to the right\n"
+    "                  backend by hostname.  name is the hostname the proxy must\n"
+    "                  route to this OpenVPN server.  No extra encryption is\n"
+    "                  added.  The server must have --sni-passthrough-server\n"
+    "                  set.\n"
+    "--sni-passthrough-server : (Server) Detect and discard the SNI routing\n"
+    "                  header sent by clients using --sni-passthrough-hostname,\n"
+    "                  then proceed with the OpenVPN protocol.  Legacy clients\n"
+    "                  (no routing header) are detected by peeking the first\n"
+    "                  byte and handled normally.\n"
+#endif
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9090,6 +9104,18 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             goto err;
         }
     }
+#if SNI_PASSTHROUGH
+    else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_passthrough_hostname = p[1];
+    }
+    else if (streq(p[0], "sni-passthrough-server") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_passthrough_server = true;
+    }
+#endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
