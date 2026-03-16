@@ -673,6 +673,22 @@ struct options
 
     int tls_crypt_v2_max_age;
 
+#if SNI_PASSTHROUGH
+    /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
+     *  When set, the client prepends an SNI routing header before the OpenVPN
+     *  protocol so that SNI-aware TCP proxies (e.g. Traefik passthrough) can
+     *  route the connection to the right backend by hostname.  Works for both
+     *  direct and proxied connections as long as the server also has
+     *  --sni-passthrough-server set. */
+    const char *sni_passthrough_hostname;
+
+    /** Enable server-side detection and discarding of the SNI routing header
+     *  sent by clients using --sni-passthrough-hostname (--sni-passthrough-server).
+     *  Peeks the first byte: 0x16 = routing header present (discard it);
+     *  anything else = legacy client (proceed normally, full backwards compat). */
+    bool sni_passthrough_server;
+#endif
+
     /* Allow only one session */
     bool single_session;
 
