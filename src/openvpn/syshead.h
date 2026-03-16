@@ -475,6 +475,15 @@ socket_defined(const socket_descriptor_t sd)
 #endif
 
 /*
+ * SNI passthrough capability (--sni-passthrough-hostname / --sni-passthrough-server)
+ */
+#if defined(ENABLE_SNI_PASSTHROUGH)
+#define SNI_PASSTHROUGH 1
+#else
+#define SNI_PASSTHROUGH 0
+#endif
+
+/*
  * Do we support Unix domain sockets?
  */
 #if defined(PF_UNIX) && !defined(_WIN32)
