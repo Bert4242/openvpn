@@ -136,6 +136,13 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
+#if SNI_PASSTHROUGH
+#define SNI_PT_DISABLED  0  /* not active */
+#define SNI_PT_PENDING   1  /* waiting to inspect first byte */
+#define SNI_PT_CONSUMING 2  /* first byte was 0x16, consuming the routing header */
+    int sni_passthrough_state;
+    int sni_passthrough_total; /* total bytes to discard (5 + payload); -1 until known */
+#endif
 };
 
 /*
@@ -214,6 +221,7 @@ struct link_socket
 #define SF_DCO_WIN           (1 << 5)
 #define SF_PREPEND_SA        (1 << 6)
 #define SF_PKTINFO_COPY_IIF  (1 << 7)
+#define SF_SNI_PASSTHROUGH   (1 << 8)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;
