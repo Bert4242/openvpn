@@ -2199,13 +2199,10 @@ alloc_connection_entry(struct options *options, const int msglevel)
     if (l->len == l->capacity)
     {
         int capacity = l->capacity + CONNECTION_LIST_SIZE;
-        struct connection_entry **ce = gc_realloc(l->array,
-                                                  capacity * sizeof(*ce),
-                                                  &options->gc);
+        struct connection_entry **ce = gc_realloc(l->array, capacity*sizeof(struct connection_entry *), &options->gc);
         if (ce == NULL)
         {
-            msg(msglevel, "Unable to process more connection options:"
-                " out of memory. Number of entries = %d", l->len);
+            msg(msglevel, "Unable to process more connection options: out of memory. Number of entries = %d", l->len);
             return NULL;
         }
         l->array = ce;
@@ -2235,13 +2232,10 @@ alloc_remote_entry(struct options *options, const int msglevel)
     if (l->len == l->capacity)
     {
         int capacity = l->capacity + CONNECTION_LIST_SIZE;
-        struct remote_entry **re = gc_realloc(l->array,
-                                              capacity * sizeof(*re),
-                                              &options->gc);
+        struct remote_entry **re = gc_realloc(l->array, capacity*sizeof(struct remote_entry *), &options->gc);
         if (re == NULL)
         {
-            msg(msglevel, "Unable to process more remote options:"
-                " out of memory. Number of entries = %d", l->len);
+            msg(msglevel, "Unable to process more remote options: out of memory. Number of entries = %d", l->len);
             return NULL;
         }
         l->array = re;
@@ -3701,6 +3695,7 @@ options_process_mutate_prf(struct options *o)
                 "--force-tls-key-material-export");
             o->force_key_material_export = true;
         }
+
     }
 }
 
@@ -7550,15 +7545,14 @@ add_option(struct options *options,
     else if (streq(p[0], "connect-freq-initial") && p[1] && p[2] && !p[3])
     {
         long cf_max, cf_per;
-        char *e1, *e2;
 
         VERIFY_PERMISSION(OPT_P_GENERAL);
+        char *e1, *e2;
         cf_max = strtol(p[1], &e1, 10);
         cf_per = strtol(p[2], &e2, 10);
         if (cf_max < 0 || cf_per < 0 || *e1 != '\0' || *e2 != '\0')
         {
-            msg(msglevel, "--connect-freq-initial parameters must be"
-                " integers and >= 0");
+            msg(msglevel, "--connect-freq-initial parameters must be integers and >= 0");
             goto err;
         }
         options->cf_initial_max = cf_max;

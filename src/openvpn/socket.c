@@ -3557,10 +3557,9 @@ link_socket_read_tcp(struct link_socket *sock,
          */
         if (sock->sd == SOCKET_UNDEFINED)
         {
-            msg(M_INFO, "BUG: link_socket_read_tcp(): sock->sd==-1,"
-                " reset client instance");
-            sock->stream_reset = true;  /* reset client instance */
-            return buf->len = 0;        /* nothing to read */
+            msg(M_INFO, "BUG: link_socket_read_tcp(): sock->sd==-1, reset client instance" );
+            sock->stream_reset = true;              /* reset client instance */
+            return buf->len = 0;                    /* nothing to read */
         }
 
 #ifdef _WIN32
