@@ -39,6 +39,10 @@
 #include "openvpn.h"
 #include "forward.h"
 
+#if SNI_PASSTHROUGH && defined(ENABLE_CRYPTO_OPENSSL)
+#include "openssl_compat.h"
+#endif
+
 #include "memdbg.h"
 
 bool
@@ -1825,6 +1829,104 @@ done:
 }
 
 #if SNI_PASSTHROUGH
+static const unsigned char sni_passthrough_alpn_openvpn[] =
+{
+    7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
+};
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+/*
+ * Ask OpenSSL to emit a ClientHello carrying the requested SNI and ALPN.
+ * Returns the number of bytes written to buf, or 0 on failure.
+ */
+static size_t
+sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const char *sni)
+{
+    size_t ret = 0;
+
+    if (!sni || !*sni)
+    {
+        return 0;
+    }
+
+    SSL_CTX ctx = SSL_CTX_new(TLS_client_method());
+    if (!ctx)
+    {
+        goto cleanup;
+    }
+
+    SSL ssl = SSL_new(ctx);
+    if (!ssl)
+    {
+        goto cleanup;
+    }
+
+    BIO *rbio = BIO_new(BIO_s_mem());
+    BIO *wbio = BIO_new(BIO_s_mem());
+    if (!rbio || !wbio)
+    {
+        goto cleanup;
+    }
+
+    SSL_set_bio(ssl, rbio, wbio);
+    rbio = NULL;
+    wbio = NULL;
+
+    SSL_set_connect_state(ssl);
+
+    if (!SSL_set_tlsext_host_name(ssl, sni))
+    {
+        goto cleanup;
+    }
+
+    if (SSL_set_alpn_protos(ssl, sni_passthrough_alpn_openvpn,
+                            sizeof(sni_passthrough_alpn_openvpn)) != 0)
+    {
+        goto cleanup;
+    }
+
+    int handshake_ret = SSL_do_handshake(ssl);
+    if (handshake_ret != 1)
+    {
+        int ssl_err = SSL_get_error(ssl, handshake_ret);
+
+        if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE)
+        {
+            goto cleanup;
+        }
+    }
+
+    BIO *wbio_peek = SSL_get_wbio(ssl);
+    if (!wbio_peek)
+    {
+        goto cleanup;
+    }
+    else
+    {
+        size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
+        if (!pending || pending > bufsz)
+        {
+            goto cleanup;
+        }
+
+        n = BIO_read(wbio_peek, buf, (int)pending);
+        if (n <= 0 || (size_t)n != pending)
+        {
+            goto cleanup;
+        }
+
+        ret = pending;
+    }
+
+cleanup:
+    SSL_free(ssl);
+    BIO_free(rbio);
+    BIO_free(wbio);
+    SSL_CTX_free(ctx);
+    return ret;
+}
+#endif
+
 /*
  * SNI passthrough support
  * (--sni-passthrough-hostname / --sni-passthrough-server).
@@ -1860,6 +1962,7 @@ done:
  * The header is formatted as a ClientHello record because that is what
  * SNI-aware proxies expect.  It carries:
  *   - SNI extension with the hostname (the only field the proxy reads)
+ *   - ALPN extension ("openvpn")
  *   - supported_versions extension (values 0x0304, 0x0303)
  *   - supported_groups extension (x25519)
  *   - Two cipher suite entries
@@ -1867,13 +1970,14 @@ done:
  * forward the stream without attempting a real handshake.
  */
 static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello_manual(uint8_t *buf, size_t bufsz, const char *sni)
 {
     size_t sni_len;
     size_t sni_body_len;
     size_t sni_ext_wire;
     size_t sv_ext_wire;
     size_t sg_ext_wire;
+    size_t alpn_ext_wire;
     size_t exts_total;
     size_t hello_body;
     size_t handshake_len;
@@ -1901,7 +2005,10 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     /* supported_groups: type(2)+len(2)+groups_len(2)+x25519(2) = 8 */
     sg_ext_wire    = 8;
 
-    exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire;
+    /* ALPN: type(2)+ext_data_len(2)+proto_list_len(2)+proto_bytes(8) = 14 */
+    alpn_ext_wire  = 4 + 2 + sizeof(sni_passthrough_alpn_openvpn);
+
+    exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire + alpn_ext_wire;
 
     /* ClientHello body: version(2)+random(32)+sess_id_len(1)+
      * cipher_suites_len(2)+2 ciphers(4)+comp_len(1)+null_comp(1)+
@@ -1982,7 +2089,24 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     *p++ = 0x00; *p++ = 0x02;             /* groups list length: 2       */
     *p++ = 0x00; *p++ = 0x1d;             /* x25519                      */
 
+    /* --- ALPN extension (type 0x0010) --- */
+    *p++ = 0x00; *p++ = 0x10;             /* extension type: ALPN        */
+    *p++ = 0x00; *p++ = (uint8_t)(2 + sizeof(sni_passthrough_alpn_openvpn));  /* ext data length */
+    *p++ = 0x00; *p++ = (uint8_t)sizeof(sni_passthrough_alpn_openvpn);        /* proto list length */
+    memcpy(p, sni_passthrough_alpn_openvpn, sizeof(sni_passthrough_alpn_openvpn));
+    p += sizeof(sni_passthrough_alpn_openvpn);
+
     return (size_t)(p - buf);
+}
+
+static size_t
+sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
+{
+#if defined(ENABLE_CRYPTO_OPENSSL)
+    return sni_passthrough_build_client_hello_openssl(buf, bufsz, sni);
+#else
+    return sni_passthrough_build_client_hello_manual(buf, bufsz, sni);
+#endif
 }
 
 /*
