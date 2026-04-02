@@ -1902,7 +1902,7 @@ sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const cha
             goto cleanup;
         }
 
-        n = BIO_read(wbio_peek, buf, (int)pending);
+        int n = BIO_read(wbio_peek, buf, (int)pending);
         if (n <= 0 || (size_t)n != pending)
         {
             goto cleanup;
