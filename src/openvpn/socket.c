@@ -1811,20 +1811,24 @@ sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const cha
         return 0;
     }
 
-    SSL_CTX *ctx = SSL_CTX_new(TLS_client_method());
+    SSL_CTX *ctx = NULL;
+    ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx)
     {
         goto cleanup;
     }
 
-    SSL *ssl = SSL_new(ctx);
+    SSL *ssl = NULL;
+    ssl = SSL_new(ctx);
     if (!ssl)
     {
         goto cleanup;
     }
 
-    BIO *rbio = BIO_new(BIO_s_mem());
-    BIO *wbio = BIO_new(BIO_s_mem());
+    BIO *rbio = NULL;
+    rbio = BIO_new(BIO_s_mem());
+    BIO *wbio = NULL;
+    wbio = BIO_new(BIO_s_mem());
     if (!rbio || !wbio)
     {
         goto cleanup;
@@ -1881,10 +1885,22 @@ sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const cha
     }
 
 cleanup:
-    SSL_free(ssl);
-    BIO_free(rbio);
-    BIO_free(wbio);
-    SSL_CTX_free(ctx);
+    if (ssl) 
+    {
+        SSL_free(ssl);
+    }
+    if (rbio)
+    {
+        BIO_free(rbio);
+    }
+    if (wbio)
+    {
+        BIO_free(wbio);
+    }
+    if (ctx)
+    {
+        SSL_CTX_free(ctx);
+    }
     return ret;
 }
 #endif
