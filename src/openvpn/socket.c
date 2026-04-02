@@ -39,7 +39,7 @@
 #include "openvpn.h"
 #include "forward.h"
 
-#if SNI_PASSTHROUGH && defined(ENABLE_CRYPTO_OPENSSL)
+#if SNI_PASSTHROUGH
 #include "openssl_compat.h"
 #endif
 
@@ -1834,13 +1834,35 @@ static const unsigned char sni_passthrough_alpn_openvpn[] =
     7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
 };
 
-#if defined(ENABLE_CRYPTO_OPENSSL)
 /*
- * Ask OpenSSL to emit a ClientHello carrying the requested SNI and ALPN.
- * Returns the number of bytes written to buf, or 0 on failure.
+ * SNI passthrough support
+ * (--sni-passthrough-hostname / --sni-passthrough-server).
+ *
+ * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
+ * as Traefik (passthrough mode) on any port, without any double encryption.
+ *
+ * SNI-aware proxies read the hostname from the first bytes of the TCP stream
+ * and route the connection accordingly.  They expect those bytes to be
+ * formatted as a ClientHello record (the standard carrier for SNI in TCP).
+ *
+ *   Client (--sni-passthrough-hostname <hostname>):
+ *     Prepends a single SNI routing header — a minimal ClientHello record
+ *     carrying the given hostname — before the OpenVPN protocol bytes.
+ *     The proxy reads the hostname, routes the stream to the right backend,
+ *     and forwards all bytes (including the header) unchanged.
+ *
+ *   Server (--sni-passthrough-server):
+ *     Receives the routed stream, reads and discards the SNI routing header,
+ *     then proceeds with the normal OpenVPN protocol.  Legacy clients that
+ *     do not send the header are detected automatically and handled normally.
+ *
+ * No session of any kind is established by the routing header — it is
+ * discarded immediately.  No encryption layer is added; OpenVPN's own
+ * control-channel and data-channel security are used unchanged.
  */
+
 static size_t
-sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
     size_t ret = 0;
     BIO *rbio = NULL;
@@ -1923,7 +1945,7 @@ sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const cha
     }
 
 cleanup:
-    if (ssl) 
+    if (ssl)
     {
         SSL_free(ssl);
     }
@@ -1940,189 +1962,6 @@ cleanup:
         SSL_CTX_free(ctx);
     }
     return ret;
-}
-#endif
-
-/*
- * SNI passthrough support
- * (--sni-passthrough-hostname / --sni-passthrough-server).
- *
- * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
- * as Traefik (passthrough mode) on any port, without any double encryption.
- *
- * SNI-aware proxies read the hostname from the first bytes of the TCP stream
- * and route the connection accordingly.  They expect those bytes to be
- * formatted as a ClientHello record (the standard carrier for SNI in TCP).
- *
- *   Client (--sni-passthrough-hostname <hostname>):
- *     Prepends a single SNI routing header — a minimal ClientHello record
- *     carrying the given hostname — before the OpenVPN protocol bytes.
- *     The proxy reads the hostname, routes the stream to the right backend,
- *     and forwards all bytes (including the header) unchanged.
- *
- *   Server (--sni-passthrough-server):
- *     Receives the routed stream, reads and discards the SNI routing header,
- *     then proceeds with the normal OpenVPN protocol.  Legacy clients that
- *     do not send the header are detected automatically and handled normally.
- *
- * No session of any kind is established by the routing header — it is
- * discarded immediately.  No encryption layer is added; OpenVPN's own
- * control-channel and data-channel security are used unchanged.
- */
-
-/*
- * Build a minimal SNI routing header into buf.
- * Returns the number of bytes written, or 0 on failure (missing hostname or
- * buffer too small).
- *
- * The header is formatted as a ClientHello record because that is what
- * SNI-aware proxies expect.  It carries:
- *   - SNI extension with the hostname (the only field the proxy reads)
- *   - ALPN extension ("openvpn")
- *   - supported_versions extension (values 0x0304, 0x0303)
- *   - supported_groups extension (x25519)
- *   - Two cipher suite entries
- * This is enough for any SNI-routing proxy to extract the hostname and
- * forward the stream without attempting a real handshake.
- */
-static size_t
-sni_passthrough_build_client_hello_manual(uint8_t *buf, size_t bufsz, const char *sni)
-{
-    size_t sni_len;
-    size_t sni_body_len;
-    size_t sni_ext_wire;
-    size_t sv_ext_wire;
-    size_t sg_ext_wire;
-    size_t alpn_ext_wire;
-    size_t exts_total;
-    size_t hello_body;
-    size_t handshake_len;
-    size_t record_len;
-    size_t name_entry;
-    uint8_t *p;
-    int i;
-
-    if (!sni || !*sni)
-    {
-        return 0;
-    }
-    sni_len = strlen(sni);
-
-    /* Extension sizes (all big-endian, calculated bottom-up): */
-
-    /* SNI extension body: list_len(2) + name_type(1) + name_len(2) + name */
-    sni_body_len   = 2 + 1 + 2 + sni_len;
-    /* SNI extension wire: type(2) + ext_data_len(2) + body */
-    sni_ext_wire   = 4 + sni_body_len;
-
-    /* supported_versions: type(2)+len(2)+list_len(1)+v1.3(2)+v1.2(2) = 9 */
-    sv_ext_wire    = 9;
-
-    /* supported_groups: type(2)+len(2)+groups_len(2)+x25519(2) = 8 */
-    sg_ext_wire    = 8;
-
-    /* ALPN: type(2)+ext_data_len(2)+proto_list_len(2)+proto_bytes(8) = 14 */
-    alpn_ext_wire  = 4 + 2 + sizeof(sni_passthrough_alpn_openvpn);
-
-    exts_total     = sni_ext_wire + sv_ext_wire + sg_ext_wire + alpn_ext_wire;
-
-    /* ClientHello body: version(2)+random(32)+sess_id_len(1)+
-     * cipher_suites_len(2)+2 ciphers(4)+comp_len(1)+null_comp(1)+
-     * exts_len(2)+extensions */
-    hello_body     = 2 + 32 + 1 + 2 + 4 + 1 + 1 + 2 + exts_total;
-
-    /* Handshake message: type(1)+length(3)+body */
-    handshake_len  = 1 + 3 + hello_body;
-
-    /* Record envelope: content_type(1)+version(2)+length(2)+handshake */
-    record_len     = 5 + handshake_len;
-
-    if (record_len > bufsz)
-    {
-        return 0;
-    }
-
-    p = buf;
-
-    /* --- Record envelope header --- */
-    *p++ = 0x16;                            /* Content-Type: Handshake   */
-    *p++ = 0x03; *p++ = 0x01;              /* Legacy record version      */
-    *p++ = (handshake_len >> 8) & 0xff;
-    *p++ =  handshake_len       & 0xff;
-
-    /* --- Handshake header --- */
-    *p++ = 0x01;                            /* HandshakeType: ClientHello */
-    *p++ = (hello_body >> 16) & 0xff;
-    *p++ = (hello_body >>  8) & 0xff;
-    *p++ =  hello_body        & 0xff;
-
-    /* --- ClientHello body --- */
-    *p++ = 0x03; *p++ = 0x03;              /* client_version field       */
-
-    /* Random: 32 pseudo-random bytes (not cryptographically sensitive) */
-    for (i = 0; i < 32; i++)
-    {
-        *p++ = (uint8_t)(rand() & 0xff);
-    }
-
-    *p++ = 0x00;                            /* session_id: empty         */
-
-    /* cipher_suites: two plausible entries (never negotiated) */
-    *p++ = 0x00; *p++ = 0x04;
-    *p++ = 0x13; *p++ = 0x01;              /* 0x1301                    */
-    *p++ = 0x13; *p++ = 0x02;              /* 0x1302                    */
-
-    /* compression_methods: null only */
-    *p++ = 0x01; *p++ = 0x00;
-
-    /* extensions length */
-    *p++ = (exts_total >> 8) & 0xff;
-    *p++ =  exts_total       & 0xff;
-
-    /* --- SNI extension (type 0x0000) --- */
-    name_entry = 1 + 2 + sni_len;          /* name_type + name_len + name */
-    *p++ = 0x00; *p++ = 0x00;              /* extension type: server_name */
-    *p++ = (sni_body_len >> 8) & 0xff;
-    *p++ =  sni_body_len       & 0xff;
-    *p++ = (name_entry   >> 8) & 0xff;       /* server_name_list length     */
-    *p++ =  name_entry         & 0xff;
-    *p++ = 0x00;                              /* name_type: host_name        */
-    *p++ = (sni_len      >> 8) & 0xff;
-    *p++ =  sni_len            & 0xff;
-    memcpy(p, sni, sni_len);
-    p += sni_len;
-
-    /* --- supported_versions extension (type 0x002b) --- */
-    *p++ = 0x00; *p++ = 0x2b;
-    *p++ = 0x00; *p++ = 0x05;              /* extension data length: 5    */
-    *p++ = 0x04;                            /* versions list length: 4     */
-    *p++ = 0x03; *p++ = 0x04;              /* version 0x0304              */
-    *p++ = 0x03; *p++ = 0x03;              /* version 0x0303              */
-
-    /* --- supported_groups extension (type 0x000a) --- */
-    *p++ = 0x00; *p++ = 0x0a;
-    *p++ = 0x00; *p++ = 0x04;              /* extension data length: 4    */
-    *p++ = 0x00; *p++ = 0x02;             /* groups list length: 2       */
-    *p++ = 0x00; *p++ = 0x1d;             /* x25519                      */
-
-    /* --- ALPN extension (type 0x0010) --- */
-    *p++ = 0x00; *p++ = 0x10;             /* extension type: ALPN        */
-    *p++ = 0x00; *p++ = (uint8_t)(2 + sizeof(sni_passthrough_alpn_openvpn));  /* ext data length */
-    *p++ = 0x00; *p++ = (uint8_t)sizeof(sni_passthrough_alpn_openvpn);        /* proto list length */
-    memcpy(p, sni_passthrough_alpn_openvpn, sizeof(sni_passthrough_alpn_openvpn));
-    p += sizeof(sni_passthrough_alpn_openvpn);
-
-    return (size_t)(p - buf);
-}
-
-static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
-{
-#if defined(ENABLE_CRYPTO_OPENSSL)
-    return sni_passthrough_build_client_hello_openssl(buf, bufsz, sni);
-#else
-    return sni_passthrough_build_client_hello_manual(buf, bufsz, sni);
-#endif
 }
 
 /*
