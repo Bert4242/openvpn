@@ -1836,29 +1836,29 @@ static size_t
 sni_passthrough_build_client_hello_openssl(uint8_t *buf, size_t bufsz, const char *sni)
 {
     size_t ret = 0;
+    BIO *rbio = NULL;
+    BIO *wbio = NULL;
+    SSL *ssl = NULL;
+    SSL_CTX *ctx = NULL;
 
     if (!sni || !*sni)
     {
         return 0;
     }
 
-    SSL_CTX *ctx = NULL;
     ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx)
     {
         goto cleanup;
     }
 
-    SSL *ssl = NULL;
     ssl = SSL_new(ctx);
     if (!ssl)
     {
         goto cleanup;
     }
 
-    BIO *rbio = NULL;
     rbio = BIO_new(BIO_s_mem());
-    BIO *wbio = NULL;
     wbio = BIO_new(BIO_s_mem());
     if (!rbio || !wbio)
     {
