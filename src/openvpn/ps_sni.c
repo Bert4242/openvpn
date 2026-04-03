@@ -415,11 +415,17 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             }
             else
             {
-                /* Full routing header received; discard it so normal OpenVPN
-                 * stream parsing sees a clean slate. buf_advance shifts the
-                 * logical view without moving any data. */
+                /* Full routing header received; discard it and reset the buffer
+                 * so normal OpenVPN stream parsing sees a clean slate.
+                 * We must memmove (not buf_advance) to keep sb->buf.offset
+                 * stable: stream_buf_get_next computes the next read position
+                 * as offset+len and buf_safe asserts it fits the allocation. */
                 msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-                buf_advance(&sb->buf, sni_total);
+                if (remaining > 0)
+                {
+                    memmove(BPTR(&sb->buf), BPTR(&sb->buf) + sni_total, remaining);
+                }
+                sb->buf.len = remaining;
                 sb->sni_passthrough_state = SNI_PT_SUCCESS;
                 /* Fall through to normal OpenVPN stream parsing. */
                 return true;
