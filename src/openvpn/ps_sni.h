@@ -49,8 +49,8 @@ bool sni_passthrough_consume_header(struct stream_buf *sb);
  * Inspect a raw packet buffer to determine whether it is an SNI routing
  * header sent by a --sni-passthrough-hostname client.
  * Returns 1 if the "openvpn" ALPN token is present, 0 otherwise.
- */
 int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len);
+ */
 
 #endif /* SNI_PASSTHROUGH */
 
