@@ -2242,8 +2242,9 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                         /* SNI header not found  */
                         if (sb->sni_passthrough_state == SNI_PT_PENDING)
                         {
-                            /* assuming SNI header will always be in the first packet complete */
+                            /* assuming SNI header will always be in the first packet complete  , THAT IS NOT TRUE !!!!!!!!!!!!!!!!!!!!!!!!*/
     //                        sb->sni_passthrough_state = SNI_PT_DISABLED;
+    return false;
                         }
                         
 /*
