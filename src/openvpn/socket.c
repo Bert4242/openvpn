@@ -32,6 +32,7 @@
 #include "gremlin.h"
 #include "plugin.h"
 #include "ps.h"
+#include "ps_sni.h"
 #include "run_command.h"
 #include "manage.h"
 #include "misc.h"
@@ -40,7 +41,6 @@
 
 #include "forward.h"
 
-#include "ps_sni.h"
 
 #include "memdbg.h"
 
@@ -2212,30 +2212,60 @@ stream_buf_added(struct stream_buf *sb, int length_added)
         packet_size_type net_size;
 
 #if PORT_SHARE  
-        if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state != SNI_PT_DISABLED )
+#if SNI_PASSTHROUGH
+        if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING )
+#else
+        if (sb->port_share_state == PS_ENABLED  )
+#endif
         {
             if (!is_openvpn_protocol(&sb->buf))
             {
                 msg(D_PS_PROXY, "Non-OpenVPN client protocol detected");
 
 #if SNI_PASSTHROUGH
-                if (sb->sni_passthrough_state != SNI_PT_DISABLED)
+                if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
                     if (!sni_passthrough_consume_header(sb))
                     {
-                        return false;
+                        /* SNI header not found  */
+                        if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                        {
+                            /* assuming SNI header will always be in the first packet complete */
+                            sb->sni_passthrough_state = SNI_PT_DISABLED;
+                        }
+/*
+should not return , no ? 
+return false;
+*/
+}
+                    else
+                    {
+                        if (sb->port_share_state == PS_ENABLED )
+                        {
+                            /* SNI header has been droped , cant anymore do port_share */
+                            sb->port_share_state = PS_DISABLED;
+                        }
                     }
                 }
 #endif
-
-                sb->port_share_state = PS_FOREIGN;
-                sb->error = true;
-                return false;
+                if (sb->port_share_state == PS_ENABLED )
+                {
+                    sb->port_share_state = PS_FOREIGN;
+                    sb->error = true;
+                    return false;
+                }
             }
             else
             {
                 sb->port_share_state = PS_DISABLED;
+#if SNI_PASSTHROUGH
+                if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                {
+                    sb->sni_passthrough_state = SNI_PT_DISABLED;
+                }
+#endif
             }
+
         }
 #endif
 
