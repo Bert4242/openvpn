@@ -302,7 +302,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
         // It will "fail" (no full handshake), but that's fine
         SSL_accept(ssl);
 
-        size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+        int remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
         consumed = pkt_len - remaining;
 
         msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of ", consumed);
