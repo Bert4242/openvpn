@@ -74,30 +74,20 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     SSL *ssl = NULL;
     SSL_CTX *ctx = NULL;
 
-
-
-            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 1");
-
     if (!sni || !*sni)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 2");
-
         return 0;
     }
 
     ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 3");
-
         goto cleanup;
     }
 
     ssl = SSL_new(ctx);
     if (!ssl)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 4");
-
         goto cleanup;
     }
 
@@ -105,8 +95,6 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     wbio = BIO_new(BIO_s_mem());
     if (!rbio || !wbio)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 5");
-
         goto cleanup;
     }
 
@@ -118,75 +106,54 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
     if (!SSL_set_tlsext_host_name(ssl, sni))
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 6");
-
         goto cleanup;
     }
 
-    if (SSL_set_alpn_protos(ssl, sni_passthrough_alpn_openvpn,
-                            sizeof(sni_passthrough_alpn_openvpn)) != 0)
+    if (SSL_set_alpn_protos(ssl, sni_passthrough_alpn_openvpn, sizeof(sni_passthrough_alpn_openvpn)) != 0)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 7");
-
         goto cleanup;
     }
 
-                msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 8");
 
     int handshake_ret = SSL_do_handshake(ssl);
     if (handshake_ret != 1)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 9");
-
-        int ssl_err = SSL_get_error(ssl, handshake_ret);
-                char err_buf[256];
-    ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-    msg(M_NONFATAL, "--sni-passthrough-hostname: SSL_do_handshake failed: %s", err_buf);
 
         if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE)
         {
-                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 10");
+            int ssl_err = SSL_get_error(ssl, handshake_ret);
+            char err_buf[256];
+            ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
+            msg(M_NONFATAL, "--sni-passthrough-hostname: SSL_do_handshake failed: %s", err_buf);
 
             goto cleanup;
         }
         else
         {
-
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 11 : %d",ssl_err);
-                            }
-
+            /* SSL_ERROR_WANT_READ and SSL_ERROR_WANT_WRITE are not fatal to our usage */
+        }
 
     }
 
     BIO *wbio_peek = SSL_get_wbio(ssl);
     if (!wbio_peek)
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 12");
-
         goto cleanup;
     }
     else
     {
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 13");
-
         size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
         if (!pending || pending > bufsz)
         {
-            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 14: pending=%zu bufsz=%zu", pending, bufsz);
+            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello : pending=%zu bufsz=%zu", pending, bufsz);
             goto cleanup;
         }
-
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 15");
 
         int n = BIO_read(wbio_peek, buf, (int)pending);
         if (n <= 0 || (size_t)n != pending)
         {
-                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 16");
-
             goto cleanup;
         }
-            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 17 : n=%i",n);
-
         ret = pending;
     }
 
@@ -226,8 +193,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 
     if (!len)
     {
-        msg(M_NONFATAL,
-            "--sni-passthrough-hostname: failed to build SNI routing header");
+        msg(M_NONFATAL,"--sni-passthrough-hostname: failed to build SNI routing header");
         goto error;
     }
 
@@ -237,15 +203,13 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
         ssize_t n = send(sd, buf + sent, len - sent, MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(D_LINK_ERRORS | M_ERRNO,
-                "--sni-passthrough-hostname: send() failed");
+            msg(D_LINK_ERRORS | M_ERRNO,"--sni-passthrough-hostname: send() failed");
             goto error;
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header"
-        " (hostname: %s)", sni);
+    msg(M_INFO,"--sni-passthrough-hostname: sent SNI routing header (hostname: %s)", sni);
     return true;
 
 error:
@@ -305,7 +269,8 @@ static int sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
     return SSL_CLIENT_HELLO_SUCCESS;
 }
 
-int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
+int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
+{
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     /* client_hello_cb fires on the raw ClientHello before any certificate
      * is required, unlike the ALPN select callback which needs a cert. */
@@ -321,30 +286,21 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     int consumed = 0;
 
     // Feed the raw ClientHello into the read BIO
-    if (pkt_len > INT_MAX)
+    BIO_write(rbio, pkt, pkt_len);
+
+    // This will parse the ClientHello and fire callbacks
+    // It will "fail" (no full handshake), but that's fine
+    SSL_accept(ssl);
+
+    size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+    /* remaining == 0 means all bytes consumed, which is valid */
+    if (remaining <= (size_t)pkt_len)
     {
-       /* something is not ok with int , should not happen */
+        consumed = pkt_len - (int)remaining;
     }
     else
     {
-        BIO_write(rbio, pkt, pkt_len);
-
-        // This will parse the ClientHello and fire callbacks
-        // It will "fail" (no full handshake), but that's fine
-        SSL_accept(ssl);
-
-        size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-        /* remaining == 0 means all bytes consumed, which is valid */
-        if (remaining <= (size_t)pkt_len)
-        {
-            consumed = pkt_len - (int)remaining;
-        }
-        else
-        {
-            msg(M_WARN,"--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d", remaining, pkt_len);
-        }
-
-        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of %d", consumed,pkt_len);
+        msg(M_WARN,"--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d", remaining, pkt_len);
     }
 
     SSL_free(ssl);      // frees BIOs too
@@ -354,8 +310,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     {
         if (consumed )
         {
-                    msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet consumed");
-
+             msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet consumed");
             return consumed;
         }
         else
@@ -366,8 +321,6 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     }
     else
     {
-                            msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet not matched");
-
         return 0;
     }
 }
@@ -403,9 +356,6 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             const uint8_t *hdr = BPTR(&sb->buf);
 
             int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
-
-                                msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-
             if (sni_total == 0)
             {
                 /* nothing found */
@@ -414,9 +364,8 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             }
             else if (sb->buf.len < sni_total)
             {
-                /* Not enough data yet; should not happend. */
-                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-
+                /* Not enough data yet; should not happen. */
+                msg(M_WARN,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
                 return false;
             }
             else
