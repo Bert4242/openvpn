@@ -185,7 +185,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
             goto cleanup;
         }
-            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 17");
+            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 17 : n=%i",n);
 
         ret = pending;
     }
