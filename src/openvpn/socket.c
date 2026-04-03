@@ -2217,7 +2217,7 @@ stream_buf_added(struct stream_buf *sb, int length_added)
 #if SNI_PASSTHROUGH
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
-                    if (sni_passthrough_consume_header(sb))
+                    if (sni_passthrough_check_and_consume_header(sb))
                     {
                         if (sb->port_share_state == PS_ENABLED )
                         {
@@ -2235,7 +2235,7 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                         /* SNI header not found  */
                         if (sb->sni_passthrough_state == SNI_PT_PENDING)
                         {
-                            /* wait for more data until sni_passthrough_consume_header or is_openvpn_protocol() match */
+                            /* wait for more data until sni_passthrough_check_and_consume_header or is_openvpn_protocol() match */
                             return false;
                         }
                     }
