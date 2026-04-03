@@ -315,13 +315,14 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
         SSL_accept(ssl);
 
         size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-        if (remaining && remaining <= INT_MAX)
+        /* remaining == 0 means all bytes consumed, which is valid */
+        if (remaining <= (size_t)pkt_len)
         {
             consumed = pkt_len - (int)remaining;
         }
         else
         {
-            msg(M_WARN,"--sni-passthrough-server: routing header found but BIO_ctrl_pending returned to big %zu" ,remaining);
+            msg(M_WARN,"--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d", remaining, pkt_len);
         }
 
         msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of %d", consumed,pkt_len);
