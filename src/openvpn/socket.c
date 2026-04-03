@@ -2244,6 +2244,11 @@ return false;
                             /* SNI header has been droped , cant anymore do port_share */
                             sb->port_share_state = PS_DISABLED;
                         }
+                        if (sb->buf.len == 0)
+                        {
+                            /* No OpenVPN data yet after the SNI header; wait for more. */
+                            return false;
+                        }
                     }
                 }
 #endif
