@@ -233,11 +233,8 @@ sni_passthrough_consume_header(struct stream_buf *sb)
         {
           /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
-            int sni_total;
-            int remaining;
-            uint8_t *src;
 
-            sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
+            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
 
             if (sni_total == 0)
             {
@@ -254,10 +251,10 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             {
                 /* Full routing header received; discard it and reset the buffer so
                 * normal OpenVPN stream parsing sees a clean slate. */
-                remaining = sb->buf.len - sni_total;
+                int remaining = sb->buf.len - sni_total;
                 msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes", sni_total);
 
-                src = BPTR(&sb->buf) + sni_total;
+                uint8_t *src = BPTR(&sb->buf) + sni_total;
                 sb->buf.len = 0;
                 if (remaining > 0)
                 {
