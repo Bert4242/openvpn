@@ -139,6 +139,9 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
                     msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 9");
 
         int ssl_err = SSL_get_error(ssl, handshake_ret);
+                char err_buf[256];
+    ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
+    msg(M_NONFATAL, "--sni-passthrough-hostname: SSL_do_handshake failed: %s", err_buf);
 
         if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE)
         {
@@ -146,7 +149,12 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
             goto cleanup;
         }
-                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 11");
+        else
+        {
+
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 11 : %d",ssl_err);
+                            }
+
 
     }
 
