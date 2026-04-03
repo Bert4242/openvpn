@@ -272,6 +272,13 @@ static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
             sni_passthrough_alpn_openvpn,
             sizeof(sni_passthrough_alpn_openvpn), in, inlen) == OPENSSL_NPN_NEGOTIATED) {
         matched = 1;
+                            msg(M_WARN,"--sni-passthrough-server: sni_passthrough_alpn_cb matched");
+
+    }
+    else
+    {
+                    msg(M_WARN,"--sni-passthrough-server: sni_passthrough_alpn_cb else");
+
     }
     return SSL_TLSEXT_ERR_OK;
 }
@@ -322,6 +329,8 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     {
         if (consumed )
         {
+                    msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet consumed");
+
             return consumed;
         }
         else
@@ -332,6 +341,8 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     }
     else
     {
+                            msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet not matched");
+
         return 0;
     }
 }
