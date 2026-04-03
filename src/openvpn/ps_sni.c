@@ -220,65 +220,60 @@ error:
 bool
 sni_passthrough_consume_header(struct stream_buf *sb)
 {
-    if (sb->sni_passthrough_state == SNI_PT_PENDING && sb->buf.len >= 1)
+    if (sb->buf.len >= 5)
     {
-        if (BPTR(&sb->buf)[0] != 0x16)
+        if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
         {
             /* client without --sni-passthrough-hostname. */
             msg(M_INFO, "--sni-passthrough-server: client without routing header");
             sb->sni_passthrough_state = SNI_PT_DISABLED;
+            return false;
         }
         else
         {
-            sb->sni_passthrough_state = SNI_PT_CONSUMING;
-        }
-    }
-    if (sb->sni_passthrough_state == SNI_PT_CONSUMING)
-    {
-        int total;
-        int remaining;
-        uint8_t *src;
-
-        /* Wait for the 5-byte TLS record envelope header. */
-        if (sb->sni_passthrough_total < 0 && sb->buf.len >= 5)
-        {
+          /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
-            uint16_t payload = ((uint16_t)hdr[3] << 8) | hdr[4];
-            sb->sni_passthrough_total = 5 + (int)payload;
+            int total;
+            int remaining;
+            uint8_t *src;
 
-            if (sb->sni_passthrough_total > sb->maxlen)
+            sb->sni_passthrough_total=sni_passthrough_check_packet(hdr,sb->buf.len);
+
+            if (sb->sni_passthrough_total == 0)
             {
-                msg(M_WARN,
-                    "--sni-passthrough-server: routing header too large (%d bytes)", sb->sni_passthrough_total);
-                sb->error = true;
+                /* nothing found */
+                return false;
+
+            }
+            else if ( sb->buf.len < sb->sni_passthrough_total)
+            {
+                /* Not enough data yet; should not happend. */
                 return false;
             }
-        }
-        if (sb->sni_passthrough_total < 0
-            || sb->buf.len < sb->sni_passthrough_total)
-        {
-            /* Not enough data yet; wait for more. */
-            return false;
-        }
+            else
+            {
+                /* Full routing header received; discard it and reset the buffer so
+                * normal OpenVPN stream parsing sees a clean slate. */
+                total = sb->sni_passthrough_total;
+                remaining = sb->buf.len - total;
+                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes", total);
 
-        /* Full routing header received; discard it and reset the buffer so
-         * normal OpenVPN stream parsing sees a clean slate. */
-        total = sb->sni_passthrough_total;
-        remaining = sb->buf.len - total;
-        msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes", total);
+                src = BPTR(&sb->buf) + total;
+                sb->buf.len = 0;
+                if (remaining > 0)
+                {
+                    memmove(BPTR(&sb->buf), src, remaining);
+                    sb->buf.len = remaining;
+                }
+                sb->sni_passthrough_state = SNI_PT_SUCCESS;
+                /* Fall through to normal OpenVPN stream parsing. */
+                return true;
 
-        src = BPTR(&sb->buf) + total;
-        sb->buf.len = 0;
-        if (remaining > 0)
-        {
-            memmove(BPTR(&sb->buf), src, remaining);
-            sb->buf.len = remaining;
+            }
         }
-        sb->sni_passthrough_state = SNI_PT_DISABLED;
-        /* Fall through to normal OpenVPN stream parsing. */
     }
 
-    return true;
+    return false;
 }
 
 
@@ -313,9 +308,29 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     matched = 0;
     SSL_accept(ssl);
 
+    size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+    size_t consumed  = pkt_len - remaining;
+
+
     SSL_free(ssl);      // frees BIOs too
     SSL_CTX_free(ctx);
-    return matched;     /* 1 = "openvpn" was in the ALPN list */
+
+    if (matched)  /* 1 = "openvpn" was in the ALPN list */
+    {
+        if (consumed)
+        {
+            return consumed;
+        }
+        else
+        {
+            msg(M_WARN,"--sni-passthrough-server: routing header found but not consumed");
+            return 0;
+        }
+    }
+    else 
+    {
+        return 0;    
+    }
 }
 
 

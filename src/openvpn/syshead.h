@@ -477,7 +477,7 @@ socket_defined(const socket_descriptor_t sd)
 /*
  * SNI passthrough capability (--sni-passthrough-hostname / --sni-passthrough-server)
  */
-#if defined(ENABLE_SNI_PASSTHROUGH)
+#if defined(ENABLE_CRYPTO_OPENSSL)
 #define SNI_PASSTHROUGH 1
 #else
 #define SNI_PASSTHROUGH 0
