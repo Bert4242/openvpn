@@ -296,23 +296,28 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     BIO *wbio = BIO_new(BIO_s_mem());
     SSL_set_bio(ssl, rbio, wbio);
 
+
+    matched = 0;
+    size_t consumed = 0;
+
     // Feed the raw ClientHello into the read BIO
     if (pkt_len > INT_MAX)
     {
-        SSL_free(ssl);
-        SSL_CTX_free(ctx);
-        return 0;
+       /* something is not ok with int , should not happen */
     }
-    BIO_write(rbio, pkt, (int)pkt_len);
+    else
+    {
+        BIO_write(rbio, pkt, (int)pkt_len);
 
-    // This will parse the ClientHello and fire callbacks
-    // It will "fail" (no full handshake), but that's fine
-    matched = 0;
-    SSL_accept(ssl);
+        // This will parse the ClientHello and fire callbacks
+        // It will "fail" (no full handshake), but that's fine
+        SSL_accept(ssl);
 
-    size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-    size_t consumed  = pkt_len - remaining;
+        size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+        consumed = pkt_len - remaining;
 
+        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %zu bytes", consumed);
+    }
 
     SSL_free(ssl);      // frees BIOs too
     SSL_CTX_free(ctx);
@@ -329,9 +334,9 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
             return 0;
         }
     }
-    else 
+    else
     {
-        return 0;    
+        return 0;
     }
 }
 
