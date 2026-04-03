@@ -252,70 +252,14 @@ error:
     return false;
 }
 
-/*
- * Server side (--sni-passthrough-server): detect and consume the SNI routing
- * header prepended by --sni-passthrough-hostname clients before the OpenVPN
- * stream begins.  After the first packet sni_passthrough_state is
- * SNI_PT_DISABLED (0), so the entire function costs one always-not-taken
- * branch per fragment once the header has been handled.
- */
-bool
-sni_passthrough_consume_header(struct stream_buf *sb)
-{
-    if (sb->buf.len >= 5)
-    {
-        if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
-        {
-            /* client without --sni-passthrough-hostname. */
-            msg(M_INFO, "--sni-passthrough-server: client without routing header");
-            sb->sni_passthrough_state = SNI_PT_DISABLED;
-            return false;
-        }
-        else
-        {
-          /* assuming the first packet is always complete, like port-share do. */
-            const uint8_t *hdr = BPTR(&sb->buf);
 
-            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
 
-                                msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
 
-            if (sni_total == 0)
-            {
-                /* nothing found */
-                return false;
 
-            }
-            else if (sb->buf.len < sni_total)
-            {
-                /* Not enough data yet; should not happend. */
-                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
 
-                return false;
-            }
-            else
-            {
-                /* Full routing header received; discard it and reset the buffer so
-                * normal OpenVPN stream parsing sees a clean slate. */
-                int remaining = sb->buf.len - sni_total;
-                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
 
-                uint8_t *src = BPTR(&sb->buf) + sni_total;
-                sb->buf.len = remaining;
-                if (remaining > 0)
-                {
-                    memmove(BPTR(&sb->buf), src, remaining);
-                }
-                sb->sni_passthrough_state = SNI_PT_SUCCESS;
-                /* Fall through to normal OpenVPN stream parsing. */
-                return true;
 
-            }
-        }
-    }
 
-    return false;
-}
 
 
 
@@ -386,6 +330,75 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
 }
 
 
+
+
+
+
+
+/*
+ * Server side (--sni-passthrough-server): detect and consume the SNI routing
+ * header prepended by --sni-passthrough-hostname clients before the OpenVPN
+ * stream begins.  After the first packet sni_passthrough_state is
+ * SNI_PT_DISABLED (0), so the entire function costs one always-not-taken
+ * branch per fragment once the header has been handled.
+ */
+bool
+sni_passthrough_consume_header(struct stream_buf *sb)
+{
+    if (sb->buf.len >= 5)
+    {
+        if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
+        {
+            /* client without --sni-passthrough-hostname. */
+            msg(M_INFO, "--sni-passthrough-server: client without routing header");
+            sb->sni_passthrough_state = SNI_PT_DISABLED;
+            return false;
+        }
+        else
+        {
+          /* assuming the first packet is always complete, like port-share do. */
+            const uint8_t *hdr = BPTR(&sb->buf);
+
+            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
+
+                                msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
+
+            if (sni_total == 0)
+            {
+                /* nothing found */
+                return false;
+
+            }
+            else if (sb->buf.len < sni_total)
+            {
+                /* Not enough data yet; should not happend. */
+                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
+
+                return false;
+            }
+            else
+            {
+                /* Full routing header received; discard it and reset the buffer so
+                * normal OpenVPN stream parsing sees a clean slate. */
+                int remaining = sb->buf.len - sni_total;
+                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
+
+                uint8_t *src = BPTR(&sb->buf) + sni_total;
+                sb->buf.len = remaining;
+                if (remaining > 0)
+                {
+                    memmove(BPTR(&sb->buf), src, remaining);
+                }
+                sb->sni_passthrough_state = SNI_PT_SUCCESS;
+                /* Fall through to normal OpenVPN stream parsing. */
+                return true;
+
+            }
+        }
+    }
+
+    return false;
+}
 
 
 
