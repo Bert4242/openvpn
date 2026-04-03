@@ -332,7 +332,7 @@ static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
     return SSL_TLSEXT_ERR_OK;
 }
 
-int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
+int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
 
@@ -352,7 +352,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     }
     else
     {
-        BIO_write(rbio, pkt, (int)pkt_len);
+        BIO_write(rbio, pkt, pkt_len);
 
         // This will parse the ClientHello and fire callbacks
         // It will "fail" (no full handshake), but that's fine
@@ -361,7 +361,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
         size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
         consumed = pkt_len - remaining;
 
-        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes", consumed);
+        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of ", consumed);
     }
 
     SSL_free(ssl);      // frees BIOs too
