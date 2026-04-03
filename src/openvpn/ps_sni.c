@@ -312,7 +312,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
             msg(M_WARN,"--sni-passthrough-server: routing header found but BIO_ctrl_pending returned to big %zu" ,remaining);
         }
 
-        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of ", consumed);
+        msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of %d", consumed,pkt_len);
     }
 
     SSL_free(ssl);      // frees BIOs too
