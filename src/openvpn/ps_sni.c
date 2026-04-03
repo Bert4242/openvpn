@@ -297,7 +297,13 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     SSL_set_bio(ssl, rbio, wbio);
 
     // Feed the raw ClientHello into the read BIO
-    BIO_write(rbio, pkt, pkt_len);
+    if (pkt_len > INT_MAX)
+    {
+        SSL_free(ssl);
+        SSL_CTX_free(ctx);
+        return 0;
+    }
+    BIO_write(rbio, pkt, (int)pkt_len);
 
     // This will parse the ClientHello and fire callbacks
     // It will "fail" (no full handshake), but that's fine
@@ -313,9 +319,9 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
 
     if (matched)  /* 1 = "openvpn" was in the ALPN list */
     {
-        if (consumed)
+        if (consumed && consumed <= INT_MAX)
         {
-            return consumed;
+            return (int)consumed;
         }
         else
         {
