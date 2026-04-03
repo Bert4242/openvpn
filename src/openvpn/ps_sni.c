@@ -74,20 +74,30 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     SSL *ssl = NULL;
     SSL_CTX *ctx = NULL;
 
+
+
+            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 1");
+
     if (!sni || !*sni)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 2");
+
         return 0;
     }
 
     ctx = SSL_CTX_new(TLS_client_method());
     if (!ctx)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 3");
+
         goto cleanup;
     }
 
     ssl = SSL_new(ctx);
     if (!ssl)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 4");
+
         goto cleanup;
     }
 
@@ -95,6 +105,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     wbio = BIO_new(BIO_s_mem());
     if (!rbio || !wbio)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 5");
+
         goto cleanup;
     }
 
@@ -106,44 +118,67 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
     if (!SSL_set_tlsext_host_name(ssl, sni))
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 6");
+
         goto cleanup;
     }
 
     if (SSL_set_alpn_protos(ssl, sni_passthrough_alpn_openvpn,
                             sizeof(sni_passthrough_alpn_openvpn)) != 0)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 7");
+
         goto cleanup;
     }
+
+                msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 8");
 
     int handshake_ret = SSL_do_handshake(ssl);
     if (handshake_ret != 1)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 9");
+
         int ssl_err = SSL_get_error(ssl, handshake_ret);
 
         if (ssl_err != SSL_ERROR_WANT_READ && ssl_err != SSL_ERROR_WANT_WRITE)
         {
+                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 10");
+
             goto cleanup;
         }
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 11");
+
     }
 
     BIO *wbio_peek = SSL_get_wbio(ssl);
     if (!wbio_peek)
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 12");
+
         goto cleanup;
     }
     else
     {
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 13");
+
         size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
         if (!pending || pending > bufsz)
         {
+                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 14");
+
             goto cleanup;
         }
+
+                    msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 15");
 
         int n = BIO_read(wbio_peek, buf, (int)pending);
         if (n <= 0 || (size_t)n != pending)
         {
+                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 16");
+
             goto cleanup;
         }
+            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 17");
 
         ret = pending;
     }
