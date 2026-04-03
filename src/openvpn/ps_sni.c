@@ -278,6 +278,8 @@ sni_passthrough_consume_header(struct stream_buf *sb)
 
             int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
 
+                                msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
+
             if (sni_total == 0)
             {
                 /* nothing found */
