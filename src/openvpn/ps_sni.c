@@ -285,6 +285,11 @@ static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
 
 int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    /* Force TLS 1.2: the ALPN callback fires during the unencrypted ServerHello
+     * in TLS 1.2, before any certificate is required.  In TLS 1.3 the callback
+     * only fires after the server has a certificate ready, so it never triggers
+     * when we have no cert (we only want to inspect the ClientHello). */
+    SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
     SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
 
     SSL *ssl = SSL_new(ctx);
