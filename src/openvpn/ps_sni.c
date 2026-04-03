@@ -287,6 +287,8 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             else if (sb->buf.len < sni_total)
             {
                 /* Not enough data yet; should not happend. */
+                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %zu bytes of %zu buffer", sni_total,sb->buf.len);
+
                 return false;
             }
             else
