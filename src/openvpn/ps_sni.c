@@ -276,7 +276,7 @@ sni_passthrough_consume_header(struct stream_buf *sb)
           /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
 
-            size_t sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
+            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
 
             if (sni_total == 0)
             {
@@ -287,7 +287,7 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             else if (sb->buf.len < sni_total)
             {
                 /* Not enough data yet; should not happend. */
-                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %zu bytes of %zu buffer", sni_total,sb->buf.len);
+                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
 
                 return false;
             }
@@ -295,8 +295,8 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             {
                 /* Full routing header received; discard it and reset the buffer so
                 * normal OpenVPN stream parsing sees a clean slate. */
-                size_t remaining = sb->buf.len - sni_total;
-                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %zu bytes of %zu buffer", sni_total,sb->buf.len);
+                int remaining = sb->buf.len - sni_total;
+                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
 
                 uint8_t *src = BPTR(&sb->buf) + sni_total;
                 sb->buf.len = remaining;
@@ -330,7 +330,7 @@ static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
     return SSL_TLSEXT_ERR_OK;
 }
 
-size_t sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
+int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
 
@@ -341,7 +341,7 @@ size_t sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
 
 
     matched = 0;
-    size_t consumed = 0;
+    int consumed = 0;
 
     // Feed the raw ClientHello into the read BIO
     if (pkt_len > INT_MAX)
@@ -356,7 +356,7 @@ size_t sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
         // It will "fail" (no full handshake), but that's fine
         SSL_accept(ssl);
 
-        size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+        int remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
         consumed = pkt_len - remaining;
 
         msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %zu bytes", consumed);
