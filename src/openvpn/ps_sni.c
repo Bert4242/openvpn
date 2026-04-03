@@ -172,8 +172,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
         size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
         if (!pending || pending > bufsz)
         {
-                        msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 14");
-
+            msg(M_NONFATAL,"--sni-passthrough-hostname: sni_passthrough_build_client_hello 14: pending=%zu bufsz=%zu", pending, bufsz);
             goto cleanup;
         }
 
@@ -219,7 +218,7 @@ cleanup:
 bool
 sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
 {
-    uint8_t buf[512];
+    uint8_t buf[4096];
     size_t len;
     ssize_t sent;
 
