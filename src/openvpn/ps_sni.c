@@ -276,7 +276,7 @@ sni_passthrough_consume_header(struct stream_buf *sb)
           /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
 
-            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
+            size_t sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
 
             if (sni_total == 0)
             {
@@ -293,15 +293,14 @@ sni_passthrough_consume_header(struct stream_buf *sb)
             {
                 /* Full routing header received; discard it and reset the buffer so
                 * normal OpenVPN stream parsing sees a clean slate. */
-                int remaining = sb->buf.len - sni_total;
-                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes", sni_total);
+                size_t remaining = sb->buf.len - sni_total;
+                msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %zu bytes of %zu buffer", sni_total,sb->buf.len);
 
                 uint8_t *src = BPTR(&sb->buf) + sni_total;
-                sb->buf.len = 0;
+                sb->buf.len = remaining;
                 if (remaining > 0)
                 {
                     memmove(BPTR(&sb->buf), src, remaining);
-                    sb->buf.len = remaining;
                 }
                 sb->sni_passthrough_state = SNI_PT_SUCCESS;
                 /* Fall through to normal OpenVPN stream parsing. */
@@ -329,7 +328,7 @@ static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
     return SSL_TLSEXT_ERR_OK;
 }
 
-int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
+size_t sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
     SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
 
@@ -368,7 +367,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
     {
         if (consumed && consumed <= INT_MAX)
         {
-            return (int)consumed;
+            return consumed;
         }
         else
         {
