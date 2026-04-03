@@ -225,7 +225,7 @@ sni_passthrough_consume_header(struct stream_buf *sb)
         if (BPTR(&sb->buf)[0] != 0x16)
         {
             /* client without --sni-passthrough-hostname. */
-            msg(M_INFO, "--sni-passthrough-server: client without routing header)");
+            msg(M_INFO, "--sni-passthrough-server: client without routing header");
             sb->sni_passthrough_state = SNI_PT_DISABLED;
         }
         else
@@ -280,5 +280,48 @@ sni_passthrough_consume_header(struct stream_buf *sb)
 
     return true;
 }
+
+
+
+int matched = 0;
+
+static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
+                   unsigned char *outlen, const unsigned char *in,
+                   unsigned int inlen, void *arg) {
+    if (SSL_select_next_proto((unsigned char **)out, outlen,
+            sni_passthrough_alpn_openvpn,
+            sizeof(sni_passthrough_alpn_openvpn), in, inlen) == OPENSSL_NPN_NEGOTIATED) {
+        matched = 1;
+    }
+    return SSL_TLSEXT_ERR_OK;
+}
+
+int sni_passthrough_check_packet(const unsigned char *pkt, size_t pkt_len) {
+    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
+
+    SSL *ssl = SSL_new(ctx);
+    BIO *rbio = BIO_new(BIO_s_mem());
+    BIO *wbio = BIO_new(BIO_s_mem());
+    SSL_set_bio(ssl, rbio, wbio);
+
+    // Feed the raw ClientHello into the read BIO
+    BIO_write(rbio, pkt, pkt_len);
+
+    // This will parse the ClientHello and fire callbacks
+    // It will "fail" (no full handshake), but that's fine
+    matched = 0;
+    SSL_accept(ssl);
+
+    SSL_free(ssl);      // frees BIOs too
+    SSL_CTX_free(ctx);
+    return matched;     /* 1 = "openvpn" was in the ALPN list */
+}
+
+
+
+
+
+
 
 #endif /* SNI_PASSTHROUGH */
