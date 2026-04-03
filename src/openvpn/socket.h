@@ -141,7 +141,6 @@ struct stream_buf
 #define SNI_PT_PENDING   1  /* waiting to inspect first byte */
 #define SNI_PT_SUCCESS 2  /* SNI header was consumed */
     int sni_passthrough_state;
-    int sni_passthrough_total; /* total bytes to discard (5 + payload); -1 until known */
 #endif
 };
 
