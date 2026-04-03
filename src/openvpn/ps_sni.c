@@ -401,37 +401,25 @@ sni_passthrough_consume_header(struct stream_buf *sb)
         {
           /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
-
             int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
-
-                                msg(M_INFO,"--sni-passthrough-server: sni_passthrough_check_packet SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-
             if (sni_total == 0)
             {
                 /* nothing found */
                 return false;
-
             }
             else if (sb->buf.len < sni_total)
             {
                 /* Not enough data yet; should not happend. */
-                                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-
+                msg(M_INFO,"--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
                 return false;
             }
             else
             {
-                /* Full routing header received; discard it and reset the buffer so
-                * normal OpenVPN stream parsing sees a clean slate. */
-                int remaining = sb->buf.len - sni_total;
+                /* Full routing header received; discard it so normal OpenVPN
+                 * stream parsing sees a clean slate. buf_advance shifts the
+                 * logical view without moving any data. */
                 msg(M_INFO,"--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total,sb->buf.len);
-
-                uint8_t *src = BPTR(&sb->buf) + sni_total;
-                sb->buf.len = remaining;
-                if (remaining > 0)
-                {
-                    memmove(BPTR(&sb->buf), src, remaining);
-                }
+                buf_advance(&sb->buf, sni_total);
                 sb->sni_passthrough_state = SNI_PT_SUCCESS;
                 /* Fall through to normal OpenVPN stream parsing. */
                 return true;
