@@ -1755,7 +1755,6 @@ stream_buf_init(struct stream_buf *sb, const struct buffer *buf, const unsigned 
     sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
                                 ? SNI_PT_PENDING
                                 : SNI_PT_DISABLED;
-    sb->sni_passthrough_total = -1;
 #endif
     stream_buf_reset(sb);
 
