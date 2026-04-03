@@ -339,7 +339,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
  * branch per fragment once the header has been handled.
  */
 bool
-sni_passthrough_consume_header(struct stream_buf *sb)
+sni_passthrough_check_and_consume_header(struct stream_buf *sb)
 {
     if (sb->buf.len >= 5)
     {

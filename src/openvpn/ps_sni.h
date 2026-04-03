@@ -43,7 +43,7 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni);
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
  */
-bool sni_passthrough_consume_header(struct stream_buf *sb);
+bool sni_passthrough_check_and_consume_header(struct stream_buf *sb);
 
 /*
  * Inspect a raw packet buffer to determine whether it is an SNI routing
