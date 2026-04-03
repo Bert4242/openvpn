@@ -2224,20 +2224,7 @@ stream_buf_added(struct stream_buf *sb, int length_added)
 #if SNI_PASSTHROUGH
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
-                    if (!sni_passthrough_consume_header(sb))
-                    {
-                        /* SNI header not found  */
-                        if (sb->sni_passthrough_state == SNI_PT_PENDING)
-                        {
-                            /* assuming SNI header will always be in the first packet complete */
-                            sb->sni_passthrough_state = SNI_PT_DISABLED;
-                        }
-/*
-should not return , no ? 
-return false;
-*/
-}
-                    else
+                    if (sni_passthrough_consume_header(sb))
                     {
                         if (sb->port_share_state == PS_ENABLED )
                         {
@@ -2250,6 +2237,21 @@ return false;
                             return false;
                         }
                     }
+                    else
+                    {
+                        /* SNI header not found  */
+                        if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                        {
+                            /* assuming SNI header will always be in the first packet complete */
+    //                        sb->sni_passthrough_state = SNI_PT_DISABLED;
+                        }
+                        
+/*
+should not return , no ? 
+return false;
+*/
+                    }
+
                 }
 #endif
                 if (sb->port_share_state == PS_ENABLED )
