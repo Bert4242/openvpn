@@ -265,32 +265,51 @@ error:
 
 int matched = 0;
 
-static int sni_passthrough_alpn_cb(SSL *ssl, const unsigned char **out,
-                   unsigned char *outlen, const unsigned char *in,
-                   unsigned int inlen, void *arg) {
-    if (SSL_select_next_proto((unsigned char **)out, outlen,
-            sni_passthrough_alpn_openvpn,
-            sizeof(sni_passthrough_alpn_openvpn), in, inlen) == OPENSSL_NPN_NEGOTIATED) {
-        matched = 1;
-                            msg(M_WARN,"--sni-passthrough-server: sni_passthrough_alpn_cb matched");
+/*
+ * client_hello_cb fires on the raw ClientHello before any certificate is
+ * needed, in both TLS 1.2 and TLS 1.3.  We inspect the ALPN extension
+ * directly to check for the "openvpn" token.
+ */
+static int sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
+{
+    const unsigned char *alpn_data = NULL;
+    size_t alpn_len = 0;
 
-    }
-    else
+    /* SSL_client_hello_get0_ext looks up extension type 16 (ALPN) */
+    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_application_layer_protocol_negotiation,
+                                  &alpn_data, &alpn_len) && alpn_data && alpn_len > 4)
     {
-                    msg(M_WARN,"--sni-passthrough-server: sni_passthrough_alpn_cb else");
+        /* ALPN wire format: protocol_list_len(2) + proto_len(1) + proto */
+        const unsigned char *p   = alpn_data + 2; /* skip protocol_list_len */
+        const unsigned char *end = alpn_data + alpn_len;
 
+        while (p < end)
+        {
+            unsigned int plen = *p++;
+            if (p + plen > end)
+            {
+                break;
+            }
+            if (plen == sizeof(sni_passthrough_alpn_openvpn) - 1
+                && memcmp(p, sni_passthrough_alpn_openvpn + 1, plen) == 0)
+            {
+                matched = 1;
+                msg(M_INFO, "--sni-passthrough-server: client_hello_cb: openvpn ALPN matched");
+                break;
+            }
+            p += plen;
+        }
     }
-    return SSL_TLSEXT_ERR_OK;
+
+    /* Always return success — we are only inspecting, not blocking. */
+    return SSL_CLIENT_HELLO_SUCCESS;
 }
 
 int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
-    /* Force TLS 1.2: the ALPN callback fires during the unencrypted ServerHello
-     * in TLS 1.2, before any certificate is required.  In TLS 1.3 the callback
-     * only fires after the server has a certificate ready, so it never triggers
-     * when we have no cert (we only want to inspect the ClientHello). */
-    SSL_CTX_set_max_proto_version(ctx, TLS1_2_VERSION);
-    SSL_CTX_set_alpn_select_cb(ctx, sni_passthrough_alpn_cb, NULL);
+    /* client_hello_cb fires on the raw ClientHello before any certificate
+     * is required, unlike the ALPN select callback which needs a cert. */
+    SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, NULL);
 
     SSL *ssl = SSL_new(ctx);
     BIO *rbio = BIO_new(BIO_s_mem());
