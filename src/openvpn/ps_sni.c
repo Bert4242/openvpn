@@ -302,8 +302,15 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
         // It will "fail" (no full handshake), but that's fine
         SSL_accept(ssl);
 
-        int remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-        consumed = pkt_len - remaining;
+        size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
+        if (remaining && remaining <= INT_MAX)
+        {
+            consumed = pkt_len - (int)remaining;
+        }
+        else
+        {
+            msg(M_WARN,"--sni-passthrough-server: routing header found but BIO_ctrl_pending returned to big %zu" ,remaining);
+        }
 
         msg(M_INFO,"--sni-passthrough-server: SSL_accept SNI routing header %d bytes of ", consumed);
     }
@@ -313,7 +320,7 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len) {
 
     if (matched)  /* 1 = "openvpn" was in the ALPN list */
     {
-        if (consumed && consumed <= INT_MAX)
+        if (consumed )
         {
             return consumed;
         }
