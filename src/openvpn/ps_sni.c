@@ -152,6 +152,11 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
             goto cleanup;
         }
         ret = pending;
+
+        struct gc_arena gc = gc_new();
+        msg(M_INFO, "--sni-passthrough-hostname: ClientHello (%zu bytes): %s",
+            ret, format_hex(buf, ret, 0, &gc));
+        gc_free(&gc);
     }
 
 cleanup:
