@@ -33,9 +33,7 @@
 #include "error.h"
 #include "ps_sni.h"
 
-static const unsigned char sni_passthrough_alpn_openvpn[] = {
-    7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
-};
+
 
 /*
  * SNI passthrough support
@@ -65,6 +63,11 @@ static const unsigned char sni_passthrough_alpn_openvpn[] = {
  */
 
 #if !defined(LIBRESSL_VERSION_NUMBER)
+
+static const unsigned char sni_passthrough_alpn_openvpn[] = {
+    7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
+};
+
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 {
@@ -124,6 +127,10 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
             ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
             msg(M_NONFATAL, "--sni-passthrough-hostname: SSL_do_handshake failed: %s", err_buf);
             goto cleanup;
+        }
+        else
+        {
+            /* SSL_ERROR_WANT_READ and SSL_ERROR_WANT_WRITE are not fatal to our usage */
         }
     }
 
