@@ -181,8 +181,8 @@ cleanup:
 /*
  * Template-based ClientHello builder for LibreSSL.
  *
- * The template was captured from OpenSSL with hostname "ring00.vpn.hudzia.net"
- * (21 bytes).  The prefix covers bytes [0..155] (everything up to the
+ * The template was captured from OpenSSL with a 21-byte hostname.
+ * The prefix covers bytes [0..155] (everything up to the
  * hostname), the suffix covers bytes [177..1576] (everything after).
  * When building, we copy prefix, insert the requested hostname, append
  * suffix, then patch the five length fields that span the SNI extension
@@ -240,7 +240,7 @@ static const uint8_t sni_pt_prefix[156] = {
     0x00,0x18,  /* server_name_list_len=24  [151..152] */
     0x00,       /* name_type: host_name */
     0x00,0x15   /* name_len=21  [154..155] */
-    /* hostname "ring00.vpn.hudzia.net" follows at [156]  */
+    /* hostname (21 bytes) follows at [156]  */
 };
 
 static const uint8_t sni_pt_suffix[1400] = {
@@ -441,7 +441,7 @@ static const uint8_t sni_pt_suffix[1400] = {
 
 #define SNI_PT_PREFIX_LEN       156u
 #define SNI_PT_SUFFIX_LEN       1400u
-#define SNI_PT_TEMPLATE_SNI_LEN 21u   /* "ring00.vpn.hudzia.net" */
+#define SNI_PT_TEMPLATE_SNI_LEN 21u   /* length of the hostname in the captured template */
 #define SNI_PT_TEMPLATE_TOTAL   1577u /* PREFIX + SNI + SUFFIX */
 
 /* Offsets and lengths of the ephemeral key fields within the suffix array */
