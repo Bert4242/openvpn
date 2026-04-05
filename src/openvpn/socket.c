@@ -2212,9 +2212,9 @@ stream_buf_added(struct stream_buf *sb, int length_added)
 
 #if PORT_SHARE  
 #if SNI_PASSTHROUGH
-        if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING )
+        if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING)
 #else
-        if (sb->port_share_state == PS_ENABLED )
+        if (sb->port_share_state == PS_ENABLED)
 #endif
         {
             if (!is_openvpn_protocol(&sb->buf))
