@@ -1753,8 +1753,8 @@ stream_buf_init(struct stream_buf *sb, const struct buffer *buf, const unsigned 
 #endif
 #if SNI_PASSTHROUGH
     sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
-                                ? SNI_PT_PENDING
-                                : SNI_PT_DISABLED;
+                                    ? SNI_PT_PENDING
+                                    : SNI_PT_DISABLED;
 #endif
     stream_buf_reset(sb);
 
@@ -1844,15 +1844,13 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         sb->buf.len += (int)length_added;
     }
 
-
-
     /* if length unknown, see if we can get the length prefix from
      * the head of the buffer */
     if (sb->len < 0 && sb->buf.len >= (int)sizeof(packet_size_type))
     {
         packet_size_type net_size;
 
-#if PORT_SHARE  
+#if PORT_SHARE
 #if SNI_PASSTHROUGH
         if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING)
 #else
@@ -1907,7 +1905,6 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                 }
 #endif
             }
-
         }
 #endif
 

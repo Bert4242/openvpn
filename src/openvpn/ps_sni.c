@@ -34,7 +34,6 @@
 #include "ps_sni.h"
 
 
-
 /*
  * SNI passthrough support
  * (--sni-passthrough-hostname / --sni-passthrough-server).
@@ -176,7 +175,7 @@ cleanup:
     return ret;
 }
 
-#else /* LIBRESSL_VERSION_NUMBER */
+#else  /* LIBRESSL_VERSION_NUMBER */
 
 /*
  * Template-based ClientHello builder for LibreSSL.
@@ -439,10 +438,10 @@ static const uint8_t sni_pt_suffix[1400] = {
 };
 /* clang-format on */
 
-#define SNI_PT_PREFIX_LEN       156u
-#define SNI_PT_SUFFIX_LEN       1400u
-#define SNI_PT_TEMPLATE_SNI_LEN 21u   /* length of the hostname in the captured template */
-#define SNI_PT_TEMPLATE_TOTAL   1577u /* PREFIX + SNI + SUFFIX */
+#define SNI_PT_PREFIX_LEN        156u
+#define SNI_PT_SUFFIX_LEN        1400u
+#define SNI_PT_TEMPLATE_SNI_LEN  21u   /* length of the hostname in the captured template */
+#define SNI_PT_TEMPLATE_TOTAL    1577u /* PREFIX + SNI + SUFFIX */
 
 /* Offsets and lengths of the ephemeral key fields within the suffix array */
 #define SNI_PT_SUFFIX_MLKEM_OFF  139u  /* ML-KEM key data (1216 bytes) */
@@ -463,8 +462,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
         return 0;
     }
     sni_len = strlen(sni);
-    total   = SNI_PT_PREFIX_LEN + sni_len + SNI_PT_SUFFIX_LEN;
-    delta   = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
+    total = SNI_PT_PREFIX_LEN + sni_len + SNI_PT_SUFFIX_LEN;
+    delta = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
 
     if (total > bufsz || total > 0xffffU + 5)
     {
@@ -484,8 +483,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     /* Patch Handshake length [6..8] (3-byte big-endian) */
     uint32_t hs_len = (uint32_t)((SNI_PT_TEMPLATE_TOTAL - 9) + delta);
     buf[6] = (uint8_t)((hs_len >> 16) & 0xff);
-    buf[7] = (uint8_t)((hs_len >>  8) & 0xff);
-    buf[8] = (uint8_t)( hs_len        & 0xff);
+    buf[7] = (uint8_t)((hs_len >> 8) & 0xff);
+    buf[8] = (uint8_t)(hs_len & 0xff);
 
     /* Patch extensions total length [140..141] */
     uint16_t ext_len = (uint16_t)(0x059b + delta);
@@ -677,7 +676,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     }
 }
 
-#else /* LIBRESSL_VERSION_NUMBER */
+#else  /* LIBRESSL_VERSION_NUMBER */
 
 /*
  * LibreSSL does not expose SSL_client_hello_get0_ext / SSL_CTX_set_client_hello_cb.
@@ -695,7 +694,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 
     /* TLS record length is at bytes [3..4] (big-endian) */
     int record_len = ((int)pkt[3] << 8) | (int)pkt[4];
-    int total      = 5 + record_len;
+    int total = 5 + record_len;
 
     if (total > pkt_len)
     {
@@ -709,7 +708,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
         0x07, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
     };
     const unsigned char *end = pkt + total;
-    const unsigned char *p   = pkt + 5; /* skip TLS record header */
+    const unsigned char *p = pkt + 5; /* skip TLS record header */
 
     while (p + sizeof(openvpn_token) <= end)
     {
