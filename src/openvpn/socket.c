@@ -2219,7 +2219,7 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                 {
                     if (sni_passthrough_check_and_consume_header(sb))
                     {
-                        if (sb->port_share_state == PS_ENABLED )
+                        if (sb->port_share_state == PS_ENABLED)
                         {
                             /* SNI header has been droped , cant anymore do port_share */
                             sb->port_share_state = PS_DISABLED;
@@ -2241,7 +2241,7 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                     }
                 }
 #endif
-                if (sb->port_share_state == PS_ENABLED )
+                if (sb->port_share_state == PS_ENABLED)
                 {
                     sb->port_share_state = PS_FOREIGN;
                     sb->error = true;
