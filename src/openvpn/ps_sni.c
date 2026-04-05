@@ -175,7 +175,7 @@ cleanup:
     return ret;
 }
 
-#else  /* LIBRESSL_VERSION_NUMBER */
+#else /* LIBRESSL_VERSION_NUMBER */
 
 /*
  * Template-based ClientHello builder for LibreSSL.
