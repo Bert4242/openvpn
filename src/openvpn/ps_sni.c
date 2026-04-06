@@ -60,7 +60,7 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-#if !(defined(LIBRESSL_VERSION_NUMBER) || defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH))
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static const unsigned char sni_passthrough_alpn_openvpn[] = {
     7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
@@ -174,10 +174,10 @@ cleanup:
     return ret;
 }
 
-#else /* LIBRESSL_VERSION_NUMBER */
+#else /* generic byte-scan path: LibreSSL, mbedTLS, wolfSSL, … */
 
 /*
- * Template-based ClientHello builder for LibreSSL.
+ * Template-based ClientHello builder for non-OpenSSL backends.
  *
  * The template was captured from OpenSSL with a 21-byte hostname.
  * The prefix covers bytes [0..155] (everything up to the
@@ -534,7 +534,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     return total;
 }
 
-#endif /* !LIBRESSL_VERSION_NUMBER */
+#endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
 /*
  * Client side (--sni-passthrough-hostname): send the SNI routing header,
@@ -575,7 +575,7 @@ error:
 }
 
 
-#if !(defined(LIBRESSL_VERSION_NUMBER) || defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH))
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 int matched = 0;
 
@@ -709,10 +709,11 @@ cleanup:
     }
 }
 
-#else /* LIBRESSL_VERSION_NUMBER */
+#else /* generic byte-scan path: LibreSSL, mbedTLS, wolfSSL, … */
 
 /*
- * LibreSSL does not expose SSL_client_hello_get0_ext / SSL_CTX_set_client_hello_cb.
+ * OpenSSL's SSL_CTX_set_client_hello_cb / SSL_client_hello_get0_ext are not
+ * available on LibreSSL, mbedTLS, wolfSSL, or other non-OpenSSL backends.
  * Instead we scan the raw ClientHello bytes for the "openvpn" ALPN token and
  * derive the consumed length directly from the TLS record header.
  */
@@ -761,7 +762,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     return 0;
 }
 
-#endif /* !LIBRESSL_VERSION_NUMBER */
+#endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
 
 /*

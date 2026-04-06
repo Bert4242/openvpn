@@ -476,8 +476,10 @@ socket_defined(const socket_descriptor_t sd)
 
 /*
  * SNI passthrough capability (--sni-passthrough-hostname / --sni-passthrough-server)
+ * The OpenSSL-callback path is used when building against OpenSSL (not LibreSSL);
+ * all other backends (LibreSSL, mbedTLS, wolfSSL, …) use the generic byte-scan path.
  */
-#if defined(ENABLE_CRYPTO_OPENSSL) && PORT_SHARE
+#if PORT_SHARE
 #define SNI_PASSTHROUGH 1
 #else
 #define SNI_PASSTHROUGH 0
