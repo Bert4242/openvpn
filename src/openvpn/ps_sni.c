@@ -61,7 +61,7 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-#if !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static const unsigned char sni_passthrough_alpn_openvpn[] = {
     7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
@@ -573,7 +573,7 @@ error:
 }
 
 
-#if !defined(LIBRESSL_VERSION_NUMBER)
+#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 int matched = 0;
 
