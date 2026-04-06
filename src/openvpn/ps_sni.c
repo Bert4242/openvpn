@@ -457,6 +457,10 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     int delta;
     int i;
 
+#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+    msg(M_INFO, "--sni-passthrough-hostname: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+#endif
+
     if (!sni || !*sni)
     {
         return 0;
@@ -676,7 +680,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     }
 }
 
-#else  /* LIBRESSL_VERSION_NUMBER */
+#else /* LIBRESSL_VERSION_NUMBER */
 
 /*
  * LibreSSL does not expose SSL_client_hello_get0_ext / SSL_CTX_set_client_hello_cb.
@@ -686,6 +690,11 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 {
+
+#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+    msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+#endif
+
     /* Need at least a TLS record header (5 bytes) */
     if (pkt_len < 5)
     {
@@ -737,6 +746,9 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 bool
 sni_passthrough_check_and_consume_header(struct stream_buf *sb)
 {
+#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+    msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+#endif
     if (sb->buf.len >= 5)
     {
         if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
