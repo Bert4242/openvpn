@@ -33,7 +33,6 @@
 #include "error.h"
 #include "ps_sni.h"
 
-
 /*
  * SNI passthrough support
  * (--sni-passthrough-hostname / --sni-passthrough-server).
@@ -46,14 +45,14 @@
  * formatted as a ClientHello record (the standard carrier for SNI in TCP).
  *
  *   Client (--sni-passthrough-hostname <hostname>):
- *     Prepends a single SNI routing header — a minimal ClientHello record
+ *     Prepends a single SNI routing header — a ClientHello record
  *     carrying the given hostname — before the OpenVPN protocol bytes.
  *     The proxy reads the hostname, routes the stream to the right backend,
- *     and forwards all bytes (including the header) unchanged.
+ *     and forwards all bytes (including the header) maybe unchanged.
  *
  *   Server (--sni-passthrough-server):
  *     Receives the routed stream, reads and discards the SNI routing header,
- *     then proceeds with the normal OpenVPN protocol.  Legacy clients that
+ *     then proceeds with the normal OpenVPN protocol. Openvpn clients that
  *     do not send the header are detected automatically and handled normally.
  *
  * No session of any kind is established by the routing header — it is
@@ -61,7 +60,7 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if !(defined(LIBRESSL_VERSION_NUMBER) || defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH))
 
 static const unsigned char sni_passthrough_alpn_openvpn[] = {
     7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
@@ -539,8 +538,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
 
 /*
  * Client side (--sni-passthrough-hostname): send the SNI routing header,
- * then return.  The OpenVPN protocol follows immediately after.
- * The socket must be in blocking mode (before phase2_set_socket_flags).
+ * then return. The OpenVPN protocol will follow immediately after.
  */
 bool
 sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
@@ -577,7 +575,7 @@ error:
 }
 
 
-#if !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if !(defined(LIBRESSL_VERSION_NUMBER) || defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH))
 
 int matched = 0;
 
@@ -626,22 +624,38 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 {
+    matched = 0;
+    int consumed = 0;
+
     SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    if (!ctx)
+    {
+        goto cleanup;
+    }
     /* client_hello_cb fires on the raw ClientHello before any certificate
      * is required, unlike the ALPN select callback which needs a cert. */
     SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, NULL);
 
     SSL *ssl = SSL_new(ctx);
+    if (!ssl)
+    {
+        goto cleanup;
+    }
+
     BIO *rbio = BIO_new(BIO_s_mem());
     BIO *wbio = BIO_new(BIO_s_mem());
+    if (!rbio || !wbio)
+    {
+        goto cleanup;
+    }
+
     SSL_set_bio(ssl, rbio, wbio);
+    rbio = NULL;
+    wbio = NULL;
 
-
-    matched = 0;
-    int consumed = 0;
 
     // Feed the raw ClientHello into the read BIO
-    BIO_write(rbio, pkt, pkt_len);
+    BIO_write(SSL_get_rbio(ssl), pkt, pkt_len);
 
     // This will parse the ClientHello and fire callbacks
     // It will "fail" (no full handshake), but that's fine
@@ -658,8 +672,23 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
         msg(M_WARN, "--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d", remaining, pkt_len);
     }
 
-    SSL_free(ssl);  // frees BIOs too
-    SSL_CTX_free(ctx);
+cleanup:
+    if (ssl)
+    {
+        SSL_free(ssl);
+    }
+    if (rbio)
+    {
+        BIO_free(rbio);
+    }
+    if (wbio)
+    {
+        BIO_free(wbio);
+    }
+    if (ctx)
+    {
+        SSL_CTX_free(ctx);
+    }
 
     if (matched) /* 1 = "openvpn" was in the ALPN list */
     {
@@ -690,7 +719,6 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 {
-
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
@@ -739,9 +767,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 /*
  * Server side (--sni-passthrough-server): detect and consume the SNI routing
  * header prepended by --sni-passthrough-hostname clients before the OpenVPN
- * stream begins.  After the first packet sni_passthrough_state is
- * SNI_PT_DISABLED (0), so the entire function costs one always-not-taken
- * branch per fragment once the header has been handled.
+ * stream begins.
  */
 bool
 sni_passthrough_check_and_consume_header(struct stream_buf *sb)
@@ -760,7 +786,6 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb)
         }
         else
         {
-            /* assuming the first packet is always complete, like port-share do. */
             const uint8_t *hdr = BPTR(&sb->buf);
 
             int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
