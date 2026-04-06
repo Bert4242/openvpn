@@ -28,7 +28,7 @@
 #include "socket.h"
 
 /*
- * Client side: build and send an SNI routing header (a minimal ClientHello)
+ * Client side: build and send an SNI routing header ClientHello
  * on the given connected TCP socket before the OpenVPN stream begins.
  * Returns true on success, false on failure.
  */
@@ -37,8 +37,6 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni);
 /*
  * Server side: drive the state machine that detects and discards the SNI
  * routing header prepended by --sni-passthrough-hostname clients.
- *
- * Must be called while sb->sni_passthrough_state != SNI_PT_DISABLED.
  *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
