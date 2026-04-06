@@ -626,8 +626,12 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 {
     matched = 0;
     int consumed = 0;
+    BIO *rbio = NULL;
+    BIO *wbio = NULL;
+    SSL *ssl = NULL;
+    SSL_CTX *ctx = NULL;
 
-    SSL_CTX *ctx = SSL_CTX_new(TLS_server_method());
+    ctx = SSL_CTX_new(TLS_server_method());
     if (!ctx)
     {
         goto cleanup;
@@ -636,14 +640,14 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
      * is required, unlike the ALPN select callback which needs a cert. */
     SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, NULL);
 
-    SSL *ssl = SSL_new(ctx);
+    ssl = SSL_new(ctx);
     if (!ssl)
     {
         goto cleanup;
     }
 
-    BIO *rbio = BIO_new(BIO_s_mem());
-    BIO *wbio = BIO_new(BIO_s_mem());
+    rbio = BIO_new(BIO_s_mem());
+    wbio = BIO_new(BIO_s_mem());
     if (!rbio || !wbio)
     {
         goto cleanup;
