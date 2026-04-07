@@ -52,6 +52,16 @@ bool sni_passthrough_check_and_consume_header(struct stream_buf *sb);
  */
 int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len);
 
+#ifdef UNIT_TESTING
+/*
+ * Thin wrapper around the internal sni_passthrough_build_client_hello()
+ * for cross-path compatibility tests.  Only compiled when UNIT_TESTING is
+ * defined and SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH is NOT set (so the
+ * normal/OpenSSL builder is exposed; sni_alt_impl.c provides the alt
+ * flavour under a separate name).
+ */
+size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz, const char *sni);
+#endif /* UNIT_TESTING */
 
 #endif /* SNI_PASSTHROUGH */
 

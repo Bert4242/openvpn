@@ -955,4 +955,18 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb)
 }
 
 
+#if defined(UNIT_TESTING) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+/*
+ * Expose the internal builder for cross-path compatibility tests.
+ * Guarded by !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH so that sni_alt_impl.c
+ * (which includes this file with the alt-path define set and all public
+ * symbols renamed) does not emit a conflicting definition.
+ */
+size_t
+sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz, const char *sni)
+{
+    return sni_passthrough_build_client_hello(buf, bufsz, sni);
+}
+#endif /* UNIT_TESTING && !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH */
+
 #endif /* SNI_PASSTHROUGH */
