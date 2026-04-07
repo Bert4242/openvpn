@@ -50,9 +50,9 @@ check_PROGRAMS += networking_testdriver
 endif
 
 if HAVE_PORT_SHARE
-check_PROGRAMS += sni_testdriver sni_openssl_testdriver
+check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
 if !CROSS_COMPILING
-TESTS += sni_testdriver sni_openssl_testdriver
+TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
 endif
 endif
 
@@ -439,6 +439,26 @@ sni_openssl_testdriver_CFLAGS = \
 sni_openssl_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
 
 sni_openssl_testdriver_SOURCES = test_sni.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/ps_sni.c
+
+# SNI passthrough – cross-path compatibility test
+# Links ps_sni.c (normal path) alongside sni_alt_impl.c (forced generic
+# path, all public symbols renamed) so all four builder × checker
+# combinations can be exercised in a single binary.
+sni_compat_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DUNIT_TESTING \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_compat_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
+
+sni_compat_testdriver_SOURCES = test_sni_compat.c \
+	sni_alt_impl.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
