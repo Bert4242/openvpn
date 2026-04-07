@@ -49,6 +49,13 @@ if HAVE_SITNL
 check_PROGRAMS += networking_testdriver
 endif
 
+if HAVE_PORT_SHARE
+check_PROGRAMS += sni_testdriver sni_openssl_testdriver
+if !CROSS_COMPILING
+TESTS += sni_testdriver sni_openssl_testdriver
+endif
+endif
+
 argv_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
 argv_testdriver_LDFLAGS = @TEST_LDFLAGS@ -L$(top_srcdir)/src/openvpn
 argv_testdriver_SOURCES = test_argv.c \
@@ -394,6 +401,37 @@ push_update_msg_testdriver_SOURCES = test_push_update_msg.c \
 	$(top_srcdir)/src/openvpn/options_util.c \
 	$(top_srcdir)/src/openvpn/otime.c \
 	$(top_srcdir)/src/openvpn/list.c
+
+# SNI passthrough – generic byte-scan path (no OpenSSL dependency)
+sni_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DSNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH \
+	@TEST_CFLAGS@
+
+sni_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+sni_testdriver_SOURCES = test_sni.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/ps_sni.c
+
+# SNI passthrough – OpenSSL client_hello_cb path (or generic path on non-OpenSSL)
+sni_openssl_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_openssl_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
+
+sni_openssl_testdriver_SOURCES = test_sni.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/ps_sni.c
 
 socket_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \

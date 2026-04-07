@@ -43,6 +43,15 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni);
  */
 bool sni_passthrough_check_and_consume_header(struct stream_buf *sb);
 
+/*
+ * Inspect a raw packet and check if it is an SNI routing header carrying
+ * the "openvpn" ALPN token.
+ *
+ * Returns the total byte length of the SNI header on match, 0 otherwise.
+ * Exposed here for unit testing.
+ */
+int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len);
+
 
 #endif /* SNI_PASSTHROUGH */
 
