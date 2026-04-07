@@ -28,7 +28,9 @@
 
 #if SNI_PASSTHROUGH
 
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 #include "openssl_compat.h"
+#endif
 #include "socket.h"
 #include "error.h"
 #include "ps_sni.h"
@@ -743,7 +745,14 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
 
 /* Macro: advance cursor by n bytes, return 0 on overrun */
 #define SNI_PT_ADVANCE(p, n, end) \
-    do { if ((p) + (n) > (end)) { return 0; } (p) += (n); } while (0)
+    do                            \
+    {                             \
+        if ((p) + (n) > (end))    \
+        {                         \
+            return 0;             \
+        }                         \
+        (p) += (n);               \
+    } while (0)
 
 /* Macro: read 2-byte big-endian uint16 at p (without advancing) */
 #define SNI_PT_READ16(p) ((unsigned int)((p)[0]) << 8 | (unsigned int)((p)[1]))
@@ -827,7 +836,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     while (p + 4 <= exts_end)
     {
         unsigned int ext_type = SNI_PT_READ16(p);
-        unsigned int ext_len  = SNI_PT_READ16(p + 2);
+        unsigned int ext_len = SNI_PT_READ16(p + 2);
         p += 4;
 
         if (p + ext_len > exts_end)
@@ -842,7 +851,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
             {
                 return 0;
             }
-            const unsigned char *ap     = p;
+            const unsigned char *ap = p;
             const unsigned char *ap_end = p + ext_len;
 
             unsigned int list_len = SNI_PT_READ16(ap);
