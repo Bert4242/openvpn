@@ -60,11 +60,13 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-
+/* Wire-format ALPN token for "openvpn": length byte (7) followed by the name.
+ * Used by both the OpenSSL and the generic (LibreSSL / mbedTLS / …) paths. */
 static const unsigned char sni_passthrough_alpn_openvpn[] = {
     7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
 };
+
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
@@ -718,8 +720,19 @@ cleanup:
 /*
  * OpenSSL's SSL_CTX_set_client_hello_cb / SSL_client_hello_get0_ext are not
  * available on LibreSSL, mbedTLS, wolfSSL, or other non-OpenSSL backends.
- * Instead we scan the raw ClientHello bytes for the "openvpn" ALPN token and
- * derive the consumed length directly from the TLS record header.
+ * Instead we manually parse the raw ClientHello to find the ALPN extension
+ * (type 0x0010) and verify "openvpn" appears in the ProtocolNameList.
+ *
+ * ClientHello layout (all lengths big-endian):
+ *   TLS record header  : type(1) + version(2) + record_len(2)        = 5 bytes
+ *   Handshake header   : hs_type(1) + body_len(3)                    = 4 bytes
+ *   ClientHello body   : client_version(2) + random(32)              = 34 bytes
+ *                        session_id_len(1) + session_id(var)
+ *                        cipher_suites_len(2) + cipher_suites(var)
+ *                        compression_len(1) + compression(var)
+ *                        extensions_len(2) + extensions(var)
+ *   Each extension     : ext_type(2) + ext_data_len(2) + ext_data(var)
+ *   ALPN ext_data      : proto_list_len(2) + proto_name_len(1) + name(var) ...
  */
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
@@ -728,40 +741,144 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
 
-    /* Need at least a TLS record header (5 bytes) */
+/* Macro: advance cursor by n bytes, return 0 on overrun */
+#define SNI_PT_ADVANCE(p, n, end) \
+    do { if ((p) + (n) > (end)) { return 0; } (p) += (n); } while (0)
+
+/* Macro: read 2-byte big-endian uint16 at p (without advancing) */
+#define SNI_PT_READ16(p) ((unsigned int)((p)[0]) << 8 | (unsigned int)((p)[1]))
+
+    /* Need at least TLS record header (5 bytes) */
     if (pkt_len < 5)
     {
         return 0;
     }
 
-    /* TLS record length is at bytes [3..4] (big-endian) */
-    int record_len = ((int)pkt[3] << 8) | (int)pkt[4];
-    int total = 5 + record_len;
+    /* Verify TLS handshake content type */
+    if (pkt[0] != 0x16)
+    {
+        return 0;
+    }
 
+    /* TLS record length is at bytes [3..4] (big-endian) */
+    int record_len = (int)SNI_PT_READ16(pkt + 3);
+    int total = 5 + record_len;
     if (total > pkt_len)
     {
         return 0;
     }
 
-    /* Search for the 8-byte ALPN "openvpn" token within the record:
-     *   proto_len(1)=0x07 + "openvpn"
-     * The token is unique enough that a simple memmem-style scan suffices. */
-    static const unsigned char openvpn_token[] = {
-        0x07, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
-    };
     const unsigned char *end = pkt + total;
     const unsigned char *p = pkt + 5; /* skip TLS record header */
 
-    while (p + sizeof(openvpn_token) <= end)
+    /* Handshake header: type(1) + 24-bit body length */
+    if (p + 4 > end)
     {
-        if (*p == openvpn_token[0]
-            && memcmp(p, openvpn_token, sizeof(openvpn_token)) == 0)
-        {
-            msg(M_INFO, "--sni-passthrough-server: openvpn ALPN matched (libressl path)");
-            return total;
-        }
-        p++;
+        return 0;
     }
+    if (p[0] != 0x01) /* ClientHello */
+    {
+        return 0;
+    }
+    p += 4;
+
+    /* ClientHello body: client_version(2) + random(32) = 34 bytes */
+    SNI_PT_ADVANCE(p, 34, end);
+
+    /* session_id: length(1) + data */
+    if (p + 1 > end)
+    {
+        return 0;
+    }
+    unsigned int sid_len = *p;
+    SNI_PT_ADVANCE(p, 1 + sid_len, end);
+
+    /* cipher_suites: length(2) + data */
+    if (p + 2 > end)
+    {
+        return 0;
+    }
+    unsigned int cs_len = SNI_PT_READ16(p);
+    SNI_PT_ADVANCE(p, 2 + cs_len, end);
+
+    /* compression_methods: length(1) + data */
+    if (p + 1 > end)
+    {
+        return 0;
+    }
+    unsigned int cm_len = *p;
+    SNI_PT_ADVANCE(p, 1 + cm_len, end);
+
+    /* extensions: total length(2) */
+    if (p + 2 > end)
+    {
+        return 0;
+    }
+    unsigned int exts_len = SNI_PT_READ16(p);
+    p += 2;
+
+    const unsigned char *exts_end = p + exts_len;
+    if (exts_end > end)
+    {
+        return 0;
+    }
+
+    /* Walk the extensions list looking for ALPN (type 0x0010) */
+    while (p + 4 <= exts_end)
+    {
+        unsigned int ext_type = SNI_PT_READ16(p);
+        unsigned int ext_len  = SNI_PT_READ16(p + 2);
+        p += 4;
+
+        if (p + ext_len > exts_end)
+        {
+            return 0;
+        }
+
+        if (ext_type == 0x0010) /* ALPN */
+        {
+            /* ALPN extension data: ProtocolNameList length(2) + entries */
+            if (ext_len < 2)
+            {
+                return 0;
+            }
+            const unsigned char *ap     = p;
+            const unsigned char *ap_end = p + ext_len;
+
+            unsigned int list_len = SNI_PT_READ16(ap);
+            ap += 2;
+
+            if (ap + list_len > ap_end)
+            {
+                return 0;
+            }
+            ap_end = ap + list_len;
+
+            while (ap + 1 <= ap_end)
+            {
+                unsigned int name_len = *ap++;
+                if (ap + name_len > ap_end)
+                {
+                    return 0;
+                }
+                if (name_len == sizeof(sni_passthrough_alpn_openvpn) - 1
+                    && memcmp(ap, sni_passthrough_alpn_openvpn + 1, name_len) == 0)
+                {
+                    msg(M_INFO, "--sni-passthrough-server: openvpn ALPN matched (libressl path)");
+                    return total;
+                }
+                ap += name_len;
+            }
+
+            /* ALPN extension found but "openvpn" not listed */
+            return 0;
+        }
+
+        p += ext_len;
+    }
+
+#undef SNI_PT_ADVANCE
+#undef SNI_PT_READ16
 
     return 0;
 }
