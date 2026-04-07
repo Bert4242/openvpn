@@ -38,10 +38,8 @@
 #include "misc.h"
 #include "manage.h"
 #include "openvpn.h"
-
 #include "forward.h"
 #include "resolve.h"
-
 
 #include "memdbg.h"
 
@@ -128,7 +126,6 @@ socket_set_buffers(socket_descriptor_t fd, const struct socket_buffer_size *sbs,
 /*
  * Set other socket options
  */
-
 static bool
 socket_set_tcp_nodelay(socket_descriptor_t sd, int state)
 {
@@ -175,7 +172,6 @@ link_socket_update_buffer_sizes(struct link_socket *sock, int rcvbuf, int sndbuf
  * SOCKET INITIALIZATION CODE.
  * Create a TCP/UDP socket
  */
-
 socket_descriptor_t
 create_socket_tcp(struct addrinfo *addrinfo)
 {
@@ -1461,7 +1457,6 @@ done:
         }
     }
 }
-
 
 void
 link_socket_close(struct link_socket *sock)
