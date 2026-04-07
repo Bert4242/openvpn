@@ -417,11 +417,17 @@ test_sni_consume_header_with_trailing_data(void **state)
     free_stream_buf(&sb);
 }
 
-/* First byte is not 0x16: immediately flagged as non-SNI client */
+/*
+ * OpenVPN client without --sni-passthrough-hostname.
+ * TCP stream starts with the OpenVPN 2-byte length prefix (0x00 0x07),
+ * followed by a P_CONTROL_HARD_RESET_CLIENT_V2 opcode byte (0x38).
+ * First byte != 0x16 → not a TLS record → SNI_PT_DISABLED immediately.
+ */
 static void
-test_sni_consume_header_non_tls(void **state)
+test_sni_consume_header_openvpn_client(void **state)
 {
     (void)state;
+    /* len=7, opcode=P_CONTROL_HARD_RESET_CLIENT_V2, key_id=0, payload */
     uint8_t openvpn_data[] = { 0x00, 0x07, 0x38, 0x01, 0x02, 0x03, 0x04, 0x05 };
     struct stream_buf sb;
     make_stream_buf(&sb, openvpn_data, (int)sizeof(openvpn_data));
@@ -491,7 +497,7 @@ main(void)
         /* sni_passthrough_check_and_consume_header (stream_buf interface) */
         cmocka_unit_test(test_sni_consume_header_valid),
         cmocka_unit_test(test_sni_consume_header_with_trailing_data),
-        cmocka_unit_test(test_sni_consume_header_non_tls),
+        cmocka_unit_test(test_sni_consume_header_openvpn_client),
         cmocka_unit_test(test_sni_consume_header_tls_wrong_alpn),
         cmocka_unit_test(test_sni_consume_header_partial),
     };
