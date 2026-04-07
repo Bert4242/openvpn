@@ -687,7 +687,7 @@ struct options
     /** Enable server-side detection and discarding of the SNI routing header
      *  sent by clients using --sni-passthrough-hostname (--sni-passthrough-server).
      *  Peeks the first byte: 0x16 = routing header present (discard it);
-     *  anything else = legacy client (proceed normally, full backwards compat). */
+     *  anything else = openvpn client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
 #endif
 
