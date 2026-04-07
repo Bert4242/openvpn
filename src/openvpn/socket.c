@@ -38,9 +38,7 @@
 #include "misc.h"
 #include "manage.h"
 #include "openvpn.h"
-
 #include "forward.h"
-
 
 #include "memdbg.h"
 
@@ -277,7 +275,6 @@ get_cached_dns_entry(struct cached_dns_entry *dns_cache, const char *hostname, c
     return -1;
 }
 
-
 static int
 do_preresolve_host(struct context *c, const char *hostname, const char *servname, const int af,
                    const unsigned int flags)
@@ -487,7 +484,6 @@ socket_set_buffers(socket_descriptor_t fd, const struct socket_buffer_size *sbs,
 /*
  * Set other socket options
  */
-
 static bool
 socket_set_tcp_nodelay(socket_descriptor_t sd, int state)
 {
@@ -562,7 +558,6 @@ link_socket_update_buffer_sizes(struct link_socket *sock, int rcvbuf, int sndbuf
  * SOCKET INITIALIZATION CODE.
  * Create a TCP/UDP socket
  */
-
 socket_descriptor_t
 create_socket_tcp(struct addrinfo *addrinfo)
 {
@@ -1820,7 +1815,6 @@ done:
         }
     }
 }
-
 
 void
 link_socket_close(struct link_socket *sock)
