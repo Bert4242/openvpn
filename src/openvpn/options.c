@@ -651,7 +651,7 @@ static const char usage_message[] =
     "                  set.\n"
     "--sni-passthrough-server : (Server) Detect and discard the SNI routing\n"
     "                  header sent by clients using --sni-passthrough-hostname,\n"
-    "                  then proceed with the OpenVPN protocol.  Legacy clients\n"
+    "                  then proceed with the OpenVPN protocol. Openvpn clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally.\n"
 #endif
