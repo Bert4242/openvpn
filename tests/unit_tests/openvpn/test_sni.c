@@ -51,21 +51,22 @@
 #include "test_common.h"
 
 /* =========================================================================
- * Minimal valid ClientHello carrying ALPN "openvpn"
+ * Minimal valid ClientHello carrying ALPN "hacky-sni-passthrough"
  *
  * Layout (all lengths big-endian):
- *   TLS record header  : 0x16 0x0301 record_len=61         (5 bytes)
- *   Handshake header   : 0x01 body_len=57                  (4 bytes)
+ *   TLS record header  : 0x16 0x0301 record_len=75         (5 bytes)
+ *   Handshake header   : 0x01 body_len=71                  (4 bytes)
  *   client_version     : 0x0303                            (2 bytes)
  *   random             : 32 zero-ish bytes                 (32 bytes)
  *   session_id         : len=0                             (1 byte)
  *   cipher_suites      : len=2, TLS_RSA_AES128_SHA(0x002f) (4 bytes)
  *   compression        : len=1, null(0x00)                 (2 bytes)
- *   extensions_len     : 14                                (2 bytes)
- *   ALPN extension     : type=0x0010 ext_data_len=10
- *                        list_len=8 proto_len=7 "openvpn"  (14 bytes)
+ *   extensions_len     : 28                                (2 bytes)
+ *   ALPN extension     : type=0x0010 ext_data_len=24
+ *                        list_len=22 proto_len=21
+ *                        "hacky-sni-passthrough"           (28 bytes)
  *
- * Total: 66 bytes.  sni_passthrough_check_packet() must return 66.
+ * Total: 80 bytes.  sni_passthrough_check_packet() must return 80.
  * ========================================================================= */
 static const uint8_t valid_sni_pkt[] = {
     /* TLS record header */
@@ -73,12 +74,12 @@ static const uint8_t valid_sni_pkt[] = {
     0x03,
     0x01,
     0x00,
-    0x3d,
-    /* Handshake header: ClientHello(1) body_len=57 */
+    0x4b,
+    /* Handshake header: ClientHello(1) body_len=71 */
     0x01,
     0x00,
     0x00,
-    0x39,
+    0x47,
     /* client_version */
     0x03,
     0x03,
@@ -125,27 +126,41 @@ static const uint8_t valid_sni_pkt[] = {
     /* compression_methods: null */
     0x01,
     0x00,
-    /* extensions_len = 14 */
+    /* extensions_len = 28 */
     0x00,
-    0x0e,
+    0x1c,
     /* ALPN extension */
     0x00,
     0x10, /* ext_type = ALPN */
     0x00,
-    0x0a, /* ext_data_len = 10 */
+    0x18, /* ext_data_len = 24 */
     0x00,
-    0x08, /* protocol_list_len = 8 */
-    0x07, /* protocol_len = 7 */
+    0x16, /* protocol_list_len = 22 */
+    0x15, /* protocol_len = 21 */
+    'h',
+    'a',
+    'c',
+    'k',
+    'y',
+    '-',
+    's',
+    'n',
+    'i',
+    '-',
+    'p',
+    'a',
+    's',
+    's',
+    't',
+    'h',
+    'r',
     'o',
-    'p',
-    'e',
-    'n',
-    'v',
-    'p',
-    'n',
+    'u',
+    'g',
+    'h',
 };
 
-/* ClientHello with ALPN "http/1.1" – openvpn not listed, should return 0 */
+/* ClientHello with ALPN "http/1.1" – hacky-sni-passthrough not listed, should return 0 */
 static const uint8_t wrong_alpn_pkt[] = {
     /* TLS record header: record_len=62 */
     0x16,
@@ -440,7 +455,7 @@ test_sni_consume_header_openvpn_client(void **state)
     free_stream_buf(&sb);
 }
 
-/* First byte is 0x16 but ALPN does not contain "openvpn": state stays PENDING */
+/* First byte is 0x16 but ALPN does not contain "hacky-sni-passthrough": state stays PENDING */
 static void
 test_sni_consume_header_tls_wrong_alpn(void **state)
 {
