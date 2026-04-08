@@ -71,9 +71,10 @@
 /* -------------------------------------------------------------------------
  * Symbols from sni_alt_impl.c (always the generic byte-scan path).
  * ------------------------------------------------------------------------- */
-size_t sni_passthrough_build_client_hello_alt_test(uint8_t *buf, size_t bufsz,
-                                                   const char *sni);
-bool sni_passthrough_check_and_consume_header_alt(struct stream_buf *sb);
+size_t sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf,
+                                                                size_t bufsz,
+                                                                const char *sni);
+bool sni_passthrough_check_and_consume_header_alt_test_path(struct stream_buf *sb);
 
 /* -------------------------------------------------------------------------
  * SNI hostnames used across the test matrix.
@@ -148,7 +149,7 @@ test_compat_normal_build_alt_check(void **state)
 {
     (void)state;
     run_compat_test(sni_passthrough_build_client_hello_test,
-                    sni_passthrough_check_and_consume_header_alt,
+                    sni_passthrough_check_and_consume_header_alt_test_path,
                     SHORT_SNI);
 }
 
@@ -156,7 +157,7 @@ static void
 test_compat_alt_build_normal_check(void **state)
 {
     (void)state;
-    run_compat_test(sni_passthrough_build_client_hello_alt_test,
+    run_compat_test(sni_passthrough_build_client_hello_alt_test_path_wrapper,
                     sni_passthrough_check_and_consume_header,
                     SHORT_SNI);
 }
@@ -165,8 +166,8 @@ static void
 test_compat_alt_build_alt_check(void **state)
 {
     (void)state;
-    run_compat_test(sni_passthrough_build_client_hello_alt_test,
-                    sni_passthrough_check_and_consume_header_alt,
+    run_compat_test(sni_passthrough_build_client_hello_alt_test_path_wrapper,
+                    sni_passthrough_check_and_consume_header_alt_test_path,
                     SHORT_SNI);
 }
 
@@ -188,7 +189,7 @@ test_compat_normal_build_alt_check_long_sni(void **state)
 {
     (void)state;
     run_compat_test(sni_passthrough_build_client_hello_test,
-                    sni_passthrough_check_and_consume_header_alt,
+                    sni_passthrough_check_and_consume_header_alt_test_path,
                     LONG_SNI);
 }
 
@@ -196,7 +197,7 @@ static void
 test_compat_alt_build_normal_check_long_sni(void **state)
 {
     (void)state;
-    run_compat_test(sni_passthrough_build_client_hello_alt_test,
+    run_compat_test(sni_passthrough_build_client_hello_alt_test_path_wrapper,
                     sni_passthrough_check_and_consume_header,
                     LONG_SNI);
 }
@@ -205,8 +206,8 @@ static void
 test_compat_alt_build_alt_check_long_sni(void **state)
 {
     (void)state;
-    run_compat_test(sni_passthrough_build_client_hello_alt_test,
-                    sni_passthrough_check_and_consume_header_alt,
+    run_compat_test(sni_passthrough_build_client_hello_alt_test_path_wrapper,
+                    sni_passthrough_check_and_consume_header_alt_test_path,
                     LONG_SNI);
 }
 
