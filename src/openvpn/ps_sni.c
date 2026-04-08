@@ -62,10 +62,12 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-/* Wire-format ALPN token for "openvpn": length byte (7) followed by the name.
- * Used by both the OpenSSL and the generic (LibreSSL / mbedTLS / …) paths. */
+/* Wire-format ALPN token for "hacky-sni-passthrough": length byte (21)
+ * followed by the name.  Used by both the OpenSSL and the generic
+ * (LibreSSL / mbedTLS / …) paths. */
 static const unsigned char sni_passthrough_alpn_openvpn[] = {
-    7, 'o', 'p', 'e', 'n', 'v', 'p', 'n'
+    21, 'h', 'a', 'c', 'k', 'y', '-', 's', 'n', 'i', '-',
+    'p', 'a', 's', 's', 't', 'h', 'r', 'o', 'u', 'g', 'h'
 };
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
@@ -232,8 +234,8 @@ static const uint8_t sni_pt_prefix[156] = {
     0x00,0x35,0x00,0x2f,
     /* compression_methods: null only */
     0x01,0x00,
-    /* extensions_len=1435 */
-    0x05,0x9b,
+    /* extensions_len=1449 */
+    0x05,0xa9,
     /* ext renegotiation_info (0xff01): len=1, data=0x00 */
     0xff,0x01,0x00,0x01,0x00,
     /* ext server_name (0x0000) */
@@ -245,7 +247,7 @@ static const uint8_t sni_pt_prefix[156] = {
     /* hostname (21 bytes) follows at [156]  */
 };
 
-static const uint8_t sni_pt_suffix[1400] = {
+static const uint8_t sni_pt_suffix[1414] = {
     /* ec_point_formats */
     0x00,0x0b,0x00,0x04,0x03,0x00,0x01,0x02,
     /* supported_groups */
@@ -254,9 +256,11 @@ static const uint8_t sni_pt_suffix[1400] = {
     0x00,0x19,0x01,0x00,0x01,0x01,
     /* session_ticket (empty) */
     0x00,0x23,0x00,0x00,
-    /* ALPN: "openvpn" */
-    0x00,0x10,0x00,0x0a,0x00,0x08,0x07,0x6f,
-    0x70,0x65,0x6e,0x76,0x70,0x6e,
+    /* ALPN: "hacky-sni-passthrough" */
+    0x00,0x10,0x00,0x18,0x00,0x16,0x15,0x68,
+    0x61,0x63,0x6b,0x79,0x2d,0x73,0x6e,0x69,
+    0x2d,0x70,0x61,0x73,0x73,0x74,0x68,0x72,
+    0x6f,0x75,0x67,0x68,
     /* encrypt_then_mac */
     0x00,0x16,0x00,0x00,
     /* extended_master_secret */
@@ -442,14 +446,14 @@ static const uint8_t sni_pt_suffix[1400] = {
 /* clang-format on */
 
 #define SNI_PT_PREFIX_LEN        156u
-#define SNI_PT_SUFFIX_LEN        1400u
+#define SNI_PT_SUFFIX_LEN        1414u
 #define SNI_PT_TEMPLATE_SNI_LEN  21u   /* length of the hostname in the captured template */
-#define SNI_PT_TEMPLATE_TOTAL    1577u /* PREFIX + SNI + SUFFIX */
+#define SNI_PT_TEMPLATE_TOTAL    1591u /* PREFIX + SNI + SUFFIX */
 
 /* Offsets and lengths of the ephemeral key fields within the suffix array */
-#define SNI_PT_SUFFIX_MLKEM_OFF  139u  /* ML-KEM key data (1216 bytes) */
+#define SNI_PT_SUFFIX_MLKEM_OFF  153u  /* ML-KEM key data (1216 bytes) */
 #define SNI_PT_SUFFIX_MLKEM_LEN  1216u
-#define SNI_PT_SUFFIX_X25519_OFF 1359u /* x25519 key data (32 bytes) */
+#define SNI_PT_SUFFIX_X25519_OFF 1373u /* x25519 key data (32 bytes) */
 #define SNI_PT_SUFFIX_X25519_LEN 32u
 
 static size_t
@@ -494,7 +498,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     buf[8] = (uint8_t)(hs_len & 0xff);
 
     /* Patch extensions total length [140..141] */
-    uint16_t ext_len = (uint16_t)(0x059b + delta);
+    uint16_t ext_len = (uint16_t)(0x05a9 + delta);
     buf[140] = (uint8_t)(ext_len >> 8);
     buf[141] = (uint8_t)(ext_len & 0xff);
 
@@ -586,7 +590,7 @@ int matched = 0;
 /*
  * client_hello_cb fires on the raw ClientHello before any certificate is
  * needed, in both TLS 1.2 and TLS 1.3.  We inspect the ALPN extension
- * directly to check for the "openvpn" token.
+ * directly to check for the "hacky-sni-passthrough" token.
  */
 static int
 sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
@@ -614,7 +618,7 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
                 && memcmp(p, sni_passthrough_alpn_openvpn + 1, plen) == 0)
             {
                 matched = 1;
-                msg(M_INFO, "--sni-passthrough-server: client_hello_cb: openvpn ALPN matched");
+                msg(M_INFO, "--sni-passthrough-server: client_hello_cb: hacky-sni-passthrough ALPN matched");
                 break;
             }
             p += plen;
@@ -698,7 +702,7 @@ cleanup:
         SSL_CTX_free(ctx);
     }
 
-    if (matched) /* 1 = "openvpn" was in the ALPN list */
+    if (matched) /* 1 = "hacky-sni-passthrough" was in the ALPN list */
     {
         if (consumed)
         {
@@ -723,7 +727,7 @@ cleanup:
  * OpenSSL's SSL_CTX_set_client_hello_cb / SSL_client_hello_get0_ext are not
  * available on LibreSSL, mbedTLS, wolfSSL, or other non-OpenSSL backends.
  * Instead we manually parse the raw ClientHello to find the ALPN extension
- * (type 0x0010) and verify "openvpn" appears in the ProtocolNameList.
+ * (type 0x0010) and verify "hacky-sni-passthrough" appears in the ProtocolNameList.
  *
  * ClientHello layout (all lengths big-endian):
  *   TLS record header  : type(1) + version(2) + record_len(2)        = 5 bytes
@@ -873,13 +877,13 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
                 if (name_len == sizeof(sni_passthrough_alpn_openvpn) - 1
                     && memcmp(ap, sni_passthrough_alpn_openvpn + 1, name_len) == 0)
                 {
-                    msg(M_INFO, "--sni-passthrough-server: openvpn ALPN matched (libressl path)");
+                    msg(M_INFO, "--sni-passthrough-server: hacky-sni-passthrough ALPN matched (libressl path)");
                     return total;
                 }
                 ap += name_len;
             }
 
-            /* ALPN extension found but "openvpn" not listed */
+            /* ALPN extension found but "hacky-sni-passthrough" not listed */
             return 0;
         }
 
