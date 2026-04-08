@@ -32,16 +32,16 @@
  * Symbol mapping (via #define before #include):
  *
  *   ps_sni.c name                              alt name
- *   ─────────────────────────────────────────  ──────────────────────────────────────────
- *   sni_passthrough_build_client_hello         sni_passthrough_build_client_hello_altpath
- *   sni_passthrough_send_client_hello          sni_passthrough_send_client_hello_alt
- *   sni_passthrough_check_packet               sni_passthrough_check_packet_alt
- *   sni_passthrough_check_and_consume_header   sni_passthrough_check_and_consume_header_alt
+ *   ─────────────────────────────────────────  ──────────────────────────────────────────────────
+ *   sni_passthrough_build_client_hello         sni_passthrough_build_client_hello_alt_test_path
+ *   sni_passthrough_send_client_hello          sni_passthrough_send_client_hello_alt_test_path
+ *   sni_passthrough_check_packet               sni_passthrough_check_packet_alt_test_path
+ *   sni_passthrough_check_and_consume_header   sni_passthrough_check_and_consume_header_alt_test_path
  *
  * After the include, a thin public wrapper exposes the renamed static
  * builder under the name used by the compatibility test:
  *
- *   sni_passthrough_build_client_hello_alt_test()
+ *   sni_passthrough_build_client_hello_alt_test_path()
  */
 
 /* Force the generic byte-scan path regardless of crypto backend. */
@@ -52,12 +52,12 @@
  * coexist with the normal ps_sni.o in the same link step.
  *
  * The static builder sni_passthrough_build_client_hello is also renamed
- * (to sni_passthrough_build_client_hello_altpath) so we can wrap it below.
+ * (to sni_passthrough_build_client_hello_alt_test_path) so we can wrap it below.
  */
-#define sni_passthrough_build_client_hello       sni_passthrough_build_client_hello_altpath
-#define sni_passthrough_send_client_hello        sni_passthrough_send_client_hello_alt
-#define sni_passthrough_check_packet             sni_passthrough_check_packet_alt
-#define sni_passthrough_check_and_consume_header sni_passthrough_check_and_consume_header_alt
+#define sni_passthrough_build_client_hello       sni_passthrough_build_client_hello_alt_test_path
+#define sni_passthrough_send_client_hello        sni_passthrough_send_client_hello_alt_test_path
+#define sni_passthrough_check_packet             sni_passthrough_check_packet_alt_test_path
+#define sni_passthrough_check_and_consume_header sni_passthrough_check_and_consume_header_alt_test_path
 
 /*
  * Pull in the full ps_sni.c source.  The -I flag for src/openvpn is
@@ -73,14 +73,15 @@
 #include <stddef.h>
 
 /*
- * sni_passthrough_build_client_hello_altpath is defined static inside the
- * included ps_sni.c.  Expose it under an externally-linkable name so the
- * compatibility test can call both the normal and alt builders from the
- * same test binary.
+ * sni_passthrough_build_client_hello_alt_test_path is defined static inside
+ * the included ps_sni.c.  Expose it under an externally-linkable name so
+ * the compatibility test can call both the normal and alt builders from
+ * the same test binary.
  */
 size_t
-sni_passthrough_build_client_hello_alt_test(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf, size_t bufsz,
+                                                         const char *sni)
 {
-    return sni_passthrough_build_client_hello_altpath(buf, bufsz, sni);
+    return sni_passthrough_build_client_hello_alt_test_path(buf, bufsz, sni);
 }
 #endif /* SNI_PASSTHROUGH */
