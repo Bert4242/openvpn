@@ -62,26 +62,58 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-/* Wire-format ALPN token for "hacky-sni-passthrough": length byte (21)
- * followed by the name.  Used by both the OpenSSL and the generic
- * (LibreSSL / mbedTLS / …) paths. */
-static const unsigned char sni_passthrough_alpn_openvpn[] = {
-    21, 'h', 'a', 'c', 'k', 'y', '-', 's', 'n', 'i', '-',
-    'p', 'a', 's', 's', 't', 'h', 'r', 'o', 'u', 'g', 'h'
-};
+/* Default ALPN protocol name when --sni-passthrough-alpn is not set. */
+#define SNI_PT_DEFAULT_ALPN "hacky-sni-passthrough"
+
+/*
+ * Return the effective ALPN name: either the user-supplied string or the
+ * built-in default.
+ */
+static const char *
+sni_pt_alpn_name(const char *alpn)
+{
+    return (alpn && *alpn) ? alpn : SNI_PT_DEFAULT_ALPN;
+}
+
+/*
+ * Build a wire-format ALPN token (length-prefixed) into buf[].
+ * Returns the number of bytes written (1 + name_len), or 0 on overflow.
+ */
+static size_t
+sni_pt_build_alpn_wire(unsigned char *buf, size_t bufsz, const char *alpn)
+{
+    const char *name = sni_pt_alpn_name(alpn);
+    size_t name_len = strlen(name);
+    if (name_len > 255 || 1 + name_len > bufsz)
+    {
+        return 0;
+    }
+    buf[0] = (unsigned char)name_len;
+    memcpy(buf + 1, name, name_len);
+    return 1 + name_len;
+}
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
+                                   const char *alpn)
 {
     size_t ret = 0;
     BIO *rbio = NULL;
     BIO *wbio = NULL;
     SSL *ssl = NULL;
     SSL_CTX *ctx = NULL;
+    unsigned char alpn_wire[257];
+    size_t alpn_wire_len;
 
     if (!sni || !*sni)
+    {
+        return 0;
+    }
+
+    alpn_wire_len = sni_pt_build_alpn_wire(alpn_wire, sizeof(alpn_wire), alpn);
+    if (!alpn_wire_len)
     {
         return 0;
     }
@@ -116,7 +148,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
         goto cleanup;
     }
 
-    if (SSL_set_alpn_protos(ssl, sni_passthrough_alpn_openvpn, sizeof(sni_passthrough_alpn_openvpn)) != 0)
+    if (SSL_set_alpn_protos(ssl, alpn_wire, (unsigned int)alpn_wire_len) != 0)
     {
         goto cleanup;
     }
@@ -247,7 +279,19 @@ static const uint8_t sni_pt_prefix[156] = {
     /* hostname (21 bytes) follows at [156]  */
 };
 
-static const uint8_t sni_pt_suffix[1414] = {
+/*
+ * The suffix is split into two halves around the ALPN extension, which is
+ * now built dynamically so that --sni-passthrough-alpn can override it.
+ *
+ * sni_pt_suffix_pre_alpn  – extensions before the ALPN extension (34 bytes)
+ * sni_pt_suffix_post_alpn – extensions after the ALPN extension (1352 bytes)
+ *
+ * The default ALPN ("hacky-sni-passthrough") is 28 bytes on the wire:
+ *   ext_type(2) + ext_data_len(2) + list_len(2) + proto_len(1) + name(21)
+ * So the default total suffix = 34 + 28 + 1352 = 1414 bytes, matching the
+ * original SNI_PT_SUFFIX_LEN.
+ */
+static const uint8_t sni_pt_suffix_pre_alpn[34] = {
     /* ec_point_formats */
     0x00,0x0b,0x00,0x04,0x03,0x00,0x01,0x02,
     /* supported_groups */
@@ -256,11 +300,9 @@ static const uint8_t sni_pt_suffix[1414] = {
     0x00,0x19,0x01,0x00,0x01,0x01,
     /* session_ticket (empty) */
     0x00,0x23,0x00,0x00,
-    /* ALPN: "hacky-sni-passthrough" */
-    0x00,0x10,0x00,0x18,0x00,0x16,0x15,0x68,
-    0x61,0x63,0x6b,0x79,0x2d,0x73,0x6e,0x69,
-    0x2d,0x70,0x61,0x73,0x73,0x74,0x68,0x72,
-    0x6f,0x75,0x67,0x68,
+};
+
+static const uint8_t sni_pt_suffix_post_alpn[1352] = {
     /* encrypt_then_mac */
     0x00,0x16,0x00,0x00,
     /* extended_master_secret */
@@ -445,24 +487,36 @@ static const uint8_t sni_pt_suffix[1414] = {
 };
 /* clang-format on */
 
-#define SNI_PT_PREFIX_LEN        156u
-#define SNI_PT_SUFFIX_LEN        1414u
-#define SNI_PT_TEMPLATE_SNI_LEN  21u   /* length of the hostname in the captured template */
-#define SNI_PT_TEMPLATE_TOTAL    1591u /* PREFIX + SNI + SUFFIX */
+#define SNI_PT_PREFIX_LEN           156u
+#define SNI_PT_SUFFIX_PRE_ALPN_LEN  34u
+#define SNI_PT_SUFFIX_POST_ALPN_LEN 1352u
+#define SNI_PT_TEMPLATE_SNI_LEN     21u                                           /* length of the hostname in the captured template */
+#define SNI_PT_DEFAULT_ALPN_LEN     21u                                           /* strlen("hacky-sni-passthrough") */
 
-/* Offsets and lengths of the ephemeral key fields within the suffix array */
-#define SNI_PT_SUFFIX_MLKEM_OFF  153u  /* ML-KEM key data (1216 bytes) */
-#define SNI_PT_SUFFIX_MLKEM_LEN  1216u
-#define SNI_PT_SUFFIX_X25519_OFF 1373u /* x25519 key data (32 bytes) */
-#define SNI_PT_SUFFIX_X25519_LEN 32u
+/* Wire size of the default ALPN extension: type(2)+ext_data_len(2)+list_len(2)+proto_len(1)+name */
+#define SNI_PT_DEFAULT_ALPN_EXT_LEN (2u + 2u + 2u + 1u + SNI_PT_DEFAULT_ALPN_LEN) /* 28 */
+
+/* Offsets of ephemeral key fields within sni_pt_suffix_post_alpn[] */
+#define SNI_PT_POST_ALPN_MLKEM_OFF  91u                                           /* ML-KEM key data (1216 bytes) */
+#define SNI_PT_POST_ALPN_MLKEM_LEN  1216u
+#define SNI_PT_POST_ALPN_X25519_OFF 1311u                                         /* x25519 key data (32 bytes) */
+#define SNI_PT_POST_ALPN_X25519_LEN 32u
 
 static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
+                                   const char *alpn)
 {
+    const char *alpn_name;
+    size_t alpn_name_len;
+    size_t alpn_ext_len;
+    size_t suffix_len;
     size_t sni_len;
     size_t total;
+    int sni_delta;
+    int alpn_delta;
     int delta;
     int i;
+    size_t off;
 
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-hostname: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
@@ -472,9 +526,21 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
     {
         return 0;
     }
+
+    alpn_name = sni_pt_alpn_name(alpn);
+    alpn_name_len = strlen(alpn_name);
+    if (alpn_name_len > 255)
+    {
+        msg(M_NONFATAL, "--sni-passthrough-alpn: ALPN token too long");
+        return 0;
+    }
+
+    /* Wire-size of the ALPN extension: type(2)+ext_data_len(2)+list_len(2)+proto_len(1)+name */
+    alpn_ext_len = 2 + 2 + 2 + 1 + alpn_name_len;
+
+    suffix_len = SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_len + SNI_PT_SUFFIX_POST_ALPN_LEN;
     sni_len = strlen(sni);
-    total = SNI_PT_PREFIX_LEN + sni_len + SNI_PT_SUFFIX_LEN;
-    delta = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
+    total = SNI_PT_PREFIX_LEN + sni_len + suffix_len;
 
     if (total > bufsz || total > 0xffffU + 5)
     {
@@ -482,33 +548,59 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
         return 0;
     }
 
+    /* Deltas relative to the template's default SNI and ALPN sizes */
+    sni_delta = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
+    alpn_delta = (int)alpn_ext_len - (int)SNI_PT_DEFAULT_ALPN_EXT_LEN;
+    delta = sni_delta + alpn_delta;
+
+    /* Assemble: prefix + hostname + pre_alpn + ALPN ext + post_alpn */
     memcpy(buf, sni_pt_prefix, SNI_PT_PREFIX_LEN);
     memcpy(buf + SNI_PT_PREFIX_LEN, sni, sni_len);
-    memcpy(buf + SNI_PT_PREFIX_LEN + sni_len, sni_pt_suffix, SNI_PT_SUFFIX_LEN);
+    off = SNI_PT_PREFIX_LEN + sni_len;
+
+    memcpy(buf + off, sni_pt_suffix_pre_alpn, SNI_PT_SUFFIX_PRE_ALPN_LEN);
+    off += SNI_PT_SUFFIX_PRE_ALPN_LEN;
+
+    /* Build ALPN extension inline: type(0x0010) + ext_data_len + list_len + proto */
+    buf[off++] = 0x00;
+    buf[off++] = 0x10;                                         /* ALPN ext type */
+    {
+        uint16_t ext_data = (uint16_t)(2 + 1 + alpn_name_len); /* list_len(2) + proto_len(1) + name */
+        buf[off++] = (uint8_t)(ext_data >> 8);
+        buf[off++] = (uint8_t)(ext_data & 0xff);
+        uint16_t list = (uint16_t)(1 + alpn_name_len); /* proto_len(1) + name */
+        buf[off++] = (uint8_t)(list >> 8);
+        buf[off++] = (uint8_t)(list & 0xff);
+        buf[off++] = (uint8_t)alpn_name_len;
+        memcpy(buf + off, alpn_name, alpn_name_len);
+        off += alpn_name_len;
+    }
+
+    memcpy(buf + off, sni_pt_suffix_post_alpn, SNI_PT_SUFFIX_POST_ALPN_LEN);
 
     /* Patch TLS record length [3..4] */
-    uint16_t rec_len = (uint16_t)((SNI_PT_TEMPLATE_TOTAL - 5) + delta);
+    uint16_t rec_len = (uint16_t)(total - 5);
     buf[3] = (uint8_t)(rec_len >> 8);
     buf[4] = (uint8_t)(rec_len & 0xff);
 
     /* Patch Handshake length [6..8] (3-byte big-endian) */
-    uint32_t hs_len = (uint32_t)((SNI_PT_TEMPLATE_TOTAL - 9) + delta);
+    uint32_t hs_len = (uint32_t)(total - 9);
     buf[6] = (uint8_t)((hs_len >> 16) & 0xff);
     buf[7] = (uint8_t)((hs_len >> 8) & 0xff);
     buf[8] = (uint8_t)(hs_len & 0xff);
 
     /* Patch extensions total length [140..141] */
-    uint16_t ext_len = (uint16_t)(0x05a9 + delta);
-    buf[140] = (uint8_t)(ext_len >> 8);
-    buf[141] = (uint8_t)(ext_len & 0xff);
+    uint16_t ext_total = (uint16_t)(0x05a9 + delta);
+    buf[140] = (uint8_t)(ext_total >> 8);
+    buf[141] = (uint8_t)(ext_total & 0xff);
 
     /* Patch SNI ext_data_len [149..150] */
-    uint16_t sni_ext_data_len = (uint16_t)(26 + delta);
+    uint16_t sni_ext_data_len = (uint16_t)(26 + sni_delta);
     buf[149] = (uint8_t)(sni_ext_data_len >> 8);
     buf[150] = (uint8_t)(sni_ext_data_len & 0xff);
 
     /* Patch SNI server_name_list_len [151..152] */
-    uint16_t sni_list_len = (uint16_t)(24 + delta);
+    uint16_t sni_list_len = (uint16_t)(24 + sni_delta);
     buf[151] = (uint8_t)(sni_list_len >> 8);
     buf[152] = (uint8_t)(sni_list_len & 0xff);
 
@@ -528,15 +620,15 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
         buf[44 + i] = (uint8_t)(rand() & 0xff);
     }
 
-    /* Randomise the ephemeral key shares in the suffix */
-    size_t suffix_base = SNI_PT_PREFIX_LEN + sni_len;
-    for (i = 0; i < (int)SNI_PT_SUFFIX_MLKEM_LEN; i++)
+    /* Randomise the ephemeral key shares in the post_alpn part of the suffix */
+    size_t post_alpn_base = SNI_PT_PREFIX_LEN + sni_len + SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_len;
+    for (i = 0; i < (int)SNI_PT_POST_ALPN_MLKEM_LEN; i++)
     {
-        buf[suffix_base + SNI_PT_SUFFIX_MLKEM_OFF + i] = (uint8_t)(rand() & 0xff);
+        buf[post_alpn_base + SNI_PT_POST_ALPN_MLKEM_OFF + i] = (uint8_t)(rand() & 0xff);
     }
-    for (i = 0; i < (int)SNI_PT_SUFFIX_X25519_LEN; i++)
+    for (i = 0; i < (int)SNI_PT_POST_ALPN_X25519_LEN; i++)
     {
-        buf[suffix_base + SNI_PT_SUFFIX_X25519_OFF + i] = (uint8_t)(rand() & 0xff);
+        buf[post_alpn_base + SNI_PT_POST_ALPN_X25519_OFF + i] = (uint8_t)(rand() & 0xff);
     }
 
     return total;
@@ -549,13 +641,14 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni)
  * then return. The OpenVPN protocol will follow immediately after.
  */
 bool
-sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni)
+sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
+                                  const char *alpn)
 {
     uint8_t buf[4096];
     size_t len;
     ssize_t sent;
 
-    len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni);
+    len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni, alpn);
 
     if (!len)
     {
@@ -585,16 +678,25 @@ error:
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
-int matched = 0;
+/*
+ * State passed through the client_hello_cb arg pointer so we avoid globals.
+ */
+struct sni_pt_cb_ctx
+{
+    const char *alpn_name;
+    size_t alpn_name_len;
+    int matched;
+};
 
 /*
  * client_hello_cb fires on the raw ClientHello before any certificate is
  * needed, in both TLS 1.2 and TLS 1.3.  We inspect the ALPN extension
- * directly to check for the "hacky-sni-passthrough" token.
+ * directly to check for the configured token.
  */
 static int
 sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 {
+    struct sni_pt_cb_ctx *cb = (struct sni_pt_cb_ctx *)arg;
     const unsigned char *alpn_data = NULL;
     size_t alpn_len = 0;
 
@@ -614,11 +716,12 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
             {
                 break;
             }
-            if (plen == sizeof(sni_passthrough_alpn_openvpn) - 1
-                && memcmp(p, sni_passthrough_alpn_openvpn + 1, plen) == 0)
+            if (plen == cb->alpn_name_len
+                && memcmp(p, cb->alpn_name, plen) == 0)
             {
-                matched = 1;
-                msg(M_INFO, "--sni-passthrough-server: client_hello_cb: hacky-sni-passthrough ALPN matched");
+                cb->matched = 1;
+                msg(M_INFO, "--sni-passthrough-server: client_hello_cb: %s ALPN matched",
+                    cb->alpn_name);
                 break;
             }
             p += plen;
@@ -630,14 +733,19 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 }
 
 int
-sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
+sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
+                             const char *alpn)
 {
-    matched = 0;
+    struct sni_pt_cb_ctx cb_ctx;
     int consumed = 0;
     BIO *rbio = NULL;
     BIO *wbio = NULL;
     SSL *ssl = NULL;
     SSL_CTX *ctx = NULL;
+
+    cb_ctx.alpn_name = sni_pt_alpn_name(alpn);
+    cb_ctx.alpn_name_len = strlen(cb_ctx.alpn_name);
+    cb_ctx.matched = 0;
 
     ctx = SSL_CTX_new(TLS_server_method());
     if (!ctx)
@@ -646,7 +754,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
     }
     /* client_hello_cb fires on the raw ClientHello before any certificate
      * is required, unlike the ALPN select callback which needs a cert. */
-    SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, NULL);
+    SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, &cb_ctx);
 
     ssl = SSL_new(ctx);
     if (!ssl)
@@ -702,7 +810,7 @@ cleanup:
         SSL_CTX_free(ctx);
     }
 
-    if (matched) /* 1 = "hacky-sni-passthrough" was in the ALPN list */
+    if (cb_ctx.matched) /* configured ALPN was in the list */
     {
         if (consumed)
         {
@@ -727,7 +835,8 @@ cleanup:
  * OpenSSL's SSL_CTX_set_client_hello_cb / SSL_client_hello_get0_ext are not
  * available on LibreSSL, mbedTLS, wolfSSL, or other non-OpenSSL backends.
  * Instead we manually parse the raw ClientHello to find the ALPN extension
- * (type 0x0010) and verify "hacky-sni-passthrough" appears in the ProtocolNameList.
+ * (type 0x0010) and verify the configured ALPN token appears in the
+ * ProtocolNameList.
  *
  * ClientHello layout (all lengths big-endian):
  *   TLS record header  : type(1) + version(2) + record_len(2)        = 5 bytes
@@ -741,8 +850,11 @@ cleanup:
  *   ALPN ext_data      : proto_list_len(2) + proto_name_len(1) + name(var) ...
  */
 int
-sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
+sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
+                             const char *alpn)
 {
+    const char *expected_name = sni_pt_alpn_name(alpn);
+    size_t expected_len = strlen(expected_name);
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
@@ -874,16 +986,17 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
                 {
                     return 0;
                 }
-                if (name_len == sizeof(sni_passthrough_alpn_openvpn) - 1
-                    && memcmp(ap, sni_passthrough_alpn_openvpn + 1, name_len) == 0)
+                if (name_len == expected_len
+                    && memcmp(ap, expected_name, name_len) == 0)
                 {
-                    msg(M_INFO, "--sni-passthrough-server: hacky-sni-passthrough ALPN matched (libressl path)");
+                    msg(M_INFO, "--sni-passthrough-server: %s ALPN matched (generic path)",
+                        expected_name);
                     return total;
                 }
                 ap += name_len;
             }
 
-            /* ALPN extension found but "hacky-sni-passthrough" not listed */
+            /* ALPN extension found but configured token not listed */
             return 0;
         }
 
@@ -905,7 +1018,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len)
  * stream begins.
  */
 bool
-sni_passthrough_check_and_consume_header(struct stream_buf *sb)
+sni_passthrough_check_and_consume_header(struct stream_buf *sb,
+                                         const char *alpn)
 {
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
@@ -923,7 +1037,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb)
         {
             const uint8_t *hdr = BPTR(&sb->buf);
 
-            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len);
+            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len, alpn);
             if (sni_total == 0)
             {
                 /* nothing found */
@@ -967,9 +1081,10 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb)
  * symbols renamed) does not emit a conflicting definition.
  */
 size_t
-sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz, const char *sni)
+sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
+                                        const char *sni, const char *alpn)
 {
-    return sni_passthrough_build_client_hello(buf, bufsz, sni);
+    return sni_passthrough_build_client_hello(buf, bufsz, sni, alpn);
 }
 #endif /* UNIT_TESTING && !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH */
 
