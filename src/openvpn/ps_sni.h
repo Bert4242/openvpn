@@ -30,27 +30,32 @@
 /*
  * Client side: build and send an SNI routing header ClientHello
  * on the given connected TCP socket before the OpenVPN stream begins.
+ * If alpn is NULL, the built-in default "hacky-sni-passthrough" is used.
  * Returns true on success, false on failure.
  */
-bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni);
+bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
+                                       const char *alpn);
 
 /*
  * Server side: drive the state machine that detects and discards the SNI
  * routing header prepended by --sni-passthrough-hostname clients.
+ * If alpn is NULL, the built-in default "hacky-sni-passthrough" is used.
  *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
  */
-bool sni_passthrough_check_and_consume_header(struct stream_buf *sb);
+bool sni_passthrough_check_and_consume_header(struct stream_buf *sb,
+                                              const char *alpn);
 
 /*
  * Inspect a raw packet and check if it is an SNI routing header carrying
- * the "hacky-sni-passthrough" ALPN token.
+ * the given ALPN token.  If alpn is NULL, the built-in default is used.
  *
  * Returns the total byte length of the SNI header on match, 0 otherwise.
  * Exposed here for unit testing.
  */
-int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len);
+int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
+                                 const char *alpn);
 
 #ifdef UNIT_TESTING
 /*
@@ -60,7 +65,9 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len);
  * normal/OpenSSL builder is exposed; sni_alt_impl.c provides the alt
  * flavour under a separate name).
  */
-size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz, const char *sni);
+size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
+                                               const char *sni,
+                                               const char *alpn);
 #endif /* UNIT_TESTING */
 
 #endif /* SNI_PASSTHROUGH */

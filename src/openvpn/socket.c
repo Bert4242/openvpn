@@ -1675,6 +1675,10 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     /* initialize buffers */
     socket_frame_init(frame, sock);
 
+#if SNI_PASSTHROUGH
+    sock->stream_buf.sni_passthrough_alpn = c->options.sni_passthrough_alpn;
+#endif
+
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
 
@@ -1752,7 +1756,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         && sock->info.proto == PROTO_TCP_CLIENT
         && c->options.sni_passthrough_hostname)
     {
-        if (!sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough_hostname))
+        if (!sni_passthrough_send_client_hello(sock->sd, c->options.sni_passthrough_hostname,
+                                               c->options.sni_passthrough_alpn))
         {
             register_signal(sig_info, SIGUSR1, "sni-passthrough-send-error");
             goto done;
@@ -2179,7 +2184,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
 #if SNI_PASSTHROUGH
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
-                    if (sni_passthrough_check_and_consume_header(sb))
+                    if (sni_passthrough_check_and_consume_header(sb, sb->sni_passthrough_alpn))
                     {
                         if (sb->port_share_state == PS_ENABLED)
                         {
