@@ -80,8 +80,9 @@
  */
 size_t
 sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf, size_t bufsz,
-                                                         const char *sni)
+                                                         const char *sni,
+                                                         const char *alpn)
 {
-    return sni_passthrough_build_client_hello_alt_test_path(buf, bufsz, sni);
+    return sni_passthrough_build_client_hello_alt_test_path(buf, bufsz, sni, alpn);
 }
 #endif /* SNI_PASSTHROUGH */
