@@ -310,7 +310,7 @@ static void
 test_sni_check_packet_valid_openvpn_alpn(void **state)
 {
     (void)state;
-    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), NULL);
+    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), NULL, 0);
     assert_int_equal(ret, (int)sizeof(valid_sni_pkt));
 }
 
@@ -319,8 +319,8 @@ test_sni_check_packet_too_short(void **state)
 {
     (void)state;
     /* Fewer than 5 bytes: cannot even read TLS record header */
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 4, NULL), 0);
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 0, NULL), 0);
+    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 4, NULL, 0), 0);
+    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 0, NULL, 0), 0);
 }
 
 static void
@@ -331,7 +331,7 @@ test_sni_check_packet_not_handshake(void **state)
     uint8_t buf[sizeof(valid_sni_pkt)];
     memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
     buf[0] = 0x17;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL), 0);
+    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL, 0), 0);
 }
 
 static void
@@ -342,21 +342,21 @@ test_sni_check_packet_not_clienthello(void **state)
     uint8_t buf[sizeof(valid_sni_pkt)];
     memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
     buf[5] = 0x02;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL), 0);
+    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL, 0), 0);
 }
 
 static void
 test_sni_check_packet_wrong_alpn(void **state)
 {
     (void)state;
-    assert_int_equal(sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), NULL), 0);
+    assert_int_equal(sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), NULL, 0), 0);
 }
 
 static void
 test_sni_check_packet_no_extensions(void **state)
 {
     (void)state;
-    assert_int_equal(sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), NULL), 0);
+    assert_int_equal(sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), NULL, 0), 0);
 }
 
 static void
@@ -365,7 +365,7 @@ test_sni_check_packet_truncated_record(void **state)
     (void)state;
     /* Supply fewer bytes than the record_len field claims */
     assert_int_equal(
-        sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10), 0);
+        sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10, NULL, 0), 0);
 }
 
 /* ==========================================================================
@@ -399,7 +399,7 @@ test_sni_consume_header_valid(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, valid_sni_pkt, (int)sizeof(valid_sni_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL);
+    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
 
     assert_true(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
@@ -421,7 +421,7 @@ test_sni_consume_header_with_trailing_data(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, combined, (int)sizeof(combined));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL);
+    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
 
     assert_true(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
@@ -447,7 +447,7 @@ test_sni_consume_header_openvpn_client(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, openvpn_data, (int)sizeof(openvpn_data));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL);
+    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
 
     assert_false(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
@@ -463,7 +463,7 @@ test_sni_consume_header_tls_wrong_alpn(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL);
+    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
 
     /* check_packet returns 0 → consume returns false, state unchanged (PENDING) */
     assert_false(result);
@@ -481,7 +481,7 @@ test_sni_consume_header_partial(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, partial, (int)sizeof(partial));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL);
+    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
 
     assert_false(result);
     /* State should be unchanged (still PENDING) */
