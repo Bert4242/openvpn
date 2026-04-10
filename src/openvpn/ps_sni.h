@@ -30,32 +30,41 @@
 /*
  * Client side: build and send an SNI routing header ClientHello
  * on the given connected TCP socket before the OpenVPN stream begins.
- * If alpn is NULL, the built-in default "hacky-sni-passthrough" is used.
+ *
+ * alpn_list / alpn_count: the ALPN tokens to advertise.  When alpn_count
+ * is 0 (or alpn_list is NULL), the built-in default "hacky-sni-passthrough"
+ * is used.
+ *
  * Returns true on success, false on failure.
  */
 bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
-                                       const char *alpn);
+                                       const char *const *alpn_list,
+                                       int alpn_count);
 
 /*
  * Server side: drive the state machine that detects and discards the SNI
  * routing header prepended by --sni-passthrough-hostname clients.
- * If alpn is NULL, the built-in default "hacky-sni-passthrough" is used.
+ *
+ * alpn_list / alpn_count: accepted ALPN tokens.  When alpn_count is 0 (or
+ * alpn_list is NULL), the built-in default "hacky-sni-passthrough" is used.
  *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
  */
 bool sni_passthrough_check_and_consume_header(struct stream_buf *sb,
-                                              const char *alpn);
+                                              const char *const *alpn_list,
+                                              int alpn_count);
 
 /*
  * Inspect a raw packet and check if it is an SNI routing header carrying
- * the given ALPN token.  If alpn is NULL, the built-in default is used.
+ * one of the given ALPN tokens.  When alpn_count is 0 (or alpn_list is
+ * NULL), the built-in default "hacky-sni-passthrough" is used.
  *
  * Returns the total byte length of the SNI header on match, 0 otherwise.
  * Exposed here for unit testing.
  */
 int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                                 const char *alpn);
+                                 const char *const *alpn_list, int alpn_count);
 
 #ifdef UNIT_TESTING
 /*
@@ -67,7 +76,8 @@ int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
  */
 size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
                                                const char *sni,
-                                               const char *alpn);
+                                               const char *const *alpn_list,
+                                               int alpn_count);
 #endif /* UNIT_TESTING */
 
 #endif /* SNI_PASSTHROUGH */
