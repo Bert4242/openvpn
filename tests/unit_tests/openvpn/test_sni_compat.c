@@ -74,9 +74,11 @@
 size_t sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf,
                                                                 size_t bufsz,
                                                                 const char *sni,
-                                                                const char *alpn);
+                                                                const char *const *alpn_list,
+                                                                int alpn_count);
 bool sni_passthrough_check_and_consume_header_alt_test_path(struct stream_buf *sb,
-                                                            const char *alpn);
+                                                            const char *const *alpn_list,
+                                                            int alpn_count);
 
 /* -------------------------------------------------------------------------
  * SNI hostnames used across the test matrix.
@@ -91,8 +93,9 @@ bool sni_passthrough_check_and_consume_header_alt_test_path(struct stream_buf *s
 /* -------------------------------------------------------------------------
  * Helper types and functions.
  * ------------------------------------------------------------------------- */
-typedef size_t (*builder_fn)(uint8_t *, size_t, const char *, const char *);
-typedef bool (*checker_fn)(struct stream_buf *, const char *);
+typedef size_t (*builder_fn)(uint8_t *, size_t, const char *,
+                             const char *const *, int);
+typedef bool (*checker_fn)(struct stream_buf *, const char *const *, int);
 
 static void
 make_stream_buf(struct stream_buf *sb, const uint8_t *data, int len)
@@ -113,18 +116,19 @@ free_stream_buf(struct stream_buf *sb)
  * run_compat_test – build a ClientHello with <build>, feed it to <check>,
  * and assert that the header is consumed and the state transitions to
  * SNI_PT_SUCCESS.
+ * Pass NULL/0 for the ALPN list to exercise the built-in default token.
  */
 static void
 run_compat_test(builder_fn build, checker_fn check, const char *sni)
 {
     uint8_t buf[4096];
-    size_t len = build(buf, sizeof(buf), sni, NULL);
+    size_t len = build(buf, sizeof(buf), sni, NULL, 0);
     assert_true(len > 0);
 
     struct stream_buf sb;
     make_stream_buf(&sb, buf, (int)len);
 
-    bool result = check(&sb, NULL);
+    bool result = check(&sb, NULL, 0);
 
     assert_true(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
