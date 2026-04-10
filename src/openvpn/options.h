@@ -687,6 +687,11 @@ struct options
      *  Peeks the first byte: 0x16 = routing header present (discard it);
      *  anything else = openvpn client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
+
+    /** Custom ALPN token for the SNI routing header (--sni-passthrough-alpn).
+     *  If NULL, the built-in default "hacky-sni-passthrough" is used.
+     *  Must match between client and server. */
+    const char *sni_passthrough_alpn;
 #endif
 
     /* Allow only one session */

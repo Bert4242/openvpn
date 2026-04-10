@@ -656,6 +656,9 @@ static const char usage_message[] =
     "                  then proceed with the OpenVPN protocol. Openvpn clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally.\n"
+    "--sni-passthrough-alpn name : Custom ALPN token for the SNI routing\n"
+    "                  header (default: hacky-sni-passthrough).  Must match\n"
+    "                  between client and server.\n"
 #endif
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
@@ -9114,6 +9117,11 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_passthrough_server = true;
+    }
+    else if (streq(p[0], "sni-passthrough-alpn") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_passthrough_alpn = p[1];
     }
 #endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
