@@ -177,6 +177,23 @@ struct connection_entry
 
     /* Allow only client that support resending the wrapped client key */
     bool tls_crypt_v2_force_cookie;
+
+#if SNI_PASSTHROUGH
+    /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
+     *  NULL means SNI passthrough is inactive for this connection.
+     *  Set globally to apply to all connections; override per <connection> block.
+     *  Once set globally, cannot be cleared per connection. */
+    const char *sni_passthrough_hostname;
+
+    /** ALPN token(s) for the SNI routing header (--sni-passthrough-alpn).
+     *  If alpn_count == 0, the built-in default "hacky-sni-passthrough" is used.
+     *  Per-connection list replaces (not adds to) the global list. */
+    const char **sni_passthrough_alpn_list;
+    int sni_passthrough_alpn_count;
+    /** True once this entry owns its own alpn list (i.e. the first
+     *  sni-passthrough-alpn was seen inside this connection block). */
+    bool sni_passthrough_alpn_defined;
+#endif
 };
 
 struct remote_entry
@@ -674,24 +691,11 @@ struct options
     int tls_crypt_v2_max_age;
 
 #if SNI_PASSTHROUGH
-    /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
-     *  When set, the client prepends an SNI routing header before the OpenVPN
-     *  protocol so that SNI-aware TCP proxies (e.g. Traefik passthrough) can
-     *  route the connection to the right backend by hostname.  Works for both
-     *  direct and proxied connections as long as the server also has
-     *  --sni-passthrough-server set. */
-    const char *sni_passthrough_hostname;
-
     /** Enable server-side detection and discarding of the SNI routing header
      *  sent by clients using --sni-passthrough-hostname (--sni-passthrough-server).
      *  Peeks the first byte: 0x16 = routing header present (discard it);
      *  anything else = openvpn client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
-
-    /** Custom ALPN token for the SNI routing header (--sni-passthrough-alpn).
-     *  If NULL, the built-in default "hacky-sni-passthrough" is used.
-     *  Must match between client and server. */
-    const char *sni_passthrough_alpn;
 #endif
 
     /* Allow only one session */
