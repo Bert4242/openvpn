@@ -654,9 +654,12 @@ static const char usage_message[] =
     "                  then proceed with the OpenVPN protocol. Openvpn clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally.\n"
-    "--sni-passthrough-alpn name : Custom ALPN token for the SNI routing\n"
-    "                  header (default: hacky-sni-passthrough).  Must match\n"
-    "                  between client and server.\n"
+    "--sni-passthrough-alpn name : Append an ALPN token to the SNI routing\n"
+    "                  header.  May be repeated to offer multiple tokens.  Can\n"
+    "                  be set globally or per <connection> block; a per-connection\n"
+    "                  list replaces (not adds to) the global list.  Default when\n"
+    "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough.\n"
+    "                  Must match between client and server.\n"
 #endif
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
@@ -9059,8 +9062,8 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 #if SNI_PASSTHROUGH
     else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_passthrough_hostname = p[1];
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_passthrough_hostname = p[1];
     }
     else if (streq(p[0], "sni-passthrough-server") && !p[1])
     {
@@ -9069,8 +9072,36 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "sni-passthrough-alpn") && p[1] && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_passthrough_alpn = p[1];
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        struct connection_entry *ce = &options->ce;
+        /*
+         * Replace semantics: the first --sni-passthrough-alpn seen inside
+         * a <connection> block starts a fresh list, discarding whatever was
+         * inherited from the global ce.  Subsequent values in the same block
+         * (or further global declarations) are appended.
+         *
+         * We detect "inside a connection block" by the absence of
+         * connection_list: the sub-options struct used when parsing a
+         * <connection> block is initialised fresh and never gets a list.
+         */
+        if (!options->connection_list && !ce->sni_passthrough_alpn_defined)
+        {
+            /* First entry in this connection block – start from scratch. */
+            ce->sni_passthrough_alpn_list = NULL;
+            ce->sni_passthrough_alpn_count = 0;
+            ce->sni_passthrough_alpn_defined = true;
+        }
+        else if (!ce->sni_passthrough_alpn_defined)
+        {
+            /* Global scope, first entry. */
+            ce->sni_passthrough_alpn_defined = true;
+        }
+        int n = ce->sni_passthrough_alpn_count;
+        ce->sni_passthrough_alpn_list =
+            gc_realloc(ce->sni_passthrough_alpn_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        ce->sni_passthrough_alpn_list[n] = p[1];
+        ce->sni_passthrough_alpn_count = n + 1;
     }
 #endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
