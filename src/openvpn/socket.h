@@ -137,12 +137,17 @@ struct stream_buf
     int port_share_state;
 #endif
 #if SNI_PASSTHROUGH
-#define SNI_PT_DISABLED 0                   /* not active */
-#define SNI_PT_PENDING  1                   /* waiting to inspect first byte */
-#define SNI_PT_SUCCESS  2                   /* SNI header was consumed */
+#define SNI_PT_DISABLED 0 /* not active */
+#define SNI_PT_PENDING  1 /* waiting to inspect first byte */
+#define SNI_PT_SUCCESS  2 /* SNI header was consumed */
     int sni_passthrough_state;
-    const char **sni_passthrough_alpn_list; /* NULL or count==0 → use default */
+    /* client ALPN list (sent in routing header) */
+    const char **sni_passthrough_alpn_list;
     int sni_passthrough_alpn_count;
+    /* server-side filters */
+    const char **sni_passthrough_server_hostname_list;
+    int sni_passthrough_server_hostname_count;
+    bool sni_passthrough_server_ignore_alpn;
 #endif
 };
 
