@@ -1678,6 +1678,12 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #if SNI_PASSTHROUGH
     sock->stream_buf.sni_passthrough_alpn_list = (const char **)c->options.ce.sni_passthrough_alpn_list;
     sock->stream_buf.sni_passthrough_alpn_count = c->options.ce.sni_passthrough_alpn_count;
+    sock->stream_buf.sni_passthrough_server_hostname_list =
+        (const char **)c->options.sni_passthrough_server_hostname_list;
+    sock->stream_buf.sni_passthrough_server_hostname_count =
+        c->options.sni_passthrough_server_hostname_count;
+    sock->stream_buf.sni_passthrough_server_ignore_alpn =
+        c->options.sni_passthrough_server_ignore_alpn;
 #endif
 
     /* Second chance to resolv/create socket */
@@ -2186,10 +2192,15 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
 #if SNI_PASSTHROUGH
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
-                    if (sni_passthrough_check_and_consume_header(
-                            sb,
-                            (const char *const *)sb->sni_passthrough_alpn_list,
-                            sb->sni_passthrough_alpn_count))
+                    struct sni_pt_server_check_ctx sni_ctx = {
+                        .alpn_list = (const char *const *)sb->sni_passthrough_alpn_list,
+                        .alpn_count = sb->sni_passthrough_alpn_count,
+                        .ignore_alpn = sb->sni_passthrough_server_ignore_alpn,
+                        .hostname_list =
+                            (const char *const *)sb->sni_passthrough_server_hostname_list,
+                        .hostname_count = sb->sni_passthrough_server_hostname_count,
+                    };
+                    if (sni_passthrough_check_and_consume_header(sb, &sni_ctx))
                     {
                         if (sb->port_share_state == PS_ENABLED)
                         {

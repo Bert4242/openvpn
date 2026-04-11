@@ -117,6 +117,31 @@ sni_pt_build_alpn_proto_list(unsigned char *buf, size_t bufsz,
     return off;
 }
 
+/*
+ * Case-insensitive ASCII comparison of a binary buffer against a NUL-terminated
+ * string.  Returns true if they are equal in length and content.
+ */
+static bool
+sni_pt_str_eq_nocase(const unsigned char *buf, unsigned int buflen,
+                     const char *str)
+{
+    size_t slen = strlen(str);
+    if (buflen != (unsigned int)slen)
+    {
+        return false;
+    }
+    for (unsigned int i = 0; i < buflen; i++)
+    {
+        unsigned char a = buf[i];
+        unsigned char b = (unsigned char)str[i];
+        /* ASCII lower-case: A-Z → a-z */
+        if (a >= 'A' && a <= 'Z') a += 32;
+        if (b >= 'A' && b <= 'Z') b += 32;
+        if (a != b) return false;
+    }
+    return true;
+}
+
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static size_t
@@ -719,52 +744,122 @@ error:
  */
 struct sni_pt_cb_ctx
 {
+    /* resolved ALPN list (never NULL after init) */
     const char *const *alpn_list;
     int alpn_count;
-    int matched;
+    bool ignore_alpn;
+
+    /* server hostname filter (NULL / 0 → any hostname accepted) */
+    const char *const *hostname_list;
+    int hostname_count;
+
+    /* results set by the callback */
+    int alpn_matched;
+    int hostname_matched; /* 1 = matched or no filter; 0 = filter present and failed */
 };
 
 /*
  * client_hello_cb fires on the raw ClientHello before any certificate is
- * needed, in both TLS 1.2 and TLS 1.3.  We inspect the ALPN extension
- * directly to check for any of the configured tokens.
+ * needed, in both TLS 1.2 and TLS 1.3.  We inspect the SNI and ALPN
+ * extensions to apply the configured filters.
  */
 static int
 sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 {
     struct sni_pt_cb_ctx *cb = (struct sni_pt_cb_ctx *)arg;
-    const unsigned char *alpn_data = NULL;
-    size_t alpn_len = 0;
 
-    /* SSL_client_hello_get0_ext looks up extension type 16 (ALPN) */
-    if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_application_layer_protocol_negotiation,
-                                  &alpn_data, &alpn_len)
-        && alpn_data && alpn_len > 4)
+    /* ---- Hostname check ---- */
+    if (cb->hostname_count > 0)
     {
-        /* ALPN wire format: protocol_list_len(2) + proto_len(1) + proto */
-        const unsigned char *p = alpn_data + 2; /* skip protocol_list_len */
-        const unsigned char *end = alpn_data + alpn_len;
+        const unsigned char *sni_data = NULL;
+        size_t sni_len = 0;
+        cb->hostname_matched = 0;
 
-        while (p < end && !cb->matched)
+        if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name,
+                                      &sni_data, &sni_len)
+            && sni_data && sni_len >= 5)
         {
-            unsigned int plen = *p++;
-            if (p + plen > end)
+            /*
+             * SNI ext_data wire format:
+             *   server_name_list_len (2) + name_type (1) + name_len (2) + name
+             */
+            const unsigned char *p = sni_data + 2; /* skip list_len */
+            const unsigned char *end = sni_data + sni_len;
+            while (p + 3 <= end && !cb->hostname_matched)
             {
-                break;
-            }
-            for (int i = 0; i < cb->alpn_count; i++)
-            {
-                const char *name = cb->alpn_list[i];
-                size_t name_len = strlen(name);
-                if (plen == name_len && memcmp(p, name, plen) == 0)
+                /* name_type must be 0 (host_name) */
+                unsigned int ntype = p[0];
+                unsigned int nlen = ((unsigned int)p[1] << 8) | p[2];
+                p += 3;
+                if (p + nlen > end)
                 {
-                    cb->matched = 1;
-                    msg(M_INFO, "--sni-passthrough-server: client_hello_cb: %s ALPN matched",
-                        name);
                     break;
                 }
+                if (ntype == 0)
+                {
+                    for (int i = 0; i < cb->hostname_count; i++)
+                    {
+                        if (sni_pt_str_eq_nocase(p, nlen, cb->hostname_list[i]))
+                        {
+                            cb->hostname_matched = 1;
+                            msg(M_INFO,
+                                "--sni-passthrough-server: client_hello_cb: %s hostname matched",
+                                cb->hostname_list[i]);
+                            break;
+                        }
+                    }
+                }
+                p += nlen;
             }
-            p += plen;
+        }
+        /* hostname_matched stays 0 → filter fails → check_packet returns 0 */
+    }
+    else
+    {
+        cb->hostname_matched = 1; /* no filter → always pass */
+    }
+
+    /* ---- ALPN check ---- */
+    if (cb->ignore_alpn)
+    {
+        cb->alpn_matched = 1;
+    }
+    else
+    {
+        const unsigned char *alpn_data = NULL;
+        size_t alpn_len = 0;
+
+        if (SSL_client_hello_get0_ext(ssl,
+                                      TLSEXT_TYPE_application_layer_protocol_negotiation,
+                                      &alpn_data, &alpn_len)
+            && alpn_data && alpn_len > 4)
+        {
+            /* ALPN wire format: protocol_list_len(2) + proto_len(1) + proto … */
+            const unsigned char *p = alpn_data + 2;
+            const unsigned char *end = alpn_data + alpn_len;
+
+            while (p < end && !cb->alpn_matched)
+            {
+                unsigned int plen = *p++;
+                if (p + plen > end)
+                {
+                    break;
+                }
+                for (int i = 0; i < cb->alpn_count; i++)
+                {
+                    const char *name = cb->alpn_list[i];
+                    size_t name_len = strlen(name);
+                    if (plen == name_len && memcmp(p, name, plen) == 0)
+                    {
+                        cb->alpn_matched = 1;
+                        msg(M_INFO,
+                            "--sni-passthrough-server: client_hello_cb: %s ALPN matched",
+                            name);
+                        break;
+                    }
+                }
+                p += plen;
+            }
         }
     }
 
@@ -774,29 +869,42 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                             const char *const *alpn_list, int alpn_count)
+                             const struct sni_pt_server_check_ctx *ctx)
 {
     struct sni_pt_cb_ctx cb_ctx;
     int consumed = 0;
     BIO *rbio = NULL;
     BIO *wbio = NULL;
     SSL *ssl = NULL;
-    SSL_CTX *ctx = NULL;
+    SSL_CTX *ssl_ctx = NULL;
 
-    sni_pt_resolve_alpn(alpn_list, alpn_count,
-                        &cb_ctx.alpn_list, &cb_ctx.alpn_count);
-    cb_ctx.matched = 0;
+    cb_ctx.ignore_alpn = ctx->ignore_alpn;
+    cb_ctx.hostname_list = ctx->hostname_list;
+    cb_ctx.hostname_count = ctx->hostname_count;
+    cb_ctx.alpn_matched = 0;
+    cb_ctx.hostname_matched = 0;
 
-    ctx = SSL_CTX_new(TLS_server_method());
-    if (!ctx)
+    if (ctx->ignore_alpn)
+    {
+        cb_ctx.alpn_list = NULL;
+        cb_ctx.alpn_count = 0;
+    }
+    else
+    {
+        sni_pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
+                            &cb_ctx.alpn_list, &cb_ctx.alpn_count);
+    }
+
+    ssl_ctx = SSL_CTX_new(TLS_server_method());
+    if (!ssl_ctx)
     {
         goto cleanup;
     }
     /* client_hello_cb fires on the raw ClientHello before any certificate
      * is required, unlike the ALPN select callback which needs a cert. */
-    SSL_CTX_set_client_hello_cb(ctx, sni_passthrough_client_hello_cb, &cb_ctx);
+    SSL_CTX_set_client_hello_cb(ssl_ctx, sni_passthrough_client_hello_cb, &cb_ctx);
 
-    ssl = SSL_new(ctx);
+    ssl = SSL_new(ssl_ctx);
     if (!ssl)
     {
         goto cleanup;
@@ -813,23 +921,21 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     rbio = NULL;
     wbio = NULL;
 
-
-    // Feed the raw ClientHello into the read BIO
+    /* Feed the raw ClientHello into the read BIO and drive the state machine.
+     * SSL_accept will "fail" (no cert, no full handshake) but the callback
+     * fires before that and is all we need. */
     BIO_write(SSL_get_rbio(ssl), pkt, pkt_len);
-
-    // This will parse the ClientHello and fire callbacks
-    // It will "fail" (no full handshake), but that's fine
     SSL_accept(ssl);
 
     size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-    /* remaining == 0 means all bytes consumed, which is valid */
     if (remaining <= (size_t)pkt_len)
     {
         consumed = pkt_len - (int)remaining;
     }
     else
     {
-        msg(M_WARN, "--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d", remaining, pkt_len);
+        msg(M_WARN, "--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d",
+            remaining, pkt_len);
     }
 
 cleanup:
@@ -845,12 +951,12 @@ cleanup:
     {
         BIO_free(wbio);
     }
-    if (ctx)
+    if (ssl_ctx)
     {
-        SSL_CTX_free(ctx);
+        SSL_CTX_free(ssl_ctx);
     }
 
-    if (cb_ctx.matched) /* configured ALPN was in the list */
+    if (cb_ctx.alpn_matched && cb_ctx.hostname_matched)
     {
         if (consumed)
         {
@@ -863,10 +969,7 @@ cleanup:
             return 0;
         }
     }
-    else
-    {
-        return 0;
-    }
+    return 0;
 }
 
 #else /* generic byte-scan path: LibreSSL, mbedTLS, wolfSSL, … */
@@ -891,14 +994,19 @@ cleanup:
  */
 int
 sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                             const char *const *alpn_list, int alpn_count)
+                             const struct sni_pt_server_check_ctx *ctx)
 {
-    const char *const *eff_list;
-    int eff_count;
-    sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
+    const char *const *eff_alpn_list = NULL;
+    int eff_alpn_count = 0;
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
+
+    if (!ctx->ignore_alpn)
+    {
+        sni_pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
+                            &eff_alpn_list, &eff_alpn_count);
+    }
 
 /* Macro: advance cursor by n bytes, return 0 on overrun */
 #define SNI_PT_ADVANCE(p, n, end) \
@@ -975,6 +1083,20 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     unsigned int cm_len = *p;
     SNI_PT_ADVANCE(p, 1 + cm_len, end);
 
+    /*
+     * Single pass over all extensions, collecting:
+     *   hostname_ok – true when the SNI hostname filter is satisfied
+     *   alpn_ok     – true when the ALPN filter is satisfied
+     */
+    int hostname_ok = (ctx->hostname_count == 0) ? 1 : 0;
+    int alpn_ok = ctx->ignore_alpn ? 1 : 0;
+
+    /* If all filters are trivially satisfied and there are no extensions, accept. */
+    if (hostname_ok && alpn_ok && p + 2 > end)
+    {
+        return total;
+    }
+
     /* extensions: total length(2) */
     if (p + 2 > end)
     {
@@ -989,69 +1111,124 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
         return 0;
     }
 
-    /* Walk the extensions list looking for ALPN (type 0x0010) */
-    while (p + 4 <= exts_end)
+    const unsigned char *ep = p;
+    while (ep + 4 <= exts_end)
     {
-        unsigned int ext_type = SNI_PT_READ16(p);
-        unsigned int ext_len = SNI_PT_READ16(p + 2);
-        p += 4;
+        unsigned int ext_type = SNI_PT_READ16(ep);
+        unsigned int ext_len = SNI_PT_READ16(ep + 2);
+        ep += 4;
 
-        if (p + ext_len > exts_end)
+        if (ep + ext_len > exts_end)
         {
             return 0;
         }
 
-        if (ext_type == 0x0010) /* ALPN */
+        if (ext_type == 0x0000 && !hostname_ok) /* server_name */
+        {
+            /*
+             * SNI ext_data: server_name_list_len(2) + name_type(1) +
+             *               name_len(2) + name
+             */
+            const unsigned char *sp = ep;
+            const unsigned char *sp_end = ep + ext_len;
+            if (sp + 2 > sp_end)
+            {
+                ep += ext_len;
+                continue;
+            }
+            unsigned int list_len = SNI_PT_READ16(sp);
+            sp += 2;
+            const unsigned char *list_end = sp + list_len;
+            if (list_end > sp_end)
+            {
+                ep += ext_len;
+                continue;
+            }
+            while (sp + 3 <= list_end && !hostname_ok)
+            {
+                unsigned int ntype = sp[0];
+                unsigned int nlen = SNI_PT_READ16(sp + 1);
+                sp += 3;
+                if (sp + nlen > list_end)
+                {
+                    break;
+                }
+                if (ntype == 0) /* host_name */
+                {
+                    for (int i = 0; i < ctx->hostname_count; i++)
+                    {
+                        if (sni_pt_str_eq_nocase(sp, nlen, ctx->hostname_list[i]))
+                        {
+                            hostname_ok = 1;
+                            msg(M_INFO,
+                                "--sni-passthrough-server: %s hostname matched (generic path)",
+                                ctx->hostname_list[i]);
+                            break;
+                        }
+                    }
+                }
+                sp += nlen;
+            }
+        }
+        else if (ext_type == 0x0010 && !alpn_ok) /* ALPN */
         {
             /* ALPN extension data: ProtocolNameList length(2) + entries */
             if (ext_len < 2)
             {
-                return 0;
+                ep += ext_len;
+                continue;
             }
-            const unsigned char *ap = p;
-            const unsigned char *ap_end = p + ext_len;
-
+            const unsigned char *ap = ep;
             unsigned int list_len = SNI_PT_READ16(ap);
             ap += 2;
-
-            if (ap + list_len > ap_end)
+            const unsigned char *ap_end = ap + list_len;
+            if (ap_end > ep + ext_len)
             {
-                return 0;
+                ep += ext_len;
+                continue;
             }
-            ap_end = ap + list_len;
 
-            while (ap + 1 <= ap_end)
+            while (ap + 1 <= ap_end && !alpn_ok)
             {
                 unsigned int name_len = *ap++;
                 if (ap + name_len > ap_end)
                 {
-                    return 0;
+                    break;
                 }
-                for (int k = 0; k < eff_count; k++)
+                for (int k = 0; k < eff_alpn_count; k++)
                 {
-                    const char *exp = eff_list[k];
+                    const char *exp = eff_alpn_list[k];
                     size_t exp_len = strlen(exp);
-                    if (name_len == exp_len && memcmp(ap, exp, name_len) == 0)
+                    if (name_len == (unsigned int)exp_len
+                        && memcmp(ap, exp, name_len) == 0)
                     {
+                        alpn_ok = 1;
                         msg(M_INFO,
                             "--sni-passthrough-server: %s ALPN matched (generic path)",
                             exp);
-                        return total;
+                        break;
                     }
                 }
                 ap += name_len;
             }
 
-            /* ALPN extension found but configured token not listed */
-            return 0;
+            if (!alpn_ok)
+            {
+                /* ALPN extension present but no token matched */
+                return 0;
+            }
         }
 
-        p += ext_len;
+        ep += ext_len;
     }
 
 #undef SNI_PT_ADVANCE
 #undef SNI_PT_READ16
 
+    if (hostname_ok && alpn_ok)
+    {
+        return total;
+    }
     return 0;
 }
 
@@ -1065,8 +1242,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
  */
 bool
 sni_passthrough_check_and_consume_header(struct stream_buf *sb,
-                                         const char *const *alpn_list,
-                                         int alpn_count)
+                                         const struct sni_pt_server_check_ctx *ctx)
 {
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
@@ -1084,8 +1260,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
         {
             const uint8_t *hdr = BPTR(&sb->buf);
 
-            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len,
-                                                         alpn_list, alpn_count);
+            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len, ctx);
             if (sni_total == 0)
             {
                 /* nothing found */
