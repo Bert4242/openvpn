@@ -302,78 +302,89 @@ static const uint8_t no_ext_pkt[] = {
     /* no extensions field */
 };
 
-/* ==========================================================================
- * sni_passthrough_check_packet tests
- * ========================================================================== */
-
-static void
-test_sni_check_packet_valid_openvpn_alpn(void **state)
-{
-    (void)state;
-    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), NULL, 0);
-    assert_int_equal(ret, (int)sizeof(valid_sni_pkt));
-}
-
-static void
-test_sni_check_packet_too_short(void **state)
-{
-    (void)state;
-    /* Fewer than 5 bytes: cannot even read TLS record header */
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 4, NULL, 0), 0);
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 0, NULL, 0), 0);
-}
-
-static void
-test_sni_check_packet_not_handshake(void **state)
-{
-    (void)state;
-    /* First byte 0x17 = Application Data, not a ClientHello */
-    uint8_t buf[sizeof(valid_sni_pkt)];
-    memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
-    buf[0] = 0x17;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL, 0), 0);
-}
-
-static void
-test_sni_check_packet_not_clienthello(void **state)
-{
-    (void)state;
-    /* Handshake type 0x02 = ServerHello, not ClientHello */
-    uint8_t buf[sizeof(valid_sni_pkt)];
-    memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
-    buf[5] = 0x02;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), NULL, 0), 0);
-}
-
-static void
-test_sni_check_packet_wrong_alpn(void **state)
-{
-    (void)state;
-    assert_int_equal(sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), NULL, 0), 0);
-}
-
-static void
-test_sni_check_packet_no_extensions(void **state)
-{
-    (void)state;
-    assert_int_equal(sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), NULL, 0), 0);
-}
-
-static void
-test_sni_check_packet_truncated_record(void **state)
-{
-    (void)state;
-    /* Supply fewer bytes than the record_len field claims */
-    assert_int_equal(
-        sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10, NULL, 0), 0);
-}
-
-/* ==========================================================================
- * sni_passthrough_check_and_consume_header tests
+/*
+ * A minimal ClientHello that carries BOTH an SNI extension (hostname
+ * "vpn.example.com", 15 bytes) and ALPN "hacky-sni-passthrough".
  *
- * These exercise the stream_buf state machine that socket.c calls at
- * stream_buf_read_dowork() when sni_passthrough_state == SNI_PT_PENDING.
+ * Layout (big-endian lengths):
+ *   TLS record header   : 0x16 0x0301 record_len=116    (5 bytes)
+ *   Handshake header    : 0x01 body_len=112              (4 bytes)
+ *   client_version      : 0x0303                         (2 bytes)
+ *   random              : 32 zero bytes                  (32 bytes)
+ *   session_id          : len=0                          (1 byte)
+ *   cipher_suites       : len=2, 0x002f                  (4 bytes)
+ *   compression         : len=1, 0x00                    (2 bytes)
+ *   extensions_len      : 64                             (2 bytes)
+ *   SNI ext (0x0000)    : ext_data_len=19
+ *                         list_len=17, name_type=0
+ *                         name_len=15, "vpn.example.com" (23 bytes)
+ *   ALPN ext (0x0010)   : ext_data_len=24
+ *                         list_len=22, proto_len=21
+ *                         "hacky-sni-passthrough" (28 bytes)
+ *
+ * Total: 121 bytes.  sni_passthrough_check_packet() must return 121.
+ */
+/*
+ * Packet layout (all lengths big-endian):
+ *
+ *   TLS record header    : 0x16 0x0301 record_len=99     5 bytes
+ *   Handshake header     : 0x01 body_len=95              4 bytes
+ *   client_version       : 0x0303                        2 bytes
+ *   random               : 32 zero bytes                32 bytes
+ *   session_id           : len=0                         1 byte
+ *   cipher_suites        : len=2, TLS_RSA_AES128_SHA     4 bytes
+ *   compression          : len=1, null(0x00)             2 bytes
+ *   extensions_len       : 52                            2 bytes
+ *   SNI ext (0x0000)     : ext_data_len=20
+ *                          list_len=18, name_type=0
+ *                          name_len=15, "vpn.example.com"  24 bytes
+ *   ALPN ext (0x0010)    : ext_data_len=24
+ *                          list_len=22, proto_len=21
+ *                          "hacky-sni-passthrough"          28 bytes
+ *
+ * Total: 5 + 99 = 104 bytes.
+ */
+static const uint8_t sni_and_alpn_pkt[] = {
+    /* TLS record header: record_len = 99 */
+    0x16, 0x03, 0x01, 0x00, 0x63,
+    /* Handshake: ClientHello(1), body_len = 95 */
+    0x01, 0x00, 0x00, 0x5f,
+    /* client_version */
+    0x03, 0x03,
+    /* random (32 bytes) */
+    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
+    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
+    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
+    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    /* session_id: empty */
+    0x00,
+    /* cipher_suites: 1 suite */
+    0x00, 0x02, 0x00, 0x2f,
+    /* compression: null only */
+    0x01, 0x00,
+    /* extensions_len = 52 */
+    0x00, 0x34,
+    /* SNI extension */
+    0x00, 0x00,          /* type = server_name */
+    0x00, 0x14,          /* ext_data_len = 20 */
+    0x00, 0x12,          /* server_name_list_len = 18 */
+    0x00,                /* name_type = host_name */
+    0x00, 0x0f,          /* name_len = 15 */
+    'v','p','n','.','e','x','a','m','p','l','e','.','c','o','m',
+    /* ALPN extension */
+    0x00, 0x10,          /* type = ALPN */
+    0x00, 0x18,          /* ext_data_len = 24 */
+    0x00, 0x16,          /* protocol_list_len = 22 */
+    0x15,                /* protocol_len = 21 */
+    'h','a','c','k','y','-','s','n','i','-','p','a','s','s','t','h','r','o','u','g','h',
+};
+
+/* ==========================================================================
+ * Shared test helpers
  * ========================================================================== */
+
+/* Default ctx: built-in ALPN, any hostname, ALPN required */
+static const struct sni_pt_server_check_ctx ctx_default = {0};
 
 /* Helper: allocate a stream_buf whose buf contains the given bytes */
 static void
@@ -391,6 +402,177 @@ free_stream_buf(struct stream_buf *sb)
     free_buf(&sb->buf);
 }
 
+/* ==========================================================================
+ * sni_passthrough_check_packet tests
+ * ========================================================================== */
+
+static void
+test_sni_check_packet_valid_openvpn_alpn(void **state)
+{
+    (void)state;
+    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt),
+                                           &ctx_default);
+    assert_int_equal(ret, (int)sizeof(valid_sni_pkt));
+}
+
+static void
+test_sni_check_packet_too_short(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 4, &ctx_default), 0);
+    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 0, &ctx_default), 0);
+}
+
+static void
+test_sni_check_packet_not_handshake(void **state)
+{
+    (void)state;
+    uint8_t buf[sizeof(valid_sni_pkt)];
+    memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
+    buf[0] = 0x17;
+    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), 0);
+}
+
+static void
+test_sni_check_packet_not_clienthello(void **state)
+{
+    (void)state;
+    uint8_t buf[sizeof(valid_sni_pkt)];
+    memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
+    buf[5] = 0x02;
+    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), 0);
+}
+
+static void
+test_sni_check_packet_wrong_alpn(void **state)
+{
+    (void)state;
+    assert_int_equal(
+        sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt),
+                                     &ctx_default), 0);
+}
+
+static void
+test_sni_check_packet_no_extensions(void **state)
+{
+    (void)state;
+    assert_int_equal(
+        sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx_default), 0);
+}
+
+static void
+test_sni_check_packet_truncated_record(void **state)
+{
+    (void)state;
+    assert_int_equal(
+        sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10,
+                                     &ctx_default), 0);
+}
+
+/* ignore_alpn=true: wrong ALPN → still accepted */
+static void
+test_sni_check_packet_ignore_alpn(void **state)
+{
+    (void)state;
+    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    /* wrong_alpn_pkt carries "http/1.1", not the configured token */
+    int ret = sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), &ctx);
+    assert_int_equal(ret, (int)sizeof(wrong_alpn_pkt));
+}
+
+/* ignore_alpn=true: packet with no ALPN extension at all → still accepted */
+static void
+test_sni_check_packet_ignore_alpn_no_ext(void **state)
+{
+    (void)state;
+    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    /* no_ext_pkt has no extensions at all */
+    int ret = sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx);
+    assert_int_equal(ret, (int)sizeof(no_ext_pkt));
+}
+
+/* hostname filter: packet carries "vpn.example.com", filter matches */
+static void
+test_sni_check_packet_hostname_match(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"vpn.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                           &ctx);
+    assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
+}
+
+/* hostname filter: case-insensitive match */
+static void
+test_sni_check_packet_hostname_match_case(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"VPN.EXAMPLE.COM"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                           &ctx);
+    assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
+}
+
+/* hostname filter: packet carries "vpn.example.com" but filter requires different host */
+static void
+test_sni_check_packet_hostname_mismatch(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"other.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                           &ctx);
+    assert_int_equal(ret, 0);
+}
+
+/* hostname filter: any one of several hostnames matches */
+static void
+test_sni_check_packet_hostname_multi_match(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"other.example.com", "vpn.example.com", "another.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 3,
+    };
+    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                           &ctx);
+    assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
+}
+
+/* hostname filter: packet has no SNI extension → filter rejects */
+static void
+test_sni_check_packet_hostname_filter_no_sni(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"vpn.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    /* valid_sni_pkt has only ALPN, no SNI extension */
+    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), &ctx);
+    assert_int_equal(ret, 0);
+}
+
+/* ==========================================================================
+ * sni_passthrough_check_and_consume_header tests
+ *
+ * These exercise the stream_buf state machine that socket.c calls at
+ * stream_buf_read_dowork() when sni_passthrough_state == SNI_PT_PENDING.
+ * ========================================================================== */
+
 /* Valid SNI header: header is consumed, state transitions to SNI_PT_SUCCESS */
 static void
 test_sni_consume_header_valid(void **state)
@@ -399,7 +581,7 @@ test_sni_consume_header_valid(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, valid_sni_pkt, (int)sizeof(valid_sni_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_true(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
@@ -413,7 +595,7 @@ static void
 test_sni_consume_header_with_trailing_data(void **state)
 {
     (void)state;
-    uint8_t trailing[] = { 0x00, 0x07, 0xde, 0xad, 0xbe, 0xef };
+    uint8_t trailing[] = {0x00, 0x07, 0xde, 0xad, 0xbe, 0xef};
     uint8_t combined[sizeof(valid_sni_pkt) + sizeof(trailing)];
     memcpy(combined, valid_sni_pkt, sizeof(valid_sni_pkt));
     memcpy(combined + sizeof(valid_sni_pkt), trailing, sizeof(trailing));
@@ -421,11 +603,10 @@ test_sni_consume_header_with_trailing_data(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, combined, (int)sizeof(combined));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_true(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
-    /* Only the SNI header bytes were stripped; trailing data remains */
     assert_int_equal(sb.buf.len, (int)sizeof(trailing));
     assert_memory_equal(BPTR(&sb.buf), trailing, sizeof(trailing));
 
@@ -434,20 +615,17 @@ test_sni_consume_header_with_trailing_data(void **state)
 
 /*
  * OpenVPN client without --sni-passthrough-hostname.
- * TCP stream starts with the OpenVPN 2-byte length prefix (0x00 0x07),
- * followed by a P_CONTROL_HARD_RESET_CLIENT_V2 opcode byte (0x38).
- * First byte != 0x16 → not a TLS record → SNI_PT_DISABLED immediately.
+ * First byte != 0x16 → SNI_PT_DISABLED immediately.
  */
 static void
 test_sni_consume_header_openvpn_client(void **state)
 {
     (void)state;
-    /* len=7, opcode=P_CONTROL_HARD_RESET_CLIENT_V2, key_id=0, payload */
-    uint8_t openvpn_data[] = { 0x00, 0x07, 0x38, 0x01, 0x02, 0x03, 0x04, 0x05 };
+    uint8_t openvpn_data[] = {0x00, 0x07, 0x38, 0x01, 0x02, 0x03, 0x04, 0x05};
     struct stream_buf sb;
     make_stream_buf(&sb, openvpn_data, (int)sizeof(openvpn_data));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
@@ -455,7 +633,7 @@ test_sni_consume_header_openvpn_client(void **state)
     free_stream_buf(&sb);
 }
 
-/* First byte is 0x16 but ALPN does not contain "hacky-sni-passthrough": state stays PENDING */
+/* Wrong ALPN: state stays PENDING */
 static void
 test_sni_consume_header_tls_wrong_alpn(void **state)
 {
@@ -463,9 +641,8 @@ test_sni_consume_header_tls_wrong_alpn(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
-    /* check_packet returns 0 → consume returns false, state unchanged (PENDING) */
     assert_false(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
 
@@ -477,14 +654,72 @@ static void
 test_sni_consume_header_partial(void **state)
 {
     (void)state;
-    uint8_t partial[] = { 0x16, 0x03, 0x01 };
+    uint8_t partial[] = {0x16, 0x03, 0x01};
     struct stream_buf sb;
     make_stream_buf(&sb, partial, (int)sizeof(partial));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, NULL, 0);
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
-    /* State should be unchanged (still PENDING) */
+    assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
+
+    free_stream_buf(&sb);
+}
+
+/* ignore_alpn=true: wrong ALPN → still consumed */
+static void
+test_sni_consume_header_ignore_alpn(void **state)
+{
+    (void)state;
+    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    struct stream_buf sb;
+    make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
+
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+
+    assert_true(result);
+    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+
+    free_stream_buf(&sb);
+}
+
+/* hostname filter match: packet with SNI "vpn.example.com" accepted */
+static void
+test_sni_consume_header_hostname_match(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"vpn.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    struct stream_buf sb;
+    make_stream_buf(&sb, sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt));
+
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+
+    assert_true(result);
+    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+
+    free_stream_buf(&sb);
+}
+
+/* hostname filter mismatch: state stays PENDING */
+static void
+test_sni_consume_header_hostname_mismatch(void **state)
+{
+    (void)state;
+    const char *hosts[] = {"other.example.com"};
+    struct sni_pt_server_check_ctx ctx = {
+        .hostname_list = hosts,
+        .hostname_count = 1,
+    };
+    struct stream_buf sb;
+    make_stream_buf(&sb, sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt));
+
+    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+
+    assert_false(result);
     assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
 
     free_stream_buf(&sb);
@@ -500,7 +735,7 @@ main(void)
     openvpn_unit_test_setup();
 
     const struct CMUnitTest tests[] = {
-        /* sni_passthrough_check_packet */
+        /* sni_passthrough_check_packet – basic */
         cmocka_unit_test(test_sni_check_packet_valid_openvpn_alpn),
         cmocka_unit_test(test_sni_check_packet_too_short),
         cmocka_unit_test(test_sni_check_packet_not_handshake),
@@ -508,13 +743,25 @@ main(void)
         cmocka_unit_test(test_sni_check_packet_wrong_alpn),
         cmocka_unit_test(test_sni_check_packet_no_extensions),
         cmocka_unit_test(test_sni_check_packet_truncated_record),
+        /* sni_passthrough_check_packet – ignore_alpn */
+        cmocka_unit_test(test_sni_check_packet_ignore_alpn),
+        cmocka_unit_test(test_sni_check_packet_ignore_alpn_no_ext),
+        /* sni_passthrough_check_packet – hostname filter */
+        cmocka_unit_test(test_sni_check_packet_hostname_match),
+        cmocka_unit_test(test_sni_check_packet_hostname_match_case),
+        cmocka_unit_test(test_sni_check_packet_hostname_mismatch),
+        cmocka_unit_test(test_sni_check_packet_hostname_multi_match),
+        cmocka_unit_test(test_sni_check_packet_hostname_filter_no_sni),
 
-        /* sni_passthrough_check_and_consume_header (stream_buf interface) */
+        /* sni_passthrough_check_and_consume_header */
         cmocka_unit_test(test_sni_consume_header_valid),
         cmocka_unit_test(test_sni_consume_header_with_trailing_data),
         cmocka_unit_test(test_sni_consume_header_openvpn_client),
         cmocka_unit_test(test_sni_consume_header_tls_wrong_alpn),
         cmocka_unit_test(test_sni_consume_header_partial),
+        cmocka_unit_test(test_sni_consume_header_ignore_alpn),
+        cmocka_unit_test(test_sni_consume_header_hostname_match),
+        cmocka_unit_test(test_sni_consume_header_hostname_mismatch),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
