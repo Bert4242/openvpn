@@ -28,6 +28,32 @@
 #include "socket.h"
 
 /*
+ * Context for the server-side checker.
+ *
+ * ALPN matching:
+ *   ignore_alpn == true  → accept any ClientHello regardless of ALPN presence
+ *                          or content.  alpn_list / alpn_count are ignored.
+ *   ignore_alpn == false → at least one token in the ClientHello's ALPN
+ *                          extension must match one of alpn_list[].
+ *                          If alpn_count == 0 the built-in default
+ *                          "hacky-sni-passthrough" is used.
+ *
+ * Hostname matching:
+ *   hostname_count == 0  → accept any SNI hostname (or no SNI at all).
+ *   hostname_count  > 0  → the SNI extension must be present and the hostname
+ *                          must match one of hostname_list[] (case-insensitive).
+ */
+struct sni_pt_server_check_ctx
+{
+    const char *const *alpn_list;
+    int alpn_count;
+    bool ignore_alpn;
+
+    const char *const *hostname_list;
+    int hostname_count;
+};
+
+/*
  * Client side: build and send an SNI routing header ClientHello
  * on the given connected TCP socket before the OpenVPN stream begins.
  *
@@ -45,26 +71,19 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
  * Server side: drive the state machine that detects and discards the SNI
  * routing header prepended by --sni-passthrough-hostname clients.
  *
- * alpn_list / alpn_count: accepted ALPN tokens.  When alpn_count is 0 (or
- * alpn_list is NULL), the built-in default "hacky-sni-passthrough" is used.
- *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
  */
 bool sni_passthrough_check_and_consume_header(struct stream_buf *sb,
-                                              const char *const *alpn_list,
-                                              int alpn_count);
+                                              const struct sni_pt_server_check_ctx *ctx);
 
 /*
- * Inspect a raw packet and check if it is an SNI routing header carrying
- * one of the given ALPN tokens.  When alpn_count is 0 (or alpn_list is
- * NULL), the built-in default "hacky-sni-passthrough" is used.
- *
+ * Inspect a raw packet against the server check context.
  * Returns the total byte length of the SNI header on match, 0 otherwise.
  * Exposed here for unit testing.
  */
 int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                                 const char *const *alpn_list, int alpn_count);
+                                 const struct sni_pt_server_check_ctx *ctx);
 
 #ifdef UNIT_TESTING
 /*
