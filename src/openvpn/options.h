@@ -695,6 +695,17 @@ struct options
      *  Peeks the first byte: 0x16 = routing header present (discard it);
      *  anything else = openvpn client (proceed normally, full backwards compat). */
     bool sni_passthrough_server;
+
+    /** Accepted SNI hostnames (--sni-passthrough-server-hostname, repeatable).
+     *  When empty, any hostname (or no SNI) is accepted.  Case-insensitive. */
+    const char **sni_passthrough_server_hostname_list;
+    int sni_passthrough_server_hostname_count;
+
+    /** Skip ALPN matching entirely (--sni-passthrough-server-ignore-alpn).
+     *  When true, the ALPN extension is ignored regardless of content.
+     *  Mutually exclusive with --sni-passthrough-alpn on the server;
+     *  if both are set, ignore_alpn wins (with a warning). */
+    bool sni_passthrough_server_ignore_alpn;
 #endif
 
     /* Allow only one session */

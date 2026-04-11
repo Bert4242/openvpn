@@ -654,6 +654,13 @@ static const char usage_message[] =
     "                  then proceed with the OpenVPN protocol. Openvpn clients\n"
     "                  (no routing header) are detected by peeking the first\n"
     "                  byte and handled normally.\n"
+    "--sni-passthrough-server-hostname name : (Server) Accept only routing\n"
+    "                  headers whose SNI extension matches <name> (case-insensitive).\n"
+    "                  May be repeated; any one match is sufficient.  When not\n"
+    "                  set, any hostname (or no SNI) is accepted.\n"
+    "--sni-passthrough-server-ignore-alpn : (Server) Skip ALPN matching.\n"
+    "                  Accept any valid ClientHello regardless of ALPN content.\n"
+    "                  Wins over --sni-passthrough-alpn if both are set.\n"
     "--sni-passthrough-alpn name : Append an ALPN token to the SNI routing\n"
     "                  header.  May be repeated to offer multiple tokens.  Can\n"
     "                  be set globally or per <connection> block; a per-connection\n"
@@ -9102,6 +9109,21 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
                        (size_t)(n + 1) * sizeof(const char *), &options->gc);
         ce->sni_passthrough_alpn_list[n] = p[1];
         ce->sni_passthrough_alpn_count = n + 1;
+    }
+    else if (streq(p[0], "sni-passthrough-server-hostname") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        int n = options->sni_passthrough_server_hostname_count;
+        options->sni_passthrough_server_hostname_list =
+            gc_realloc(options->sni_passthrough_server_hostname_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        options->sni_passthrough_server_hostname_list[n] = p[1];
+        options->sni_passthrough_server_hostname_count = n + 1;
+    }
+    else if (streq(p[0], "sni-passthrough-server-ignore-alpn") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_passthrough_server_ignore_alpn = true;
     }
 #endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
