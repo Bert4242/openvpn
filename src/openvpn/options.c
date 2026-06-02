@@ -666,7 +666,7 @@ static const char usage_message[] =
     "                  header.  May be repeated to offer multiple tokens.  Can\n"
     "                  be set globally or per <connection> block; a per-connection\n"
     "                  list replaces (not adds to) the global list.  Default when\n"
-    "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough.\n"
+    "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough/1.\n"
     "                  Must match between client and server.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
