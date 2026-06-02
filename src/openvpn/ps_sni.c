@@ -818,7 +818,11 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
                 p += nlen;
             }
         }
-        /* hostname_matched stays 0 → filter fails → check_packet returns 0 */
+        if (!cb->hostname_matched)
+        {
+            msg(M_WARN,
+                "--sni-passthrough-server: client_hello_cb: hostname not in allowed list, rejecting");
+        }
     }
     else
     {
@@ -1234,6 +1238,11 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     if (hostname_ok && alpn_ok)
     {
         return total;
+    }
+    if (!hostname_ok && ctx->hostname_count > 0)
+    {
+        msg(M_WARN,
+            "--sni-passthrough-server: hostname not in allowed list, rejecting (generic path)");
     }
     return 0;
 }
