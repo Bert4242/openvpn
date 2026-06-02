@@ -23,7 +23,6 @@
 #ifndef PS_SNI_H
 #define PS_SNI_H
 
-#if SNI_PASSTHROUGH
 
 #include "socket.h"
 
@@ -99,6 +98,5 @@ size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
                                                int alpn_count);
 #endif /* UNIT_TESTING */
 
-#endif /* SNI_PASSTHROUGH */
 
 #endif /* PS_SNI_H */
