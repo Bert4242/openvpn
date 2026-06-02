@@ -1321,4 +1321,3 @@ sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
                                               alpn_list, alpn_count);
 }
 #endif /* UNIT_TESTING && !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH */
-

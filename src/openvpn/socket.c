@@ -2252,13 +2252,13 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                     sb->error = true;
                     return false;
                 }
-#endif                
+#endif
             }
             else
             {
 #if PORT_SHARE
                 sb->port_share_state = PS_DISABLED;
-#endif                
+#endif
 
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
