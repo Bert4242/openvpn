@@ -135,9 +135,18 @@ sni_pt_str_eq_nocase(const unsigned char *buf, unsigned int buflen,
         unsigned char a = buf[i];
         unsigned char b = (unsigned char)str[i];
         /* ASCII lower-case: A-Z → a-z */
-        if (a >= 'A' && a <= 'Z') a += 32;
-        if (b >= 'A' && b <= 'Z') b += 32;
-        if (a != b) return false;
+        if (a >= 'A' && a <= 'Z')
+        {
+            a += 32;
+        }
+        if (b >= 'A' && b <= 'Z')
+        {
+            b += 32;
+        }
+        if (a != b)
+        {
+            return false;
+        }
     }
     return true;
 }

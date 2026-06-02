@@ -130,7 +130,7 @@ run_compat_test(builder_fn build, checker_fn check, const char *sni)
     make_stream_buf(&sb, buf, (int)len);
 
     /* Default ctx: use built-in ALPN, accept any hostname */
-    const struct sni_pt_server_check_ctx ctx = {0};
+    const struct sni_pt_server_check_ctx ctx = { 0 };
     bool result = check(&sb, &ctx);
 
     assert_true(result);
