@@ -50,22 +50,22 @@
 #include "test_common.h"
 
 /* =========================================================================
- * Minimal valid ClientHello carrying ALPN "hacky-sni-passthrough"
+ * Minimal valid ClientHello carrying ALPN "hacky-sni-passthrough/1"
  *
  * Layout (all lengths big-endian):
- *   TLS record header  : 0x16 0x0301 record_len=75         (5 bytes)
- *   Handshake header   : 0x01 body_len=71                  (4 bytes)
+ *   TLS record header  : 0x16 0x0301 record_len=77         (5 bytes)
+ *   Handshake header   : 0x01 body_len=73                  (4 bytes)
  *   client_version     : 0x0303                            (2 bytes)
  *   random             : 32 zero-ish bytes                 (32 bytes)
  *   session_id         : len=0                             (1 byte)
  *   cipher_suites      : len=2, TLS_RSA_AES128_SHA(0x002f) (4 bytes)
  *   compression        : len=1, null(0x00)                 (2 bytes)
- *   extensions_len     : 28                                (2 bytes)
- *   ALPN extension     : type=0x0010 ext_data_len=24
- *                        list_len=22 proto_len=21
- *                        "hacky-sni-passthrough"           (28 bytes)
+ *   extensions_len     : 30                                (2 bytes)
+ *   ALPN extension     : type=0x0010 ext_data_len=26
+ *                        list_len=24 proto_len=23
+ *                        "hacky-sni-passthrough/1"         (30 bytes)
  *
- * Total: 80 bytes.  sni_passthrough_check_packet() must return 80.
+ * Total: 82 bytes.  sni_passthrough_check_packet() must return 82.
  * ========================================================================= */
 static const uint8_t valid_sni_pkt[] = {
     /* TLS record header */
@@ -73,12 +73,12 @@ static const uint8_t valid_sni_pkt[] = {
     0x03,
     0x01,
     0x00,
-    0x4b,
-    /* Handshake header: ClientHello(1) body_len=71 */
+    0x4d,
+    /* Handshake header: ClientHello(1) body_len=73 */
     0x01,
     0x00,
     0x00,
-    0x47,
+    0x49,
     /* client_version */
     0x03,
     0x03,
@@ -125,17 +125,17 @@ static const uint8_t valid_sni_pkt[] = {
     /* compression_methods: null */
     0x01,
     0x00,
-    /* extensions_len = 28 */
+    /* extensions_len = 30 */
     0x00,
-    0x1c,
+    0x1e,
     /* ALPN extension */
     0x00,
     0x10, /* ext_type = ALPN */
     0x00,
-    0x18, /* ext_data_len = 24 */
+    0x1a, /* ext_data_len = 26 */
     0x00,
-    0x16, /* protocol_list_len = 22 */
-    0x15, /* protocol_len = 21 */
+    0x18, /* protocol_list_len = 24 */
+    0x17, /* protocol_len = 23 */
     'h',
     'a',
     'c',
@@ -157,9 +157,11 @@ static const uint8_t valid_sni_pkt[] = {
     'u',
     'g',
     'h',
+    '/',
+    '1',
 };
 
-/* ClientHello with ALPN "http/1.1" – hacky-sni-passthrough not listed, should return 0 */
+/* ClientHello with ALPN "http/1.1" – hacky-sni-passthrough/1 not listed, should return 0 */
 static const uint8_t wrong_alpn_pkt[] = {
     /* TLS record header: record_len=62 */
     0x16,
@@ -303,58 +305,58 @@ static const uint8_t no_ext_pkt[] = {
 
 /*
  * A minimal ClientHello that carries BOTH an SNI extension (hostname
- * "vpn.example.com", 15 bytes) and ALPN "hacky-sni-passthrough".
+ * "vpn.example.com", 15 bytes) and ALPN "hacky-sni-passthrough/1".
  *
  * Layout (big-endian lengths):
- *   TLS record header   : 0x16 0x0301 record_len=116    (5 bytes)
- *   Handshake header    : 0x01 body_len=112              (4 bytes)
+ *   TLS record header   : 0x16 0x0301 record_len=118    (5 bytes)
+ *   Handshake header    : 0x01 body_len=114              (4 bytes)
  *   client_version      : 0x0303                         (2 bytes)
  *   random              : 32 zero bytes                  (32 bytes)
  *   session_id          : len=0                          (1 byte)
  *   cipher_suites       : len=2, 0x002f                  (4 bytes)
  *   compression         : len=1, 0x00                    (2 bytes)
- *   extensions_len      : 64                             (2 bytes)
+ *   extensions_len      : 66                             (2 bytes)
  *   SNI ext (0x0000)    : ext_data_len=19
  *                         list_len=17, name_type=0
  *                         name_len=15, "vpn.example.com" (23 bytes)
- *   ALPN ext (0x0010)   : ext_data_len=24
- *                         list_len=22, proto_len=21
- *                         "hacky-sni-passthrough" (28 bytes)
+ *   ALPN ext (0x0010)   : ext_data_len=26
+ *                         list_len=24, proto_len=23
+ *                         "hacky-sni-passthrough/1" (30 bytes)
  *
- * Total: 121 bytes.  sni_passthrough_check_packet() must return 121.
+ * Total: 123 bytes.  sni_passthrough_check_packet() must return 123.
  */
 /*
  * Packet layout (all lengths big-endian):
  *
- *   TLS record header    : 0x16 0x0301 record_len=99     5 bytes
- *   Handshake header     : 0x01 body_len=95              4 bytes
+ *   TLS record header    : 0x16 0x0301 record_len=101    5 bytes
+ *   Handshake header     : 0x01 body_len=97              4 bytes
  *   client_version       : 0x0303                        2 bytes
  *   random               : 32 zero bytes                32 bytes
  *   session_id           : len=0                         1 byte
  *   cipher_suites        : len=2, TLS_RSA_AES128_SHA     4 bytes
  *   compression          : len=1, null(0x00)             2 bytes
- *   extensions_len       : 52                            2 bytes
+ *   extensions_len       : 54                            2 bytes
  *   SNI ext (0x0000)     : ext_data_len=20
  *                          list_len=18, name_type=0
  *                          name_len=15, "vpn.example.com"  24 bytes
- *   ALPN ext (0x0010)    : ext_data_len=24
- *                          list_len=22, proto_len=21
- *                          "hacky-sni-passthrough"          28 bytes
+ *   ALPN ext (0x0010)    : ext_data_len=26
+ *                          list_len=24, proto_len=23
+ *                          "hacky-sni-passthrough/1"        30 bytes
  *
- * Total: 5 + 99 = 104 bytes.
+ * Total: 5 + 101 = 106 bytes.
  */
 static const uint8_t sni_and_alpn_pkt[] = {
-    /* TLS record header: record_len = 99 */
+    /* TLS record header: record_len = 101 */
     0x16,
     0x03,
     0x01,
     0x00,
-    0x63,
-    /* Handshake: ClientHello(1), body_len = 95 */
+    0x65,
+    /* Handshake: ClientHello(1), body_len = 97 */
     0x01,
     0x00,
     0x00,
-    0x5f,
+    0x61,
     /* client_version */
     0x03,
     0x03,
@@ -401,9 +403,9 @@ static const uint8_t sni_and_alpn_pkt[] = {
     /* compression: null only */
     0x01,
     0x00,
-    /* extensions_len = 52 */
+    /* extensions_len = 54 */
     0x00,
-    0x34,
+    0x36,
     /* SNI extension */
     0x00,
     0x00, /* type = server_name */
@@ -433,10 +435,10 @@ static const uint8_t sni_and_alpn_pkt[] = {
     0x00,
     0x10, /* type = ALPN */
     0x00,
-    0x18, /* ext_data_len = 24 */
+    0x1a, /* ext_data_len = 26 */
     0x00,
-    0x16, /* protocol_list_len = 22 */
-    0x15, /* protocol_len = 21 */
+    0x18, /* protocol_list_len = 24 */
+    0x17, /* protocol_len = 23 */
     'h',
     'a',
     'c',
@@ -458,6 +460,8 @@ static const uint8_t sni_and_alpn_pkt[] = {
     'u',
     'g',
     'h',
+    '/',
+    '1',
 };
 
 /* ==========================================================================
