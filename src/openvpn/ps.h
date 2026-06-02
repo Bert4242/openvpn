@@ -23,10 +23,13 @@
 #ifndef PS_H
 #define PS_H
 
+#include "buffer.h"
+
+bool is_openvpn_protocol(const struct buffer *buf);
+
 #if PORT_SHARE
 
 #include "basic.h"
-#include "buffer.h"
 #include "ssl.h"
 
 struct port_share
@@ -46,8 +49,6 @@ struct port_share *port_share_open(const char *host, const char *port, const int
 void port_share_close(struct port_share *ps);
 
 void port_share_abort(struct port_share *ps);
-
-bool is_openvpn_protocol(const struct buffer *buf);
 
 void port_share_redirect(struct port_share *ps, const struct buffer *head, socket_descriptor_t sd);
 
