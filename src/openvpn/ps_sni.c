@@ -728,7 +728,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
     sent = 0;
     while (sent < (ssize_t)len)
     {
-        ssize_t n = send(sd, (const char *)(buf + sent), len - sent, MSG_NOSIGNAL);
+        ssize_t n = send(sd, (const char *)(buf + sent), (int)(len - sent), MSG_NOSIGNAL);
         if (n <= 0)
         {
             msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-hostname: send() failed");
