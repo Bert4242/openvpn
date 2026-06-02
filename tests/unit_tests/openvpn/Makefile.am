@@ -49,11 +49,9 @@ if HAVE_SITNL
 check_PROGRAMS += networking_testdriver
 endif
 
-if HAVE_PORT_SHARE
 check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
 if !CROSS_COMPILING
 TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
-endif
 endif
 
 argv_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
