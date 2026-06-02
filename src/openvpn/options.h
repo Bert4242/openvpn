@@ -185,7 +185,7 @@ struct connection_entry
     const char *sni_passthrough_hostname;
 
     /** ALPN token(s) for the SNI routing header (--sni-passthrough-alpn).
-     *  If alpn_count == 0, the built-in default "hacky-sni-passthrough" is used.
+     *  If alpn_count == 0, the built-in default "hacky-sni-passthrough/1" is used.
      *  Per-connection list replaces (not adds to) the global list. */
     const char **sni_passthrough_alpn_list;
     int sni_passthrough_alpn_count;
