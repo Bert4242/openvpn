@@ -9173,7 +9173,6 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_passthrough_server_ignore_alpn = true;
     }
-#endif
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
