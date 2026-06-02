@@ -346,37 +346,119 @@ static const uint8_t no_ext_pkt[] = {
  */
 static const uint8_t sni_and_alpn_pkt[] = {
     /* TLS record header: record_len = 99 */
-    0x16, 0x03, 0x01, 0x00, 0x63,
+    0x16,
+    0x03,
+    0x01,
+    0x00,
+    0x63,
     /* Handshake: ClientHello(1), body_len = 95 */
-    0x01, 0x00, 0x00, 0x5f,
+    0x01,
+    0x00,
+    0x00,
+    0x5f,
     /* client_version */
-    0x03, 0x03,
+    0x03,
+    0x03,
     /* random (32 bytes) */
-    0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07,
-    0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d, 0x0e, 0x0f,
-    0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17,
-    0x18, 0x19, 0x1a, 0x1b, 0x1c, 0x1d, 0x1e, 0x1f,
+    0x00,
+    0x01,
+    0x02,
+    0x03,
+    0x04,
+    0x05,
+    0x06,
+    0x07,
+    0x08,
+    0x09,
+    0x0a,
+    0x0b,
+    0x0c,
+    0x0d,
+    0x0e,
+    0x0f,
+    0x10,
+    0x11,
+    0x12,
+    0x13,
+    0x14,
+    0x15,
+    0x16,
+    0x17,
+    0x18,
+    0x19,
+    0x1a,
+    0x1b,
+    0x1c,
+    0x1d,
+    0x1e,
+    0x1f,
     /* session_id: empty */
     0x00,
     /* cipher_suites: 1 suite */
-    0x00, 0x02, 0x00, 0x2f,
+    0x00,
+    0x02,
+    0x00,
+    0x2f,
     /* compression: null only */
-    0x01, 0x00,
+    0x01,
+    0x00,
     /* extensions_len = 52 */
-    0x00, 0x34,
+    0x00,
+    0x34,
     /* SNI extension */
-    0x00, 0x00,          /* type = server_name */
-    0x00, 0x14,          /* ext_data_len = 20 */
-    0x00, 0x12,          /* server_name_list_len = 18 */
-    0x00,                /* name_type = host_name */
-    0x00, 0x0f,          /* name_len = 15 */
-    'v','p','n','.','e','x','a','m','p','l','e','.','c','o','m',
+    0x00,
+    0x00, /* type = server_name */
+    0x00,
+    0x14, /* ext_data_len = 20 */
+    0x00,
+    0x12, /* server_name_list_len = 18 */
+    0x00, /* name_type = host_name */
+    0x00,
+    0x0f, /* name_len = 15 */
+    'v',
+    'p',
+    'n',
+    '.',
+    'e',
+    'x',
+    'a',
+    'm',
+    'p',
+    'l',
+    'e',
+    '.',
+    'c',
+    'o',
+    'm',
     /* ALPN extension */
-    0x00, 0x10,          /* type = ALPN */
-    0x00, 0x18,          /* ext_data_len = 24 */
-    0x00, 0x16,          /* protocol_list_len = 22 */
-    0x15,                /* protocol_len = 21 */
-    'h','a','c','k','y','-','s','n','i','-','p','a','s','s','t','h','r','o','u','g','h',
+    0x00,
+    0x10, /* type = ALPN */
+    0x00,
+    0x18, /* ext_data_len = 24 */
+    0x00,
+    0x16, /* protocol_list_len = 22 */
+    0x15, /* protocol_len = 21 */
+    'h',
+    'a',
+    'c',
+    'k',
+    'y',
+    '-',
+    's',
+    'n',
+    'i',
+    '-',
+    'p',
+    'a',
+    's',
+    's',
+    't',
+    'h',
+    'r',
+    'o',
+    'u',
+    'g',
+    'h',
 };
 
 /* ==========================================================================
@@ -384,7 +466,7 @@ static const uint8_t sni_and_alpn_pkt[] = {
  * ========================================================================== */
 
 /* Default ctx: built-in ALPN, any hostname, ALPN required */
-static const struct sni_pt_server_check_ctx ctx_default = {0};
+static const struct sni_pt_server_check_ctx ctx_default = { 0 };
 
 /* Helper: allocate a stream_buf whose buf contains the given bytes */
 static void
@@ -449,7 +531,8 @@ test_sni_check_packet_wrong_alpn(void **state)
     (void)state;
     assert_int_equal(
         sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt),
-                                     &ctx_default), 0);
+                                     &ctx_default),
+        0);
 }
 
 static void
@@ -466,7 +549,8 @@ test_sni_check_packet_truncated_record(void **state)
     (void)state;
     assert_int_equal(
         sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10,
-                                     &ctx_default), 0);
+                                     &ctx_default),
+        0);
 }
 
 /* ignore_alpn=true: wrong ALPN → still accepted */
@@ -474,7 +558,7 @@ static void
 test_sni_check_packet_ignore_alpn(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
     /* wrong_alpn_pkt carries "http/1.1", not the configured token */
     int ret = sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), &ctx);
     assert_int_equal(ret, (int)sizeof(wrong_alpn_pkt));
@@ -485,7 +569,7 @@ static void
 test_sni_check_packet_ignore_alpn_no_ext(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
     /* no_ext_pkt has no extensions at all */
     int ret = sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx);
     assert_int_equal(ret, (int)sizeof(no_ext_pkt));
@@ -496,7 +580,7 @@ static void
 test_sni_check_packet_hostname_match(void **state)
 {
     (void)state;
-    const char *hosts[] = {"vpn.example.com"};
+    const char *hosts[] = { "vpn.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
@@ -511,7 +595,7 @@ static void
 test_sni_check_packet_hostname_match_case(void **state)
 {
     (void)state;
-    const char *hosts[] = {"VPN.EXAMPLE.COM"};
+    const char *hosts[] = { "VPN.EXAMPLE.COM" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
@@ -526,7 +610,7 @@ static void
 test_sni_check_packet_hostname_mismatch(void **state)
 {
     (void)state;
-    const char *hosts[] = {"other.example.com"};
+    const char *hosts[] = { "other.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
@@ -541,7 +625,7 @@ static void
 test_sni_check_packet_hostname_multi_match(void **state)
 {
     (void)state;
-    const char *hosts[] = {"other.example.com", "vpn.example.com", "another.example.com"};
+    const char *hosts[] = { "other.example.com", "vpn.example.com", "another.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 3,
@@ -556,7 +640,7 @@ static void
 test_sni_check_packet_hostname_filter_no_sni(void **state)
 {
     (void)state;
-    const char *hosts[] = {"vpn.example.com"};
+    const char *hosts[] = { "vpn.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
@@ -595,7 +679,7 @@ static void
 test_sni_consume_header_with_trailing_data(void **state)
 {
     (void)state;
-    uint8_t trailing[] = {0x00, 0x07, 0xde, 0xad, 0xbe, 0xef};
+    uint8_t trailing[] = { 0x00, 0x07, 0xde, 0xad, 0xbe, 0xef };
     uint8_t combined[sizeof(valid_sni_pkt) + sizeof(trailing)];
     memcpy(combined, valid_sni_pkt, sizeof(valid_sni_pkt));
     memcpy(combined + sizeof(valid_sni_pkt), trailing, sizeof(trailing));
@@ -621,7 +705,7 @@ static void
 test_sni_consume_header_openvpn_client(void **state)
 {
     (void)state;
-    uint8_t openvpn_data[] = {0x00, 0x07, 0x38, 0x01, 0x02, 0x03, 0x04, 0x05};
+    uint8_t openvpn_data[] = { 0x00, 0x07, 0x38, 0x01, 0x02, 0x03, 0x04, 0x05 };
     struct stream_buf sb;
     make_stream_buf(&sb, openvpn_data, (int)sizeof(openvpn_data));
 
@@ -654,7 +738,7 @@ static void
 test_sni_consume_header_partial(void **state)
 {
     (void)state;
-    uint8_t partial[] = {0x16, 0x03, 0x01};
+    uint8_t partial[] = { 0x16, 0x03, 0x01 };
     struct stream_buf sb;
     make_stream_buf(&sb, partial, (int)sizeof(partial));
 
@@ -671,7 +755,7 @@ static void
 test_sni_consume_header_ignore_alpn(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = {.ignore_alpn = true};
+    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
     struct stream_buf sb;
     make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
 
@@ -688,7 +772,7 @@ static void
 test_sni_consume_header_hostname_match(void **state)
 {
     (void)state;
-    const char *hosts[] = {"vpn.example.com"};
+    const char *hosts[] = { "vpn.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
@@ -709,7 +793,7 @@ static void
 test_sni_consume_header_hostname_mismatch(void **state)
 {
     (void)state;
-    const char *hosts[] = {"other.example.com"};
+    const char *hosts[] = { "other.example.com" };
     struct sni_pt_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
