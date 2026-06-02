@@ -548,17 +548,17 @@ static const uint8_t sni_pt_suffix_post_alpn[1352] = {
 };
 /* clang-format on */
 
-#define SNI_PT_PREFIX_LEN           156u
-#define SNI_PT_SUFFIX_PRE_ALPN_LEN  34u
-#define SNI_PT_SUFFIX_POST_ALPN_LEN 1352u
-#define SNI_PT_TEMPLATE_SNI_LEN      21u                                          /* length of the hostname in the captured template */
-#define SNI_PT_TEMPLATE_ALPN_EXT_LEN 28u                                          /* ALPN ext len in the captured template ("hacky-sni-passthrough", 21 bytes) */
+#define SNI_PT_PREFIX_LEN            156u
+#define SNI_PT_SUFFIX_PRE_ALPN_LEN   34u
+#define SNI_PT_SUFFIX_POST_ALPN_LEN  1352u
+#define SNI_PT_TEMPLATE_SNI_LEN      21u   /* length of the hostname in the captured template */
+#define SNI_PT_TEMPLATE_ALPN_EXT_LEN 28u   /* ALPN ext len in the captured template ("hacky-sni-passthrough", 21 bytes) */
 
 /* Offsets of ephemeral key fields within sni_pt_suffix_post_alpn[] */
-#define SNI_PT_POST_ALPN_MLKEM_OFF  91u                                           /* ML-KEM key data (1216 bytes) */
-#define SNI_PT_POST_ALPN_MLKEM_LEN  1216u
-#define SNI_PT_POST_ALPN_X25519_OFF 1311u                                         /* x25519 key data (32 bytes) */
-#define SNI_PT_POST_ALPN_X25519_LEN 32u
+#define SNI_PT_POST_ALPN_MLKEM_OFF   91u   /* ML-KEM key data (1216 bytes) */
+#define SNI_PT_POST_ALPN_MLKEM_LEN   1216u
+#define SNI_PT_POST_ALPN_X25519_OFF  1311u /* x25519 key data (32 bytes) */
+#define SNI_PT_POST_ALPN_X25519_LEN  32u
 
 static size_t
 sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
