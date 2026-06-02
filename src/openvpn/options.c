@@ -643,7 +643,6 @@ static const char usage_message[] =
     "                  client-supplied tls-crypt-v2 client key\n"
     "--tls-crypt-v2-max-age n : Only accept tls-crypt-v2 client keys that have a\n"
     "                  timestamp which is at most n days old.\n"
-#if SNI_PASSTHROUGH
     "--sni-passthrough-hostname name : (Client) Prepend an SNI routing\n"
     "                  header to every TCP connection so that SNI-aware proxies\n"
     "                  (e.g. Traefik passthrough) route the stream to the right\n"
@@ -669,7 +668,6 @@ static const char usage_message[] =
     "                  list replaces (not adds to) the global list.  Default when\n"
     "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough.\n"
     "                  Must match between client and server.\n"
-#endif
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9117,7 +9115,6 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             goto err;
         }
     }
-#if SNI_PASSTHROUGH
     else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
