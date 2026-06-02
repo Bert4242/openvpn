@@ -1042,12 +1042,10 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
-#if SNI_PASSTHROUGH
     if (o->sni_passthrough_server)
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
-#endif
 
     sock->mark = o->mark;
     sock->bind_dev = o->bind_dev;
@@ -1355,7 +1353,6 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     /* initialize buffers */
     socket_frame_init(frame, sock);
 
-#if SNI_PASSTHROUGH
     sock->stream_buf.sni_passthrough_alpn_list = (const char **)c->options.ce.sni_passthrough_alpn_list;
     sock->stream_buf.sni_passthrough_alpn_count = c->options.ce.sni_passthrough_alpn_count;
     sock->stream_buf.sni_passthrough_server_hostname_list =
@@ -1364,7 +1361,6 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         c->options.sni_passthrough_server_hostname_count;
     sock->stream_buf.sni_passthrough_server_ignore_alpn =
         c->options.sni_passthrough_server_ignore_alpn;
-#endif
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1438,7 +1434,6 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         goto done;
     }
 
-#if SNI_PASSTHROUGH
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
         && c->options.ce.sni_passthrough_hostname)
@@ -1451,7 +1446,6 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             goto done;
         }
     }
-#endif
 
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
@@ -1759,11 +1753,9 @@ stream_buf_init(struct stream_buf *sb, const struct buffer *buf, const unsigned 
     sb->port_share_state =
         ((sockflags & SF_PORT_SHARE) && (proto == PROTO_TCP_SERVER)) ? PS_ENABLED : PS_DISABLED;
 #endif
-#if SNI_PASSTHROUGH
     sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
                                     ? SNI_PT_PENDING
                                     : SNI_PT_DISABLED;
-#endif
     stream_buf_reset(sb);
 
     dmsg(D_STREAM_DEBUG, "STREAM: INIT maxlen=%d", sb->maxlen);
@@ -1859,17 +1851,15 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         packet_size_type net_size;
 
 #if PORT_SHARE
-#if SNI_PASSTHROUGH
         if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING)
 #else
-        if (sb->port_share_state == PS_ENABLED)
+        if (sb->sni_passthrough_state == SNI_PT_PENDING)
 #endif
         {
             if (!is_openvpn_protocol(&sb->buf))
             {
                 msg(D_PS_PROXY, "Non-OpenVPN client protocol detected");
 
-#if SNI_PASSTHROUGH
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
                     struct sni_pt_server_check_ctx sni_ctx = {
@@ -1882,11 +1872,13 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                     };
                     if (sni_passthrough_check_and_consume_header(sb, &sni_ctx))
                     {
+#if PORT_SHARE
                         if (sb->port_share_state == PS_ENABLED)
                         {
                             /* SNI header has been droped , cant anymore do port_share */
                             sb->port_share_state = PS_DISABLED;
                         }
+#endif
                         if (sb->buf.len == 0)
                         {
                             /* No OpenVPN data yet after the SNI header; wait for more. */
@@ -1903,26 +1895,27 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                         }
                     }
                 }
-#endif
+#if PORT_SHARE
                 if (sb->port_share_state == PS_ENABLED)
                 {
                     sb->port_share_state = PS_FOREIGN;
                     sb->error = true;
                     return false;
                 }
+#endif                
             }
             else
             {
+#if PORT_SHARE
                 sb->port_share_state = PS_DISABLED;
-#if SNI_PASSTHROUGH
+#endif                
+
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
                     sb->sni_passthrough_state = SNI_PT_DISABLED;
                 }
-#endif
             }
         }
-#endif
 
         ASSERT(buf_read(&sb->buf, &net_size, sizeof(net_size)));
         sb->len = ntohps(net_size);

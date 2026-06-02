@@ -68,7 +68,6 @@
  */
 #include "ps_sni.c"
 
-#if SNI_PASSTHROUGH
 #include <stdint.h>
 #include <stddef.h>
 
@@ -87,4 +86,3 @@ sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf, size_t bu
     return sni_passthrough_build_client_hello_alt_test_path(buf, bufsz, sni,
                                                             alpn_list, alpn_count);
 }
-#endif /* SNI_PASSTHROUGH */
