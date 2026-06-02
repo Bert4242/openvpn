@@ -35,7 +35,7 @@
  *   ignore_alpn == false → at least one token in the ClientHello's ALPN
  *                          extension must match one of alpn_list[].
  *                          If alpn_count == 0 the built-in default
- *                          "hacky-sni-passthrough" is used.
+ *                          "hacky-sni-passthrough/1" is used.
  *
  * Hostname matching:
  *   hostname_count == 0  → accept any SNI hostname (or no SNI at all).
@@ -57,7 +57,7 @@ struct sni_pt_server_check_ctx
  * on the given connected TCP socket before the OpenVPN stream begins.
  *
  * alpn_list / alpn_count: the ALPN tokens to advertise.  When alpn_count
- * is 0 (or alpn_list is NULL), the built-in default "hacky-sni-passthrough"
+ * is 0 (or alpn_list is NULL), the built-in default "hacky-sni-passthrough/1"
  * is used.
  *
  * Returns true on success, false on failure.
