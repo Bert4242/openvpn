@@ -551,10 +551,8 @@ static const uint8_t sni_pt_suffix_post_alpn[1352] = {
 #define SNI_PT_PREFIX_LEN           156u
 #define SNI_PT_SUFFIX_PRE_ALPN_LEN  34u
 #define SNI_PT_SUFFIX_POST_ALPN_LEN 1352u
-#define SNI_PT_TEMPLATE_SNI_LEN     21u                                           /* length of the hostname in the captured template */
-
-/* Wire size of the default ALPN extension: type(2)+ext_data_len(2)+list_len(2)+proto_len(1)+name */
-#define SNI_PT_DEFAULT_ALPN_EXT_LEN (2u + 2u + 2u + 1u + SNI_PT_DEFAULT_ALPN_LEN) /* 30 */
+#define SNI_PT_TEMPLATE_SNI_LEN      21u                                          /* length of the hostname in the captured template */
+#define SNI_PT_TEMPLATE_ALPN_EXT_LEN 28u                                          /* ALPN ext len in the captured template ("hacky-sni-passthrough", 21 bytes) */
 
 /* Offsets of ephemeral key fields within sni_pt_suffix_post_alpn[] */
 #define SNI_PT_POST_ALPN_MLKEM_OFF  91u                                           /* ML-KEM key data (1216 bytes) */
@@ -616,10 +614,10 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         return 0;
     }
 
-    /* Deltas relative to the template's default SNI and ALPN sizes.
-     * SNI_PT_DEFAULT_ALPN_EXT_LEN = 2+2+2+1+23 = 30 (one default token). */
+    /* Deltas relative to the captured template's SNI and ALPN sizes.
+     * SNI_PT_TEMPLATE_ALPN_EXT_LEN = 2+2+2+1+21 = 28 (template ALPN). */
     sni_delta = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
-    alpn_delta = (int)alpn_ext_len - (int)SNI_PT_DEFAULT_ALPN_EXT_LEN;
+    alpn_delta = (int)alpn_ext_len - (int)SNI_PT_TEMPLATE_ALPN_EXT_LEN;
     delta = sni_delta + alpn_delta;
 
     /* Assemble: prefix + hostname + pre_alpn + ALPN ext + post_alpn */
