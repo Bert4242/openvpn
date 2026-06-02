@@ -180,7 +180,6 @@ struct connection_entry
     /* Allow only client that support resending the wrapped client key */
     bool tls_crypt_v2_force_cookie;
 
-#if SNI_PASSTHROUGH
     /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
      *  NULL means SNI passthrough is inactive for this connection.
      *  Set globally to apply to all connections; override per <connection> block.
@@ -195,7 +194,6 @@ struct connection_entry
     /** True once this entry owns its own alpn list (i.e. the first
      *  sni-passthrough-alpn was seen inside this connection block). */
     bool sni_passthrough_alpn_defined;
-#endif
 };
 
 struct remote_entry
@@ -692,7 +690,6 @@ struct options
 
     int tls_crypt_v2_max_age;
 
-#if SNI_PASSTHROUGH
     /** Enable server-side detection and discarding of the SNI routing header
      *  sent by clients using --sni-passthrough-hostname (--sni-passthrough-server).
      *  Peeks the first byte: 0x16 = routing header present (discard it);
@@ -709,7 +706,6 @@ struct options
      *  Mutually exclusive with --sni-passthrough-alpn on the server;
      *  if both are set, ignore_alpn wins (with a warning). */
     bool sni_passthrough_server_ignore_alpn;
-#endif
 
     /* Allow only one session */
     bool single_session;

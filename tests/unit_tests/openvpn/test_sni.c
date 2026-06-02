@@ -39,7 +39,6 @@
 
 #include "syshead.h"
 
-#if SNI_PASSTHROUGH
 
 #include <setjmp.h>
 #include <cmocka.h>
@@ -851,12 +850,3 @@ main(void)
     return cmocka_run_group_tests(tests, NULL, NULL);
 }
 
-#else  /* !SNI_PASSTHROUGH */
-
-int
-main(void)
-{
-    return 0;
-}
-
-#endif /* SNI_PASSTHROUGH */
