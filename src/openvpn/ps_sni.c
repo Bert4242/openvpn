@@ -245,44 +245,32 @@ cleanup:
 /*
  * Template-based ClientHello builder for non-OpenSSL backends.
  *
- * The template was captured from OpenSSL with a 21-byte hostname.
- * The prefix covers bytes [0..155] (everything up to the
- * hostname), the suffix covers bytes [177..1576] (everything after).
- * When building, we copy prefix, insert the requested hostname, append
- * suffix, then patch the five length fields that span the SNI extension
- * up to the TLS record envelope.
+ * The fixed portions of the ClientHello are stored as small named arrays.
+ * The builder writes them sequentially via the OpenVPN buf API, inserting
+ * computed length fields between sections so no back-patching is needed.
+ * Variable fields (SNI, ALPN) are written through dedicated TLV helpers.
+ * Ephemeral fields (random, session-id, key shares) are randomised in place.
  *
- * Fields patched (delta = new_sni_len - 21):
- *   buf[3..4]     TLS record length        (2 bytes, +delta)
- *   buf[6..8]     Handshake message length (3 bytes, +delta)
- *   buf[140..141] Extensions total length  (2 bytes, +delta)
- *   buf[149..150] SNI ext_data_len         (2 bytes, +delta)
- *   buf[151..152] SNI server_name_list_len (2 bytes, +delta)
- *   buf[154..155] SNI name_len             (2 bytes, = new_sni_len)
- *
- * The 32-byte random field at buf[11..42] is re-randomised every call.
+ * The template was originally captured from OpenSSL 3.x with a 21-byte SNI
+ * and "hacky-sni-passthrough" (21 bytes) as the ALPN token.
  */
 
 /* clang-format off */
-static const uint8_t sni_pt_prefix[156] = {
-    /* TLS record header: Handshake(0x16), TLS1.0, length=1572 */
-    0x16,0x03,0x01,0x06,0x24,
-    /* Handshake header: ClientHello(0x01), length=1568 */
-    0x01,0x00,0x06,0x20,
-    /* client_version: TLS 1.2 */
-    0x03,0x03,
-    /* random (32 bytes) - overwritten at use time */
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    /* session_id_len=32, session_id - overwritten at use time */
-    0x20,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    0x00,0x00,0x00,0x00,0x00,0x00,0x00,0x00,
-    /* cipher_suites_len=60, 30 cipher suites */
+
+/* TLS record: content_type=Handshake(0x16) + legacy_version=TLS1.0 */
+static const uint8_t sni_pt_tls_hdr[3] = { 0x16, 0x03, 0x01 };
+
+/* Handshake: msg_type=ClientHello(0x01) */
+static const uint8_t sni_pt_hs_type[1] = { 0x01 };
+
+/* ClientHello: client_version=TLS1.2 */
+static const uint8_t sni_pt_client_version[2] = { 0x03, 0x03 };
+
+/* session_id_len=32 */
+static const uint8_t sni_pt_session_id_len[1] = { 0x20 };
+
+/* cipher_suites_len=60 (30 suites) + null compression */
+static const uint8_t sni_pt_cipher_and_comp[64] = {
     0x00,0x3c,
     0x13,0x02,0x13,0x03,0x13,0x01,0xc0,0x2c,
     0xc0,0x30,0x00,0x9f,0xcc,0xa9,0xcc,0xa8,
@@ -292,20 +280,11 @@ static const uint8_t sni_pt_prefix[156] = {
     0x00,0x39,0xc0,0x09,0xc0,0x13,0x00,0x33,
     0x00,0x9d,0x00,0x9c,0x00,0x3d,0x00,0x3c,
     0x00,0x35,0x00,0x2f,
-    /* compression_methods: null only */
     0x01,0x00,
-    /* extensions_len=1449 */
-    0x05,0xa9,
-    /* ext renegotiation_info (0xff01): len=1, data=0x00 */
-    0xff,0x01,0x00,0x01,0x00,
-    /* ext server_name (0x0000) */
-    0x00,0x00,
-    0x00,0x1a,  /* ext_data_len=26  [149..150] */
-    0x00,0x18,  /* server_name_list_len=24  [151..152] */
-    0x00,       /* name_type: host_name */
-    0x00,0x15   /* name_len=21  [154..155] */
-    /* hostname (21 bytes) follows at [156]  */
 };
+
+/* renegotiation_info ext: type(0xff01) + ext_data_len(1) + data(0x00) */
+static const uint8_t sni_pt_renegotiation_info[5] = { 0xff, 0x01, 0x00, 0x01, 0x00 };
 
 /*
  * The suffix is split into two halves around the ALPN extension, which is
@@ -515,36 +494,61 @@ static const uint8_t sni_pt_suffix_post_alpn[1352] = {
 };
 /* clang-format on */
 
-#define SNI_PT_PREFIX_LEN            156u
-#define SNI_PT_SUFFIX_PRE_ALPN_LEN   34u
-#define SNI_PT_SUFFIX_POST_ALPN_LEN  1352u
-#define SNI_PT_TEMPLATE_SNI_LEN      21u   /* length of the hostname in the captured template */
-#define SNI_PT_TEMPLATE_ALPN_EXT_LEN 28u   /* ALPN ext len in the captured template ("hacky-sni-passthrough", 21 bytes) */
+#define SNI_PT_SUFFIX_PRE_ALPN_LEN  34u
+#define SNI_PT_SUFFIX_POST_ALPN_LEN 1352u
 
 /* Offsets of ephemeral key fields within sni_pt_suffix_post_alpn[] */
-#define SNI_PT_POST_ALPN_MLKEM_OFF   91u   /* ML-KEM key data (1216 bytes) */
-#define SNI_PT_POST_ALPN_MLKEM_LEN   1216u
-#define SNI_PT_POST_ALPN_X25519_OFF  1311u /* x25519 key data (32 bytes) */
-#define SNI_PT_POST_ALPN_X25519_LEN  32u
+#define SNI_PT_POST_ALPN_MLKEM_OFF  91u   /* ML-KEM key data (1216 bytes) */
+#define SNI_PT_POST_ALPN_MLKEM_LEN  1216u
+#define SNI_PT_POST_ALPN_X25519_OFF 1311u /* x25519 key data (32 bytes) */
+#define SNI_PT_POST_ALPN_X25519_LEN 32u
+
+/*
+ * Write a TLS SNI extension into buf.
+ *
+ * Wire layout: ext_type(2) + ext_data_len(2) +
+ *              server_name_list_len(2) + name_type(1) + name_len(2) + name(sni_len)
+ */
+static bool
+buf_write_sni_ext(struct buffer *buf, const char *sni, size_t sni_len)
+{
+    uint16_t list_len = (uint16_t)(3 + sni_len);      /* name_type(1) + name_len(2) + name */
+    uint16_t ext_data_len = (uint16_t)(2 + list_len); /* list_len field + list */
+
+    return buf_write_u16(buf, 0x0000)                 /* server_name ext type */
+           && buf_write_u16(buf, ext_data_len)
+           && buf_write_u16(buf, list_len)
+           && buf_write_u8(buf, 0x00) /* name_type = host_name */
+           && buf_write_u16(buf, (uint16_t)sni_len)
+           && buf_write(buf, sni, sni_len);
+}
+
+/*
+ * Write a TLS ALPN extension into buf.
+ *
+ * Wire layout: ext_type(2) + ext_data_len(2) +
+ *              protocol_list_len(2) + proto_list(list_len)
+ */
+static bool
+buf_write_alpn_ext(struct buffer *buf,
+                   const unsigned char *proto_list, size_t list_len)
+{
+    uint16_t ext_data_len = (uint16_t)(2 + list_len); /* list_len field + list */
+
+    return buf_write_u16(buf, 0x0010)                 /* ALPN ext type */
+           && buf_write_u16(buf, ext_data_len)
+           && buf_write_u16(buf, (uint16_t)list_len)
+           && buf_write(buf, proto_list, list_len);
+}
 
 static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
+sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *sni,
                                    const char *const *alpn_list, int alpn_count)
 {
-    size_t alpn_proto_list_len; /* total bytes for all length-prefixed tokens */
-    size_t alpn_ext_len;
-    size_t suffix_len;
-    size_t sni_len;
-    size_t total;
-    int sni_delta;
-    int alpn_delta;
-    int delta;
-    int i;
-    size_t off;
-    /* temporary buffer for the ALPN proto list (length-prefixed tokens) */
     unsigned char alpn_proto_buf[4096];
     const char *const *eff_list;
     int eff_count;
+    int i;
 
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-passthrough-hostname: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
@@ -556,24 +560,32 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
     }
 
     sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
-    alpn_proto_list_len = sni_pt_build_alpn_proto_list(alpn_proto_buf,
-                                                       sizeof(alpn_proto_buf),
-                                                       eff_list, eff_count);
+    size_t alpn_proto_list_len = sni_pt_build_alpn_proto_list(alpn_proto_buf,
+                                                              sizeof(alpn_proto_buf),
+                                                              eff_list, eff_count);
     if (!alpn_proto_list_len)
     {
         msg(M_NONFATAL, "--sni-passthrough-alpn: ALPN token list too long or empty");
         return 0;
     }
 
-    /*
-     * Wire-size of the ALPN extension:
-     *   ext_type(2) + ext_data_len(2) + proto_list_len(2) + proto_list(var)
-     */
-    alpn_ext_len = 2 + 2 + 2 + alpn_proto_list_len;
-
-    suffix_len = SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_len + SNI_PT_SUFFIX_POST_ALPN_LEN;
-    sni_len = strlen(sni);
-    total = SNI_PT_PREFIX_LEN + sni_len + suffix_len;
+    size_t sni_len = strlen(sni);
+    /* SNI ext total: type(2)+ext_data_len(2)+list_len(2)+name_type(1)+name_len(2)+name */
+    size_t sni_ext_size = 9 + sni_len;
+    /* ALPN ext total: type(2)+ext_data_len(2)+list_len(2)+proto_list */
+    size_t alpn_ext_size = 6 + alpn_proto_list_len;
+    /* All extensions: renego(5) + SNI + pre_alpn + ALPN + post_alpn */
+    size_t exts_size = sizeof(sni_pt_renegotiation_info) + sni_ext_size
+                       + SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_size
+                       + SNI_PT_SUFFIX_POST_ALPN_LEN;
+    /* Handshake body: version(2)+random(32)+sid_len(1)+sid(32)+cs_and_comp(64)+exts_len(2)+exts */
+    size_t hs_body_size = sizeof(sni_pt_client_version) + 32
+                          + sizeof(sni_pt_session_id_len) + 32
+                          + sizeof(sni_pt_cipher_and_comp) + 2 + exts_size;
+    /* Total packet: TLS hdr(3)+rec_len(2) + HS type(1)+HS len(3) + HS body */
+    size_t total = sizeof(sni_pt_tls_hdr) + 2
+                   + sizeof(sni_pt_hs_type) + 3
+                   + hs_body_size;
 
     if (total > bufsz || total > 0xffffU + 5)
     {
@@ -581,87 +593,52 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         return 0;
     }
 
-    /* Deltas relative to the captured template's SNI and ALPN sizes.
-     * SNI_PT_TEMPLATE_ALPN_EXT_LEN = 2+2+2+1+21 = 28 (template ALPN). */
-    sni_delta = (int)sni_len - (int)SNI_PT_TEMPLATE_SNI_LEN;
-    alpn_delta = (int)alpn_ext_len - (int)SNI_PT_TEMPLATE_ALPN_EXT_LEN;
-    delta = sni_delta + alpn_delta;
-
-    /* Assemble: prefix + hostname + pre_alpn + ALPN ext + post_alpn */
-    memcpy(buf, sni_pt_prefix, SNI_PT_PREFIX_LEN);
-    memcpy(buf + SNI_PT_PREFIX_LEN, sni, sni_len);
-    off = SNI_PT_PREFIX_LEN + sni_len;
-
-    memcpy(buf + off, sni_pt_suffix_pre_alpn, SNI_PT_SUFFIX_PRE_ALPN_LEN);
-    off += SNI_PT_SUFFIX_PRE_ALPN_LEN;
-
-    /* Build ALPN extension: type(0x0010) + ext_data_len + proto_list_len + protos */
-    buf[off++] = 0x00;
-    buf[off++] = 0x10;                                           /* ALPN ext type */
-    {
-        uint16_t ext_data = (uint16_t)(2 + alpn_proto_list_len); /* list_len(2) + tokens */
-        buf[off++] = (uint8_t)(ext_data >> 8);
-        buf[off++] = (uint8_t)(ext_data & 0xff);
-        uint16_t list_len = (uint16_t)alpn_proto_list_len;
-        buf[off++] = (uint8_t)(list_len >> 8);
-        buf[off++] = (uint8_t)(list_len & 0xff);
-        memcpy(buf + off, alpn_proto_buf, alpn_proto_list_len);
-        off += alpn_proto_list_len;
-    }
-
-    memcpy(buf + off, sni_pt_suffix_post_alpn, SNI_PT_SUFFIX_POST_ALPN_LEN);
-
-    /* Patch TLS record length [3..4] */
-    uint16_t rec_len = (uint16_t)(total - 5);
-    buf[3] = (uint8_t)(rec_len >> 8);
-    buf[4] = (uint8_t)(rec_len & 0xff);
-
-    /* Patch Handshake length [6..8] (3-byte big-endian) */
-    uint32_t hs_len = (uint32_t)(total - 9);
-    buf[6] = (uint8_t)((hs_len >> 16) & 0xff);
-    buf[7] = (uint8_t)((hs_len >> 8) & 0xff);
-    buf[8] = (uint8_t)(hs_len & 0xff);
-
-    /* Patch extensions total length [140..141] */
-    uint16_t ext_total = (uint16_t)(0x05a9 + delta);
-    buf[140] = (uint8_t)(ext_total >> 8);
-    buf[141] = (uint8_t)(ext_total & 0xff);
-
-    /* Patch SNI ext_data_len [149..150] */
-    uint16_t sni_ext_data_len = (uint16_t)(26 + sni_delta);
-    buf[149] = (uint8_t)(sni_ext_data_len >> 8);
-    buf[150] = (uint8_t)(sni_ext_data_len & 0xff);
-
-    /* Patch SNI server_name_list_len [151..152] */
-    uint16_t sni_list_len = (uint16_t)(24 + sni_delta);
-    buf[151] = (uint8_t)(sni_list_len >> 8);
-    buf[152] = (uint8_t)(sni_list_len & 0xff);
-
-    /* Patch SNI name_len [154..155] */
-    buf[154] = (uint8_t)(sni_len >> 8);
-    buf[155] = (uint8_t)(sni_len & 0xff);
-
-    /* Randomise the 32-byte random field [11..42] */
+    uint8_t random_bytes[32];
+    uint8_t session_id[32];
     for (i = 0; i < 32; i++)
     {
-        buf[11 + i] = (uint8_t)(rand() & 0xff);
+        random_bytes[i] = (uint8_t)(rand() & 0xff);
+        session_id[i] = (uint8_t)(rand() & 0xff);
     }
 
-    /* Randomise the 32-byte session_id [44..75] */
-    for (i = 0; i < 32; i++)
-    {
-        buf[44 + i] = (uint8_t)(rand() & 0xff);
-    }
+    struct buffer buf;
+    buf_set_write(&buf, raw_buf, (int)bufsz);
 
-    /* Randomise the ephemeral key shares in the post_alpn part of the suffix */
-    size_t post_alpn_base = SNI_PT_PREFIX_LEN + sni_len + SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_len;
+    /* TLS record header */
+    buf_write(&buf, sni_pt_tls_hdr, sizeof(sni_pt_tls_hdr));
+    buf_write_u16(&buf, (uint16_t)(total - 5)); /* record length */
+
+    /* Handshake header */
+    buf_write(&buf, sni_pt_hs_type, sizeof(sni_pt_hs_type));
+    buf_write_u8(&buf, (uint8_t)((hs_body_size >> 16) & 0xff)); /* handshake length: */
+    buf_write_u16(&buf, (uint16_t)(hs_body_size & 0xffff));     /*   3-byte big-endian */
+
+    /* ClientHello body */
+    buf_write(&buf, sni_pt_client_version, sizeof(sni_pt_client_version));
+    buf_write(&buf, random_bytes, sizeof(random_bytes));
+    buf_write(&buf, sni_pt_session_id_len, sizeof(sni_pt_session_id_len));
+    buf_write(&buf, session_id, sizeof(session_id));
+    buf_write(&buf, sni_pt_cipher_and_comp, sizeof(sni_pt_cipher_and_comp));
+    buf_write_u16(&buf, (uint16_t)exts_size); /* extensions_len */
+
+    /* Extensions */
+    buf_write(&buf, sni_pt_renegotiation_info, sizeof(sni_pt_renegotiation_info));
+    buf_write_sni_ext(&buf, sni, sni_len);
+    buf_write(&buf, sni_pt_suffix_pre_alpn, SNI_PT_SUFFIX_PRE_ALPN_LEN);
+    buf_write_alpn_ext(&buf, alpn_proto_buf, alpn_proto_list_len);
+    buf_write(&buf, sni_pt_suffix_post_alpn, SNI_PT_SUFFIX_POST_ALPN_LEN);
+
+    ASSERT(BLEN(&buf) == (int)total);
+
+    /* Randomise ephemeral key shares inside sni_pt_suffix_post_alpn */
+    uint8_t *post_alpn = BPTR(&buf) + (total - SNI_PT_SUFFIX_POST_ALPN_LEN);
     for (i = 0; i < (int)SNI_PT_POST_ALPN_MLKEM_LEN; i++)
     {
-        buf[post_alpn_base + SNI_PT_POST_ALPN_MLKEM_OFF + i] = (uint8_t)(rand() & 0xff);
+        post_alpn[SNI_PT_POST_ALPN_MLKEM_OFF + i] = (uint8_t)(rand() & 0xff);
     }
     for (i = 0; i < (int)SNI_PT_POST_ALPN_X25519_LEN; i++)
     {
-        buf[post_alpn_base + SNI_PT_POST_ALPN_X25519_OFF + i] = (uint8_t)(rand() & 0xff);
+        post_alpn[SNI_PT_POST_ALPN_X25519_OFF + i] = (uint8_t)(rand() & 0xff);
     }
 
     return total;
