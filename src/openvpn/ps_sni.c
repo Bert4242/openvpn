@@ -116,39 +116,6 @@ sni_pt_build_alpn_proto_list(unsigned char *buf, size_t bufsz,
     return off;
 }
 
-/*
- * Case-insensitive ASCII comparison of a binary buffer against a NUL-terminated
- * string.  Returns true if they are equal in length and content.
- */
-static bool
-sni_pt_str_eq_nocase(const unsigned char *buf, unsigned int buflen,
-                     const char *str)
-{
-    size_t slen = strlen(str);
-    if (buflen != (unsigned int)slen)
-    {
-        return false;
-    }
-    for (unsigned int i = 0; i < buflen; i++)
-    {
-        unsigned char a = buf[i];
-        unsigned char b = (unsigned char)str[i];
-        /* ASCII lower-case: A-Z → a-z */
-        if (a >= 'A' && a <= 'Z')
-        {
-            a += 32;
-        }
-        if (b >= 'A' && b <= 'Z')
-        {
-            b += 32;
-        }
-        if (a != b)
-        {
-            return false;
-        }
-    }
-    return true;
-}
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
@@ -805,7 +772,8 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
                 {
                     for (int i = 0; i < cb->hostname_count; i++)
                     {
-                        if (sni_pt_str_eq_nocase(p, nlen, cb->hostname_list[i]))
+                        if (nlen == strlen(cb->hostname_list[i])
+                            && strncasecmp((const char *)p, cb->hostname_list[i], nlen) == 0)
                         {
                             cb->hostname_matched = 1;
                             msg(M_INFO,
@@ -1167,7 +1135,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                 {
                     for (int i = 0; i < ctx->hostname_count; i++)
                     {
-                        if (sni_pt_str_eq_nocase(sp, nlen, ctx->hostname_list[i]))
+                        if (nlen == strlen(ctx->hostname_list[i])
+                            && strncasecmp((const char *)sp, ctx->hostname_list[i], nlen) == 0)
                         {
                             hostname_ok = 1;
                             msg(M_INFO,
