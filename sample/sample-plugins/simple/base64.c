@@ -122,7 +122,7 @@ openvpn_plugin_open_v3(const int v3structver, struct openvpn_plugin_args_open_in
     ovpn_base64_decode = args->callbacks->plugin_base64_decode;
 
     /* Print some version information about the OpenVPN process using this plug-in */
-    ovpn_log(PLOG_NOTE, PLUGIN_NAME, "OpenVPN %s  (Major: %i, Minor: %i, Patch: %s)\n",
+    ovpn_log(PLOG_NOTE, PLUGIN_NAME, "OpenVPN %s  (Major: %u, Minor: %u, Patch: %s)\n",
              args->ovpn_version, args->ovpn_version_major, args->ovpn_version_minor,
              args->ovpn_version_patch);
 

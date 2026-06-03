@@ -91,7 +91,7 @@ openvpn_plugin_open_v3(const int v3structver, struct openvpn_plugin_args_open_in
     }
 
     /* Print some version information about the OpenVPN process using this plug-in */
-    printf("log_v3: OpenVPN %s  (Major: %i, Minor: %i, Patch: %s)\n", args->ovpn_version,
+    printf("log_v3: OpenVPN %s  (Major: %u, Minor: %u, Patch: %s)\n", args->ovpn_version,
            args->ovpn_version_major, args->ovpn_version_minor, args->ovpn_version_patch);
 
     /*  Which callbacks to intercept.  */

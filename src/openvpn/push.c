@@ -505,7 +505,7 @@ void
 incoming_push_message(struct context *c, const struct buffer *buffer)
 {
     struct gc_arena gc = gc_new();
-    unsigned int option_types_found = 0;
+    uint64_t option_types_found = 0;
 
     msg(D_PUSH, "PUSH: Received control message: '%s'",
         sanitize_control_message(BSTR(buffer), &gc));
@@ -631,10 +631,8 @@ prepare_auth_token_push_reply(struct tls_multi *tls_multi, struct gc_arena *gc,
  * @param c             context structure storing data for VPN tunnel
  * @param gc            gc arena for allocating push options
  * @param push_list     push list to where options are added
- *
- * @return true on success, false on failure.
  */
-bool
+static void
 prepare_push_reply(struct context *c, struct gc_arena *gc, struct push_list *push_list)
 {
     struct tls_multi *tls_multi = c->c2.tls_multi;
@@ -734,8 +732,6 @@ prepare_push_reply(struct context *c, struct gc_arena *gc, struct push_list *pus
                 client_max_mtu, o->ce.tun_mtu, o->ce.tun_mtu);
         }
     }
-
-    return true;
 }
 
 static bool
@@ -1011,7 +1007,8 @@ process_incoming_push_request(struct context *c)
             struct push_list push_list = { 0 };
             struct gc_arena gc = gc_new();
 
-            if (prepare_push_reply(c, &gc, &push_list) && send_push_reply(c, &push_list))
+            prepare_push_reply(c, &gc, &push_list);
+            if (send_push_reply(c, &push_list))
             {
                 ret = PUSH_MSG_REQUEST;
                 c->c2.sent_push_reply_expiry = now + 30;
@@ -1060,8 +1057,8 @@ push_update_digest(md_ctx_t *ctx, struct buffer *buf, const struct options *opt)
 }
 
 static int
-process_incoming_push_reply(struct context *c, unsigned int permission_mask,
-                            unsigned int *option_types_found, struct buffer *buf)
+process_incoming_push_reply(struct context *c, uint64_t permission_mask,
+                            uint64_t *option_types_found, struct buffer *buf)
 {
     int ret = PUSH_MSG_ERROR;
     const int ch = buf_read_u8(buf);
@@ -1110,8 +1107,8 @@ process_incoming_push_reply(struct context *c, unsigned int permission_mask,
 
 int
 process_incoming_push_msg(struct context *c, const struct buffer *buffer,
-                          bool honor_received_options, unsigned int permission_mask,
-                          unsigned int *option_types_found)
+                          bool honor_received_options, uint64_t permission_mask,
+                          uint64_t *option_types_found)
 {
     struct buffer buf = *buffer;
 

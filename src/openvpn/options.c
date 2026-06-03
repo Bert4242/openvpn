@@ -510,7 +510,8 @@ static const char usage_message[] =
     "                  up is a file containing the username on the first line,\n"
     "                  and a password on the second. If either the password or both\n"
     "                  the username and the password are omitted OpenVPN will prompt\n"
-    "                  for them from console.\n"
+    "                  for them from console. If [up] is 'username-only', only username\n"
+    "                  will be prompted for from console or management interface.\n"
     "--pull           : Accept certain config file options from the peer as if they\n"
     "                  were part of the local config file.  Must be specified\n"
     "                  when connecting to a '--mode server' remote host.\n"
@@ -874,8 +875,6 @@ init_options(struct options *o)
 #endif
     o->vlan_accept = VLAN_ALL;
     o->vlan_pvid = 1;
-    o->real_hash_size = 256;
-    o->virtual_hash_size = 256;
     o->n_bcast_buf = 256;
     o->tcp_queue_limit = 64;
     o->max_clients = 1024;
@@ -1454,7 +1453,7 @@ show_p2mp_parms(const struct options *o)
     SHOW_INT(cf_per);
     SHOW_INT(cf_initial_max);
     SHOW_INT(cf_initial_per);
-    SHOW_INT(max_clients);
+    SHOW_UINT(max_clients);
     SHOW_INT(max_routes_per_client);
     SHOW_STR(auth_user_pass_verify_script);
     SHOW_BOOL(auth_user_pass_verify_script_via_file);
@@ -3749,6 +3748,22 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
     gc_free(&gc);
 }
 #endif /* if defined(_WIN32) || defined(TARGET_ANDROID) */
+/**
+ * Sets the internal hash maps sizes according to the max_clients
+ *
+ */
+static void
+helper_hashmap_sizes(struct options *o)
+{
+    if (!o->real_hash_size)
+    {
+        o->real_hash_size = 4 * o->max_clients;
+    }
+    if (!o->virtual_hash_size)
+    {
+        o->virtual_hash_size = 4 * o->max_clients;
+    }
+}
 
 static void
 options_postprocess_mutate(struct options *o, struct env_set *es)
@@ -3763,6 +3778,11 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     helper_setdefault_topology(o);
     helper_keepalive(o);
     helper_tcp_nodelay(o);
+
+    if (o->mode == MODE_SERVER)
+    {
+        helper_hashmap_sizes(o);
+    }
 
     options_postprocess_setdefault_ncpciphers(o);
     options_set_backwards_compatible_options(o);
@@ -3932,6 +3952,12 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     {
         o->auth_token_renewal = o->renegotiate_seconds;
     }
+#if ENABLE_MANAGEMENT
+    if (o->auth_user_pass_username_only && o->sc_info.challenge_text)
+    {
+        msg(M_USAGE, "'auth-user-pass username-only' cannot be used with static challenge");
+    }
+#endif
     pre_connect_save(o);
 }
 
@@ -4978,8 +5004,8 @@ atou(const char *str)
     }
 
 static bool
-verify_permission(const char *name, const char *file, int line, const unsigned int type,
-                  const unsigned int allowed, unsigned int *found, const msglvl_t msglevel,
+verify_permission(const char *name, const char *file, int line, const uint64_t type,
+                  const uint64_t allowed, uint64_t *found, const msglvl_t msglevel,
                   struct options *options, bool is_inline)
 {
     if (!(type & allowed))
@@ -5071,7 +5097,7 @@ msglevel_forward_compatible(struct options *options, const msglvl_t msglevel)
 void
 remove_option(struct context *c, struct options *options, char *p[], bool is_inline,
               const char *file, int line, const msglvl_t msglevel,
-              const unsigned int permission_mask, unsigned int *option_types_found,
+              const uint64_t permission_mask, uint64_t *option_types_found,
               struct env_set *es)
 {
     msglvl_t msglevel_fc = msglevel_forward_compatible(options, msglevel);
@@ -5303,7 +5329,7 @@ check_dns_option(struct options *options, char *p[], const msglvl_t msglevel, bo
         struct dns_server *server =
             dns_server_get(&options->dns_options.servers, priority, &options->dns_options.gc);
 
-        if (streq(p[3], "address") && p[4])
+        if (streq(p[3], "address"))
         {
             for (int i = 4; p[i]; ++i)
             {
@@ -5391,7 +5417,7 @@ check_dns_option(struct options *options, char *p[], const msglvl_t msglevel, bo
 void
 update_option(struct context *c, struct options *options, char *p[], bool is_inline,
               const char *file, int line, const int level, const msglvl_t msglevel,
-              const unsigned int permission_mask, unsigned int *option_types_found,
+              const uint64_t permission_mask, uint64_t *option_types_found,
               struct env_set *es)
 {
     const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
@@ -5580,8 +5606,8 @@ key_is_external(const struct options *options)
 
 void
 add_option(struct options *options, char *p[], bool is_inline, const char *file, int line,
-           const int level, const msglvl_t msglevel, const unsigned int permission_mask,
-           unsigned int *option_types_found, struct env_set *es)
+           const int level, const msglvl_t msglevel, const uint64_t permission_mask,
+           uint64_t *option_types_found, struct env_set *es)
 {
     struct gc_arena gc = gc_new();
     const bool pull_mode = BOOL_CAST(permission_mask & OPT_P_PULL_MODE);
@@ -7043,12 +7069,12 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         if (options->routes->flags & RG_REROUTE_GW)
         {
             setenv_int(es, "route_redirect_gateway_ipv4",
-                       options->routes->flags & RG_BLOCK_LOCAL ? 2 : 1);
+                       (options->routes->flags & RG_BLOCK_LOCAL) ? 2 : 1);
         }
         if (options->routes_ipv6 && (options->routes_ipv6->flags & RG_REROUTE_GW))
         {
             setenv_int(es, "route_redirect_gateway_ipv6",
-                       options->routes->flags & RG_BLOCK_LOCAL ? 2 : 1);
+                       (options->routes->flags & RG_BLOCK_LOCAL) ? 2 : 1);
         }
 #ifdef _WIN32
         /* we need this here to handle pushed --redirect-gateway */
@@ -7377,7 +7403,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     else if (streq(p[0], "max-clients") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        if (!atoi_constrained(p[1], &options->max_clients, p[0], 1, MAX_PEER_ID, msglevel))
+        if (!atoi_constrained(p[1], (int *)&options->max_clients, p[0], 1, MAX_PEER_ID - 1, msglevel))
         {
             goto err;
         }
@@ -7742,7 +7768,13 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     else if (streq(p[0], "auth-user-pass") && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
-        if (p[1])
+        options->auth_user_pass_username_only = false;
+        if (p[1] && streq(p[1], "username-only"))
+        {
+            options->auth_user_pass_username_only = true;
+            options->auth_user_pass_file = "stdin";
+        }
+        else if (p[1])
         {
             options->auth_user_pass_file = p[1];
             options->auth_user_pass_file_inline = is_inline;

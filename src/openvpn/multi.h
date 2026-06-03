@@ -73,7 +73,7 @@ struct client_connect_defer_state
     int cur_handler_index;
     /* Remember which option classes where processed for delayed option
      * handling. */
-    unsigned int option_types_found;
+    uint64_t option_types_found;
 
     /**
      * The temporary file name that contains the return status of the
@@ -132,7 +132,6 @@ struct multi_instance
     struct in6_addr reporting_addr_ipv6; /* IPv6 address in status listing */
 
     bool did_real_hash;
-    bool did_iter;
 #ifdef ENABLE_MANAGEMENT
     bool did_cid_hash;
     struct buffer_list *cc_config;
@@ -161,16 +160,16 @@ struct multi_instance
  */
 struct multi_context
 {
-    struct multi_instance **instances; /**< Array of multi_instances. An instance can be
+    struct multi_instance **instances; /**< Array of multi_instances with the size of
+                                        *  max_clients.  An instance can be
                                         * accessed using peer-id as an index. */
-
+    uint32_t max_peerid;               /**< highest currently allocated peer-id
+                                        * and maximum allocated/valid index in
+                                        * instances */
     struct hash *hash;                 /**< VPN tunnel instances indexed by real
                                         *   address of the remote peer. */
     struct hash *vhash;                /**< VPN tunnel instances indexed by
                                         *   virtual address of remote hosts. */
-    struct hash *iter;                 /**< VPN tunnel instances indexed by real
-                                        *   address of the remote peer, optimized
-                                        *   for iteration. */
     struct schedule *schedule;
     struct mbuf_set *mbuf;             /**< Set of buffers for passing data
                                         *   channel packets between VPN tunnel
@@ -183,7 +182,7 @@ struct multi_context
     struct multi_reap *reaper;
     struct mroute_addr local;
     bool enable_c2c;
-    int max_clients;
+    uint32_t max_clients;
     int tcp_queue_limit;
     int status_file_version;
     int n_clients; /* current number of authenticated clients */

@@ -486,7 +486,7 @@ GetStartupData(HANDLE pipe, STARTUP_DATA *sud)
     sud->directory = data;
     len = wcslen(sud->directory) + 1;
     size -= len;
-    if (size <= 0)
+    if (size == 0)
     {
         MsgToEventLog(M_ERR, L"Startup data ends at working directory");
         ReturnError(pipe, ERROR_STARTUP_DATA, L"GetStartupData", 1, &exit_event);
@@ -496,7 +496,7 @@ GetStartupData(HANDLE pipe, STARTUP_DATA *sud)
     sud->options = sud->directory + len;
     len = wcslen(sud->options) + 1;
     size -= len;
-    if (size <= 0)
+    if (size == 0)
     {
         MsgToEventLog(M_ERR, L"Startup data ends at command line options");
         ReturnError(pipe, ERROR_STARTUP_DATA, L"GetStartupData", 1, &exit_event);
@@ -1071,6 +1071,7 @@ ApplyGpolSettings32(void)
     publish_fn_t RtlPublishWnfStateData;
     const DWORD WNF_GPOL_SYSTEM_CHANGES_HI = 0x0D891E2A;
     const DWORD WNF_GPOL_SYSTEM_CHANGES_LO = 0xA3BC0875;
+    BOOL ret = FALSE;
 
     HMODULE ntdll = LoadLibraryA("ntdll.dll");
     if (ntdll == NULL)
@@ -1081,16 +1082,19 @@ ApplyGpolSettings32(void)
     RtlPublishWnfStateData = (publish_fn_t)GetProcAddress(ntdll, "RtlPublishWnfStateData");
     if (RtlPublishWnfStateData == NULL)
     {
-        return FALSE;
+        goto cleanup;
     }
 
     if (RtlPublishWnfStateData(WNF_GPOL_SYSTEM_CHANGES_LO, WNF_GPOL_SYSTEM_CHANGES_HI, 0, 0, 0, 0)
         != ERROR_SUCCESS)
     {
-        return FALSE;
+        goto cleanup;
     }
 
-    return TRUE;
+    ret = TRUE;
+cleanup:
+    FreeLibrary(ntdll);
+    return ret;
 }
 
 /**
@@ -1106,6 +1110,7 @@ ApplyGpolSettings64(void)
                                      unsigned int Length, INT64 ExplicitScope);
     publish_fn_t RtlPublishWnfStateData;
     const INT64 WNF_GPOL_SYSTEM_CHANGES = 0x0D891E2AA3BC0875;
+    BOOL ret = FALSE;
 
     HMODULE ntdll = LoadLibraryA("ntdll.dll");
     if (ntdll == NULL)
@@ -1116,15 +1121,18 @@ ApplyGpolSettings64(void)
     RtlPublishWnfStateData = (publish_fn_t)GetProcAddress(ntdll, "RtlPublishWnfStateData");
     if (RtlPublishWnfStateData == NULL)
     {
-        return FALSE;
+        goto cleanup;
     }
 
     if (RtlPublishWnfStateData(WNF_GPOL_SYSTEM_CHANGES, 0, 0, 0, 0) != ERROR_SUCCESS)
     {
-        return FALSE;
+        goto cleanup;
     }
 
-    return TRUE;
+    ret = TRUE;
+cleanup:
+    FreeLibrary(ntdll);
+    return ret;
 }
 
 /**
@@ -1868,7 +1876,7 @@ HandleDNSConfigMessage(const dns_cfg_message_t *msg, undo_lists_t *lists)
         return err; /* job done */
     }
 
-    if (msg->addr_len > 0)
+    if (addr_len > 0)
     {
         /* prepare the comma separated address list */
         /* cannot use max_addrs here as that is not considered compile
@@ -2639,25 +2647,28 @@ SetNrptRules(HKEY nrpt_key, const nrpt_address_t *addresses, const char *domains
         free(wide_search_domains);
     }
 
-    /* Create address string list */
-    CHAR addr_list[NRPT_ADDR_NUM * NRPT_ADDR_SIZE];
-    PSTR pos = addr_list;
-    for (int i = 0; i < NRPT_ADDR_NUM && addresses[i][0]; ++i)
+    if (addresses[0][0])
     {
-        if (i != 0)
+        /* Create address string list */
+        CHAR addr_list[NRPT_ADDR_NUM * NRPT_ADDR_SIZE];
+        PSTR pos = addr_list;
+        for (int i = 0; i < NRPT_ADDR_NUM && addresses[i][0]; ++i)
         {
-            *pos++ = ';';
+            if (i != 0)
+            {
+                *pos++ = ';';
+            }
+            strcpy(pos, addresses[i]);
+            pos += strlen(pos);
         }
-        strcpy(pos, addresses[i]);
-        pos += strlen(pos);
-    }
 
-    WCHAR subkey[MAX_PATH];
-    swprintf(subkey, _countof(subkey), L"OpenVPNDNSRouting-%lu", ovpn_pid);
-    err = SetNrptRule(nrpt_key, subkey, addr_list, wide_domains, dom_size, dnssec);
-    if (err)
-    {
-        MsgToEventLog(M_ERR, L"%S: failed to set rule %s (%lu)", __func__, subkey, err);
+        WCHAR subkey[MAX_PATH];
+        swprintf(subkey, _countof(subkey), L"OpenVPNDNSRouting-%lu", ovpn_pid);
+        err = SetNrptRule(nrpt_key, subkey, addr_list, wide_domains, dom_size, dnssec);
+        if (err)
+        {
+            MsgToEventLog(M_ERR, L"%S: failed to set rule %s (%lu)", __func__, subkey, err);
+        }
     }
 
     if (domains[0])
@@ -3410,7 +3421,7 @@ RunOpenvpn(LPVOID p)
     ea[0].Trustee.TrusteeForm = TRUSTEE_IS_SID;
     ea[0].Trustee.TrusteeType = TRUSTEE_IS_UNKNOWN;
     ea[0].Trustee.ptstrName = (LPWSTR)svc_user->User.Sid;
-    ea[1].grfAccessPermissions = READ_CONTROL | SYNCHRONIZE | PROCESS_VM_READ | SYNCHRONIZE
+    ea[1].grfAccessPermissions = READ_CONTROL | PROCESS_VM_READ | SYNCHRONIZE
                                  | PROCESS_TERMINATE | PROCESS_QUERY_INFORMATION;
     ea[1].grfAccessMode = SET_ACCESS;
     ea[1].grfInheritance = NO_INHERITANCE;
@@ -3476,7 +3487,7 @@ RunOpenvpn(LPVOID p)
     swprintf(ovpn_pipe_name, _countof(ovpn_pipe_name),
              L"\\\\.\\pipe\\" _L(PACKAGE) L"%ls\\service_%lu_%ls", service_instance,
              GetCurrentThreadId(), pipe_uuid_str);
-    RpcStringFree(&pipe_uuid_str);
+    RpcStringFreeW(&pipe_uuid_str);
 
     /* make a security descriptor for the named pipe with access
      * restricted to the user and SYSTEM

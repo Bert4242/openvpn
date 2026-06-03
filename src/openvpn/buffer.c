@@ -53,7 +53,7 @@ array_mult_safe(const size_t m1, const size_t m2, const size_t extra)
 void
 buf_size_error(const size_t size)
 {
-    msg(M_FATAL, "fatal buffer size error, size=%lu", (unsigned long)size);
+    msg(M_FATAL, "fatal buffer size error, size=%zu", size);
 }
 
 struct buffer
@@ -64,14 +64,13 @@ alloc_buf(size_t size)
 #endif
 {
     struct buffer buf;
+    CLEAR(buf);
 
     if (!buf_size_valid(size))
     {
         buf_size_error(size);
     }
     buf.capacity = (int)size;
-    buf.offset = 0;
-    buf.len = 0;
 #ifdef DMALLOC
     buf.data = openvpn_dmalloc(file, line, size);
 #else
@@ -90,13 +89,13 @@ alloc_buf_gc(size_t size, struct gc_arena *gc)
 #endif
 {
     struct buffer buf;
+    CLEAR(buf);
+
     if (!buf_size_valid(size))
     {
         buf_size_error(size);
     }
     buf.capacity = (int)size;
-    buf.offset = 0;
-    buf.len = 0;
 #ifdef DMALLOC
     buf.data = (uint8_t *)gc_malloc_debug(size, false, gc, file, line);
 #else
@@ -120,6 +119,10 @@ clone_buf(const struct buffer *buf)
     ret.capacity = buf->capacity;
     ret.offset = buf->offset;
     ret.len = buf->len;
+#ifdef BUF_INIT_TRACKING
+    ret.debug_file = buf->debug_file;
+    ret.debug_line = buf->debug_line;
+#endif
 #ifdef DMALLOC
     ret.data = (uint8_t *)openvpn_dmalloc(file, line, buf->capacity);
 #else
@@ -140,6 +143,7 @@ buf_init_debug(struct buffer *buf, int offset, const char *file, int line)
     return buf_init_dowork(buf, offset);
 }
 
+#ifdef VERIFY_ALIGNMENT
 static inline int
 buf_debug_line(const struct buffer *buf)
 {
@@ -151,6 +155,7 @@ buf_debug_file(const struct buffer *buf)
 {
     return buf->debug_file;
 }
+#endif
 
 #else /* ifdef BUF_INIT_TRACKING */
 
@@ -280,11 +285,6 @@ buf_puts(struct buffer *buf, const char *str)
     return ret;
 }
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic push
-#pragma GCC diagnostic ignored "-Wsign-compare"
-#endif
-
 /*
  * write a string to the end of a buffer that was
  * truncated by buf_printf
@@ -295,7 +295,7 @@ buf_catrunc(struct buffer *buf, const char *str)
     if (buf_forward_capacity(buf) <= 1)
     {
         size_t len = strlen(str) + 1;
-        if (len < buf_forward_capacity_total(buf))
+        if (buf_size_valid(len) && (int)len < buf_forward_capacity_total(buf))
         {
             memcpy(buf->data + buf->capacity - len, str, len);
         }
@@ -782,7 +782,7 @@ bool
 buf_string_match_head_str(const struct buffer *src, const char *match)
 {
     const size_t size = strlen(match);
-    if (size > src->len)
+    if (!buf_size_valid(size) || (int)size > src->len)
     {
         return false;
     }
@@ -1157,7 +1157,7 @@ valign4(const struct buffer *buf, const char *file, const int line)
     if (buf && buf->len)
     {
         msglvl_t msglevel = D_ALIGN_DEBUG;
-        const unsigned int u = (unsigned int)BPTR(buf);
+        const uintptr_t u = (uintptr_t)BPTR(buf);
 
         if (u & (PAYLOAD_ALIGN - 1))
         {
@@ -1196,7 +1196,7 @@ buffer_list_free(struct buffer_list *ol)
 bool
 buffer_list_defined(const struct buffer_list *ol)
 {
-    return ol && ol->head != NULL;
+    return ol && ol->head != NULL && ol->size > 0;
 }
 
 void
@@ -1223,7 +1223,7 @@ buffer_list_push(struct buffer_list *ol, const char *str)
         struct buffer_entry *e = buffer_list_push_data(ol, str, len + 1);
         if (e)
         {
-            e->buf.len = (int)len; /* Don't count trailing '\0' as part of length */
+            e->buf.len--; /* Don't count trailing '\0' as part of length */
         }
     }
 }
@@ -1249,6 +1249,7 @@ buffer_list_push_data(struct buffer_list *ol, const void *data, size_t size)
         }
         e->buf = alloc_buf(size);
         memcpy(e->buf.data, data, size);
+        /* Note: size implicitly checked by alloc_buf */
         e->buf.len = (int)size;
         ol->tail = e;
     }
@@ -1274,7 +1275,7 @@ buffer_list_aggregate_separator(struct buffer_list *bl, const size_t max_len, co
     const size_t sep_len = strlen(sep);
     struct buffer_entry *more = bl->head;
     size_t size = 0;
-    int count = 0;
+    size_t count = 0;
     for (; more; ++count)
     {
         size_t extra_len = BLENZ(&more->buf) + sep_len;
@@ -1313,10 +1314,6 @@ buffer_list_aggregate_separator(struct buffer_list *bl, const size_t max_len, co
     }
 }
 
-#if defined(__GNUC__) || defined(__clang__)
-#pragma GCC diagnostic pop
-#endif
-
 void
 buffer_list_aggregate(struct buffer_list *bl, const size_t max)
 {
@@ -1326,7 +1323,7 @@ buffer_list_aggregate(struct buffer_list *bl, const size_t max)
 void
 buffer_list_pop(struct buffer_list *ol)
 {
-    if (ol && ol->head)
+    if (buffer_list_defined(ol))
     {
         struct buffer_entry *e = ol->head->next;
         free_buf(&ol->head->buf);

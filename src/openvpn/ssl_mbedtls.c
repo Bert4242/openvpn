@@ -450,6 +450,12 @@ tls_ctx_set_tls_groups(struct tls_root_ctx *ctx, const char *groups)
         }
     }
 
+    /* Check if any groups were valid. */
+    if (i == 0)
+    {
+        msg(M_FATAL, "Error: All groups in \"%s\" are invalid or unsupported.", groups);
+    }
+
     /* Recent mbedtls versions state that the list of groups must be terminated
      * with 0. Older versions state that it must be terminated with MBEDTLS_ECP_DP_NONE
      * which is also 0, so this works either way. */
@@ -1029,8 +1035,9 @@ tls_ctx_personalise_random(struct tls_root_ctx *ctx)
     if (NULL != ctx->crt_chain)
     {
         mbedtls_x509_crt *cert = ctx->crt_chain;
+        const mbedtls_md_info_t *kt = md_get("SHA256");
 
-        if (!md_full("SHA256", cert->tbs.p, cert->tbs.len, sha256_hash))
+        if (0 != mbedtls_md(kt, cert->tbs.p, cert->tbs.len, sha256_hash))
         {
             msg(M_WARN, "WARNING: failed to personalise random");
         }
@@ -1571,7 +1578,7 @@ get_ssl_library_version(void)
 {
     static char mbedtls_version[30];
     unsigned int pv = mbedtls_version_get_number();
-    snprintf(mbedtls_version, sizeof(mbedtls_version), "mbed TLS %d.%d.%d", (pv >> 24) & 0xff,
+    snprintf(mbedtls_version, sizeof(mbedtls_version), "mbed TLS %u.%u.%u", (pv >> 24) & 0xff,
              (pv >> 16) & 0xff, (pv >> 8) & 0xff);
     return mbedtls_version;
 }

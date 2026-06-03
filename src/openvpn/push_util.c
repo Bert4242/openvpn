@@ -11,8 +11,8 @@
 #endif
 
 int
-process_push_update(struct context *c, struct options *o, unsigned int permission_mask,
-                    unsigned int *option_types_found, struct buffer *buf, bool msg_sender)
+process_push_update(struct context *c, struct options *o, uint64_t permission_mask,
+                    uint64_t *option_types_found, struct buffer *buf, bool msg_sender)
 {
     int ret = PUSH_MSG_ERROR;
     const int ch = buf_read_u8(buf);
@@ -146,7 +146,7 @@ send_single_push_update(struct multi_context *m, struct multi_instance *mi, stru
         return false;
     }
 
-    unsigned int option_types_found = 0;
+    uint64_t option_types_found = 0;
     struct context *c = &mi->context;
     struct options o;
     CLEAR(o);
@@ -316,15 +316,12 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
     }
 
     int count = 0;
-    struct hash_iterator hi;
-    const struct hash_element *he;
 
-    hash_iterator_init(m->iter, &hi);
-    while ((he = hash_iterator_next(&hi)))
+    for (uint32_t i = 0; i <= m->max_peerid; i++)
     {
-        struct multi_instance *curr_mi = he->value;
+        struct multi_instance *curr_mi = m->instances[i];
 
-        if (curr_mi->halt || !support_push_update(curr_mi))
+        if (!curr_mi || curr_mi->halt || !support_push_update(curr_mi))
         {
             continue;
         }
@@ -338,7 +335,6 @@ send_push_update(struct multi_context *m, const void *target, const char *msg, c
         count++;
     }
 
-    hash_iterator_free(&hi);
     buffer_list_free(msgs);
     gc_free(&gc);
     return count;

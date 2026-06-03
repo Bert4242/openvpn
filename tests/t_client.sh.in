@@ -62,11 +62,6 @@ then
     exit 1
 fi
 
-if [ -z "$CA_CERT" ] ; then
-    echo "CA_CERT not defined in 't_client.rc'. SKIP test." >&2
-    exit "${TCLIENT_SKIP_RC}"
-fi
-
 if [ -z "$TEST_RUN_LIST" ] ; then
     echo "TEST_RUN_LIST empty, no tests defined.  SKIP test." >&2
     exit "${TCLIENT_SKIP_RC}"

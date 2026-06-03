@@ -304,6 +304,19 @@ COMMAND -- password and username
     username "Auth" foo
     password "Auth" bar
 
+  Example 3:
+
+    >PASSWORD:Need 'Auth' username
+
+  OpenVPN needs a --auth-user-pass username.  The
+  management interface client should respond:
+
+    username "Auth" foo
+
+  In this case the user should not be prompted for a password.
+  Support for such username-only prompting is conditional on the
+  client announcing a version >= 4.
+
   The username/password itself can be in quotes, and special
   characters such as double quote or backslash must be escaped,
   for example,
@@ -312,6 +325,22 @@ COMMAND -- password and username
 
   The escaping rules are the same as for the config file.
   See the "Command Parsing" section below for more info.
+
+  If the password is too long to fit in a single command line
+  (longer than 256 bytes), the management interface client should
+  use the multi-line base64 format instead.  This requires that
+  the management client has announced version >= 5 via the
+  "version" command:
+
+    password "Auth"
+    [BASE64_PASSWORD_LINE]
+    ...
+    END
+
+  In this format, the password is base64-encoded and split across
+  multiple lines, followed by END.  Each line can be at most 1024
+  bytes.  This is the same format used by pk-sig and certificate
+  commands. Requires OpenVPN management version >= 6.
 
   The PASSWORD real-time message type can also be used to
   indicate password or other types of authentication failure:
@@ -499,6 +528,8 @@ version. This was fixed starting version 4: clients should expect
 Minimum client version required for certain features is listed below:
     >PK_SIGN:[base64]           -- version 2 or greater
     >PK_SIGN:[base64],[alg]     -- version 3 or greater
+    >PASSWORD:Need 'Auth' username -- version 4 or greater
+    multiline password from client -- version 5 or greater
 
 COMMAND -- auth-retry
 ---------------------
