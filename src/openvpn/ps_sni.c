@@ -89,14 +89,13 @@ sni_pt_resolve_alpn(const char *const *alpn_list, int alpn_count,
 }
 
 /*
- * Write all ALPN tokens as wire-format length-prefixed entries into buf[].
- * Returns total bytes written, or 0 on overflow / bad token length.
+ * Write all ALPN tokens as wire-format length-prefixed entries into buf.
+ * Returns false on overflow or a token longer than 255 bytes.
  */
-static size_t
-sni_pt_build_alpn_proto_list(unsigned char *buf, size_t bufsz,
+static bool
+sni_pt_build_alpn_proto_list(struct buffer *buf,
                              const char *const *alpn_list, int alpn_count)
 {
-    size_t off = 0;
     for (int i = 0; i < alpn_count; i++)
     {
         const char *name = alpn_list[i];
@@ -105,15 +104,17 @@ sni_pt_build_alpn_proto_list(unsigned char *buf, size_t bufsz,
             continue;
         }
         size_t name_len = strlen(name);
-        if (name_len > 255 || off + 1 + name_len > bufsz)
+        if (name_len > 255)
         {
-            return 0;
+            return false;
         }
-        buf[off++] = (unsigned char)name_len;
-        memcpy(buf + off, name, name_len);
-        off += name_len;
+        if (!buf_write_u8(buf, (uint8_t)name_len)
+            || !buf_write(buf, name, name_len))
+        {
+            return false;
+        }
     }
-    return off;
+    return true;
 }
 
 
@@ -128,8 +129,8 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
     BIO *wbio = NULL;
     SSL *ssl = NULL;
     SSL_CTX *ctx = NULL;
-    unsigned char alpn_wire[4096]; /* room for many tokens */
-    size_t alpn_wire_len;
+    unsigned char alpn_wire_raw[4096]; /* room for many tokens */
+    struct buffer alpn_wire;
     const char *const *eff_list;
     int eff_count;
 
@@ -139,9 +140,9 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
     }
 
     sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
-    alpn_wire_len = sni_pt_build_alpn_proto_list(alpn_wire, sizeof(alpn_wire),
-                                                 eff_list, eff_count);
-    if (!alpn_wire_len)
+    buf_set_write(&alpn_wire, alpn_wire_raw, sizeof(alpn_wire_raw));
+    if (!sni_pt_build_alpn_proto_list(&alpn_wire, eff_list, eff_count)
+        || !BLEN(&alpn_wire))
     {
         return 0;
     }
@@ -176,7 +177,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         goto cleanup;
     }
 
-    if (SSL_set_alpn_protos(ssl, alpn_wire, (unsigned int)alpn_wire_len) != 0)
+    if (SSL_set_alpn_protos(ssl, BPTR(&alpn_wire), (unsigned int)BLEN(&alpn_wire)) != 0)
     {
         goto cleanup;
     }
@@ -527,25 +528,26 @@ buf_write_sni_ext(struct buffer *buf, const char *sni, size_t sni_len)
  * Write a TLS ALPN extension into buf.
  *
  * Wire layout: ext_type(2) + ext_data_len(2) +
- *              protocol_list_len(2) + proto_list(list_len)
+ *              protocol_list_len(2) + proto_list
  */
 static bool
-buf_write_alpn_ext(struct buffer *buf,
-                   const unsigned char *proto_list, size_t list_len)
+buf_write_alpn_ext(struct buffer *buf, const struct buffer *proto_list)
 {
+    size_t list_len = BLENZ(proto_list);
     uint16_t ext_data_len = (uint16_t)(2 + list_len); /* list_len field + list */
 
     return buf_write_u16(buf, 0x0010)                 /* ALPN ext type */
            && buf_write_u16(buf, ext_data_len)
            && buf_write_u16(buf, (uint16_t)list_len)
-           && buf_write(buf, proto_list, list_len);
+           && buf_write(buf, BPTR(proto_list), list_len);
 }
 
 static size_t
 sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *sni,
                                    const char *const *alpn_list, int alpn_count)
 {
-    unsigned char alpn_proto_buf[4096];
+    unsigned char alpn_proto_raw[4096];
+    struct buffer alpn_buf;
     const char *const *eff_list;
     int eff_count;
     int i;
@@ -560,10 +562,9 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     }
 
     sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
-    size_t alpn_proto_list_len = sni_pt_build_alpn_proto_list(alpn_proto_buf,
-                                                              sizeof(alpn_proto_buf),
-                                                              eff_list, eff_count);
-    if (!alpn_proto_list_len)
+    buf_set_write(&alpn_buf, alpn_proto_raw, sizeof(alpn_proto_raw));
+    if (!sni_pt_build_alpn_proto_list(&alpn_buf, eff_list, eff_count)
+        || !BLEN(&alpn_buf))
     {
         msg(M_NONFATAL, "--sni-passthrough-alpn: ALPN token list too long or empty");
         return 0;
@@ -573,7 +574,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     /* SNI ext total: type(2)+ext_data_len(2)+list_len(2)+name_type(1)+name_len(2)+name */
     size_t sni_ext_size = 9 + sni_len;
     /* ALPN ext total: type(2)+ext_data_len(2)+list_len(2)+proto_list */
-    size_t alpn_ext_size = 6 + alpn_proto_list_len;
+    size_t alpn_ext_size = 6 + BLENZ(&alpn_buf);
     /* All extensions: renego(5) + SNI + pre_alpn + ALPN + post_alpn */
     size_t exts_size = sizeof(sni_pt_renegotiation_info) + sni_ext_size
                        + SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_size
@@ -625,7 +626,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     buf_write(&buf, sni_pt_renegotiation_info, sizeof(sni_pt_renegotiation_info));
     buf_write_sni_ext(&buf, sni, sni_len);
     buf_write(&buf, sni_pt_suffix_pre_alpn, SNI_PT_SUFFIX_PRE_ALPN_LEN);
-    buf_write_alpn_ext(&buf, alpn_proto_buf, alpn_proto_list_len);
+    buf_write_alpn_ext(&buf, &alpn_buf);
     buf_write(&buf, sni_pt_suffix_post_alpn, SNI_PT_SUFFIX_POST_ALPN_LEN);
 
     ASSERT(BLEN(&buf) == (int)total);
