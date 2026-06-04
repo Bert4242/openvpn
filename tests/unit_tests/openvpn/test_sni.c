@@ -161,7 +161,7 @@ static const uint8_t valid_sni_pkt[] = {
     '1',
 };
 
-/* ClientHello with ALPN "http/1.1" – hacky-sni-passthrough/1 not listed, should return 0 */
+/* ClientHello with ALPN "http/1.1" – hacky-sni-passthrough/1 not listed, should return -1 */
 static const uint8_t wrong_alpn_pkt[] = {
     /* TLS record header: record_len=62 */
     0x16,
@@ -241,7 +241,7 @@ static const uint8_t wrong_alpn_pkt[] = {
     '1',
 };
 
-/* ClientHello with no extensions at all – no ALPN, should return 0 */
+/* ClientHello with no extensions at all – no ALPN, should return -1 */
 static const uint8_t no_ext_pkt[] = {
     /* TLS record header: record_len=45 */
     0x16,
@@ -525,7 +525,7 @@ test_sni_check_packet_not_clienthello(void **state)
     uint8_t buf[sizeof(valid_sni_pkt)];
     memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
     buf[5] = 0x02;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), 0);
+    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), -1);
 }
 
 static void
@@ -535,7 +535,7 @@ test_sni_check_packet_wrong_alpn(void **state)
     assert_int_equal(
         sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt),
                                      &ctx_default),
-        0);
+        -1);
 }
 
 static void
@@ -543,7 +543,7 @@ test_sni_check_packet_no_extensions(void **state)
 {
     (void)state;
     assert_int_equal(
-        sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx_default), 0);
+        sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx_default), -1);
 }
 
 static void
@@ -620,7 +620,7 @@ test_sni_check_packet_hostname_mismatch(void **state)
     };
     int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
                                            &ctx);
-    assert_int_equal(ret, 0);
+    assert_int_equal(ret, -1);
 }
 
 /* hostname filter: any one of several hostnames matches */
@@ -650,7 +650,7 @@ test_sni_check_packet_hostname_filter_no_sni(void **state)
     };
     /* valid_sni_pkt has only ALPN, no SNI extension */
     int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), &ctx);
-    assert_int_equal(ret, 0);
+    assert_int_equal(ret, -1);
 }
 
 /* ==========================================================================
@@ -720,7 +720,7 @@ test_sni_consume_header_openvpn_client(void **state)
     free_stream_buf(&sb);
 }
 
-/* Wrong ALPN: state stays PENDING */
+/* Wrong ALPN: complete packet recognised but rejected — error set, state DISABLED */
 static void
 test_sni_consume_header_tls_wrong_alpn(void **state)
 {
@@ -731,7 +731,8 @@ test_sni_consume_header_tls_wrong_alpn(void **state)
     bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
+    assert_true(sb.error);
+    assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
 
     free_stream_buf(&sb);
 }
@@ -791,7 +792,7 @@ test_sni_consume_header_hostname_match(void **state)
     free_stream_buf(&sb);
 }
 
-/* hostname filter mismatch: state stays PENDING */
+/* hostname filter mismatch: complete packet recognised but rejected — error set, state DISABLED */
 static void
 test_sni_consume_header_hostname_mismatch(void **state)
 {
@@ -807,7 +808,8 @@ test_sni_consume_header_hostname_mismatch(void **state)
     bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
 
     assert_false(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
+    assert_true(sb.error);
+    assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
 
     free_stream_buf(&sb);
 }
