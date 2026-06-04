@@ -3820,7 +3820,7 @@ do_init_socket_phase2(struct context *c)
 {
     for (int i = 0; i < c->c1.link_sockets_num; i++)
     {
-        link_socket_init_phase2(c, c->c2.link_sockets[i]);
+        link_socket_init_phase2(c, c->c2.link_sockets[i], i);
     }
 }
 

@@ -96,11 +96,53 @@ struct options_pre_connect
 #error "At least one of OpenSSL or mbed TLS needs to be defined."
 #endif
 
+/**
+ * Per-listener socket-level options.  All fields start zeroed (= "inherit
+ * from global defaults").  The _defined booleans guard fields whose zero
+ * value is ambiguous (e.g. mark=0 is valid, so mark_defined distinguishes
+ * "not set" from "explicitly set to 0").  options_postprocess_mutate_le()
+ * resolves all fields against the global options so that socket.c can read
+ * them unconditionally.
+ */
+struct listener_socket_opts
+{
+    /* Socket buffer sizes (rcvbuf/sndbuf directives) */
+    bool rcvbuf_defined;
+    int rcvbuf;
+    bool sndbuf_defined;
+    int sndbuf;
+    /* SO_MARK for policy routing (mark directive, Linux only) */
+    bool mark_defined;
+    int mark;
+    /* Bind to a specific network interface (bind-dev, Linux only) */
+    const char *bind_dev;
+    /* Extra socket flags OR'd with global sockflags (socket-flags directive) */
+    unsigned int sockflags_add;
+    /* TCP port sharing (port-share directive, TCP listeners only) */
+    const char *port_share_host;
+    const char *port_share_port;
+    const char *port_share_journal_dir;
+    /* bind-ipv6-only directive */
+    bool bind_ipv6_only_defined;
+    bool bind_ipv6_only;
+    /* Path MTU discovery type (mtu-disc directive) */
+    bool mtu_discover_type_defined;
+    int mtu_discover_type;
+    /* SNI passthrough server options (sni-passthrough-server* directives) */
+    bool sni_passthrough_server_defined;
+    bool sni_passthrough_server;
+    const char **sni_passthrough_server_hostname_list;
+    int sni_passthrough_server_hostname_count;
+    bool sni_passthrough_server_ignore_alpn;
+};
+
 struct local_entry
 {
     const char *local;
     const char *port;
     int proto;
+    sa_family_t af;
+    struct listener_socket_opts opts;
 };
 
 struct connection_entry

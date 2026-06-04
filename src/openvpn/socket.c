@@ -1388,35 +1388,62 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     sock->socks_proxy = c->c1.socks_proxy;
     sock->bind_local = o->ce.bind_local;
     sock->resolve_retry_seconds = o->resolve_retry_seconds;
-    sock->mtu_discover_type = o->ce.mtu_discover_type;
+
+    /* Use per-listener socket opts (resolved against global defaults during
+     * options postprocess).  For child/P2P contexts there is no local_list
+     * per se; fall back to global options in that case. */
+    const struct listener_socket_opts *lo = NULL;
+    if (o->ce.local_list && sock_index < o->ce.local_list->len)
+    {
+        lo = &o->ce.local_list->array[sock_index]->opts;
+    }
+
+    sock->mtu_discover_type = lo ? lo->mtu_discover_type : o->ce.mtu_discover_type;
 
 #ifdef ENABLE_DEBUG
     sock->gremlin = o->gremlin;
 #endif
 
-    sock->socket_buffer_sizes.rcvbuf = o->rcvbuf;
-    sock->socket_buffer_sizes.sndbuf = o->sndbuf;
+    sock->socket_buffer_sizes.rcvbuf = lo ? lo->rcvbuf : o->rcvbuf;
+    sock->socket_buffer_sizes.sndbuf = lo ? lo->sndbuf : o->sndbuf;
 
-    sock->sockflags = o->sockflags;
+    /* sockflags_add already contains (global_sockflags | per-listener additions)
+     * after postprocess; fall back to plain global sockflags for child sockets. */
+    sock->sockflags = lo ? lo->sockflags_add : o->sockflags;
 
 #if PORT_SHARE
-    if (o->port_share_host && o->port_share_port)
     {
-        sock->sockflags |= SF_PORT_SHARE;
+        const char *ps_host = lo ? lo->port_share_host : o->port_share_host;
+        const char *ps_port = lo ? lo->port_share_port : o->port_share_port;
+        if (ps_host && ps_port)
+        {
+            sock->sockflags |= SF_PORT_SHARE;
+        }
     }
 #endif
-    if (o->sni_passthrough_server)
     {
-        sock->sockflags |= SF_SNI_PASSTHROUGH;
+        bool sni_pt = lo ? lo->sni_passthrough_server : o->sni_passthrough_server;
+        if (sni_pt)
+        {
+            sock->sockflags |= SF_SNI_PASSTHROUGH;
+        }
     }
 
-    sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    sock->mark = lo ? lo->mark : o->mark;
+    sock->bind_dev = lo ? lo->bind_dev : o->bind_dev;
     sock->info.proto = proto;
-    sock->info.af = o->ce.af;
+    /* AF is derived from the per-listener proto string (tcp4→AF_INET, udp6→AF_INET6,
+     * tcp/udp→AF_UNSPEC).  Fall back to the global ce.af when unspecified. */
+    {
+        sa_family_t entry_af = (lo && o->ce.local_list
+                                && sock_index < o->ce.local_list->len)
+                                   ? o->ce.local_list->array[sock_index]->af
+                                   : AF_UNSPEC;
+        sock->info.af = (entry_af != AF_UNSPEC) ? entry_af : o->ce.af;
+    }
     sock->info.remote_float = o->ce.remote_float;
     sock->info.lsa = &c->c1.link_socket_addrs[sock_index];
-    sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
+    sock->info.bind_ipv6_only = lo ? lo->bind_ipv6_only : o->ce.bind_ipv6_only;
     sock->info.ipchange_command = o->ipchange;
     sock->info.plugins = c->plugins;
     sock->server_poll_timeout = &c->c2.server_poll_interval;
@@ -1692,7 +1719,7 @@ create_socket_dco_win(struct context *c, struct link_socket *sock, struct signal
 
 /* finalize socket initialization */
 void
-link_socket_init_phase2(struct context *c, struct link_socket *sock)
+link_socket_init_phase2(struct context *c, struct link_socket *sock, int sock_index)
 {
     const struct frame *frame = &c->c2.frame;
     struct signal_info *sig_info = c->sig;
@@ -1713,12 +1740,24 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     sock->stream_buf.sni_passthrough_alpn_list = (const char **)c->options.ce.sni_passthrough_alpn_list;
     sock->stream_buf.sni_passthrough_alpn_count = c->options.ce.sni_passthrough_alpn_count;
+
+    /* Use per-listener SNI PT server config when sock_index is valid. */
+    const struct listener_socket_opts *lo2 = NULL;
+    if (sock_index >= 0 && c->options.ce.local_list
+        && sock_index < c->options.ce.local_list->len)
+    {
+        lo2 = &c->options.ce.local_list->array[sock_index]->opts;
+    }
+
     sock->stream_buf.sni_passthrough_server_hostname_list =
-        (const char **)c->options.sni_passthrough_server_hostname_list;
+        lo2 ? (const char **)lo2->sni_passthrough_server_hostname_list
+            : (const char **)c->options.sni_passthrough_server_hostname_list;
     sock->stream_buf.sni_passthrough_server_hostname_count =
-        c->options.sni_passthrough_server_hostname_count;
+        lo2 ? lo2->sni_passthrough_server_hostname_count
+            : c->options.sni_passthrough_server_hostname_count;
     sock->stream_buf.sni_passthrough_server_ignore_alpn =
-        c->options.sni_passthrough_server_ignore_alpn;
+        lo2 ? lo2->sni_passthrough_server_ignore_alpn
+            : c->options.sni_passthrough_server_ignore_alpn;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);

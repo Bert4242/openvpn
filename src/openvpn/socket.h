@@ -371,7 +371,7 @@ int openvpn_connect(socket_descriptor_t sd, const struct sockaddr *remote, int c
  */
 void link_socket_init_phase1(struct context *c, int sock_index, int mode);
 
-void link_socket_init_phase2(struct context *c, struct link_socket *sock);
+void link_socket_init_phase2(struct context *c, struct link_socket *sock, int sock_index);
 
 void do_preresolve(struct context *c);
 

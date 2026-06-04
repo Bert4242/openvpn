@@ -2047,6 +2047,204 @@ options_postprocess_http_proxy_override(struct options *o)
 
 #endif /* ifdef ENABLE_MANAGEMENT */
 
+/**
+ * Parse a listener spec of the form  proto:[addr:]port  or  proto:[addr]:port
+ * (for IPv6 literals use bracket notation: tcp6:[::1]:443).
+ * Fills le->proto, le->af, le->local, le->port.
+ * Returns true on success.
+ */
+static bool
+parse_listener_spec(struct local_entry *le, const char *spec,
+                    msglvl_t msglevel, struct gc_arena *gc)
+{
+    const char *colon = strchr(spec, ':');
+    if (!colon)
+    {
+        msg(msglevel, "--listener: missing ':' in '%s', expected proto:[addr:]port", spec);
+        return false;
+    }
+
+    size_t proto_len = (size_t)(colon - spec);
+    char *proto_str = gc_malloc(proto_len + 1, false, gc);
+    memcpy(proto_str, spec, proto_len);
+    proto_str[proto_len] = '\0';
+
+    int proto = ascii2proto(proto_str);
+    if (proto < 0)
+    {
+        msg(msglevel, "--listener: unknown protocol '%s'", proto_str);
+        return false;
+    }
+    le->proto = proto;
+    le->af = ascii2af(proto_str);
+
+    const char *rest = colon + 1;
+
+    if (*rest == '[')
+    {
+        /* IPv6 literal: [addr]:port */
+        const char *end_bracket = strchr(rest, ']');
+        if (!end_bracket || end_bracket[1] != ':')
+        {
+            msg(msglevel, "--listener: malformed IPv6 address in '%s'", spec);
+            return false;
+        }
+        size_t addr_len = (size_t)(end_bracket - rest - 1);
+        char *addr = gc_malloc(addr_len + 1, false, gc);
+        memcpy(addr, rest + 1, addr_len);
+        addr[addr_len] = '\0';
+        le->local = addr;
+        le->port = end_bracket + 2;
+    }
+    else
+    {
+        const char *last_colon = strrchr(rest, ':');
+        if (last_colon)
+        {
+            /* addr:port (IPv4) */
+            size_t addr_len = (size_t)(last_colon - rest);
+            char *addr = gc_malloc(addr_len + 1, false, gc);
+            memcpy(addr, rest, addr_len);
+            addr[addr_len] = '\0';
+            le->local = addr;
+            le->port = last_colon + 1;
+        }
+        else
+        {
+            /* just port, wildcard address */
+            le->local = NULL;
+            le->port = rest;
+        }
+    }
+
+    if (!le->port || !le->port[0])
+    {
+        msg(msglevel, "--listener: missing port in '%s'", spec);
+        return false;
+    }
+    return true;
+}
+
+/**
+ * Parse the body of a <listener> block line by line.
+ * Only the directives explicitly listed here are accepted; anything else
+ * is an error.
+ */
+static bool
+parse_listener_block_body(struct local_entry *le, const char *body,
+                          msglvl_t msglevel, struct gc_arena *gc)
+{
+    struct buffer buf = string_alloc_buf(body, gc);
+    char line[1024];
+    int line_num = 0;
+
+    while (buf_parse(&buf, '\n', line, sizeof(line)))
+    {
+        ++line_num;
+        chomp(line);
+        if (!line[0] || line[0] == '#' || line[0] == ';')
+        {
+            continue;
+        }
+
+        char *p[MAX_PARMS + 1];
+        CLEAR(p);
+        parse_line(line, p, MAX_PARMS, "<listener>", line_num, msglevel, gc);
+        if (!p[0])
+        {
+            continue;
+        }
+
+        if (streq(p[0], "sni-passthrough-server") && !p[1])
+        {
+            le->opts.sni_passthrough_server = true;
+            le->opts.sni_passthrough_server_defined = true;
+        }
+        else if (streq(p[0], "sni-passthrough-server-hostname") && p[1] && !p[2])
+        {
+            int n = le->opts.sni_passthrough_server_hostname_count;
+            le->opts.sni_passthrough_server_hostname_list =
+                gc_realloc(le->opts.sni_passthrough_server_hostname_list,
+                           (size_t)(n + 1) * sizeof(const char *), gc);
+            le->opts.sni_passthrough_server_hostname_list[n] = p[1];
+            le->opts.sni_passthrough_server_hostname_count = n + 1;
+            le->opts.sni_passthrough_server_defined = true;
+        }
+        else if (streq(p[0], "sni-passthrough-server-ignore-alpn") && !p[1])
+        {
+            le->opts.sni_passthrough_server_ignore_alpn = true;
+        }
+        else if (streq(p[0], "rcvbuf") && p[1] && !p[2])
+        {
+            le->opts.rcvbuf = positive_atoi(p[1], msglevel);
+            le->opts.rcvbuf_defined = true;
+        }
+        else if (streq(p[0], "sndbuf") && p[1] && !p[2])
+        {
+            le->opts.sndbuf = positive_atoi(p[1], msglevel);
+            le->opts.sndbuf_defined = true;
+        }
+        else if (streq(p[0], "mark") && p[1] && !p[2])
+        {
+#if defined(TARGET_LINUX)
+            le->opts.mark = atoi_warn(p[1], msglevel);
+            le->opts.mark_defined = true;
+#else
+            msg(msglevel, "<listener>: 'mark' is not supported on this platform");
+            return false;
+#endif
+        }
+        else if (streq(p[0], "bind-dev") && p[1] && !p[2])
+        {
+#ifdef TARGET_LINUX
+            le->opts.bind_dev = p[1];
+#else
+            msg(msglevel, "<listener>: 'bind-dev' is not supported on this platform");
+            return false;
+#endif
+        }
+        else if (streq(p[0], "socket-flags"))
+        {
+            for (int j = 1; j < MAX_PARMS && p[j]; j++)
+            {
+                if (streq(p[j], "TCP_NODELAY"))
+                {
+                    le->opts.sockflags_add |= SF_TCP_NODELAY;
+                }
+                else
+                {
+                    msg(msglevel, "<listener>: unknown socket flag '%s'", p[j]);
+                    return false;
+                }
+            }
+        }
+#if PORT_SHARE
+        else if (streq(p[0], "port-share") && p[1] && p[2] && !p[4])
+        {
+            le->opts.port_share_host = p[1];
+            le->opts.port_share_port = p[2];
+            le->opts.port_share_journal_dir = p[3]; /* may be NULL */
+        }
+#endif
+        else if (streq(p[0], "bind-ipv6-only") && !p[1])
+        {
+            le->opts.bind_ipv6_only = true;
+            le->opts.bind_ipv6_only_defined = true;
+        }
+        else if (streq(p[0], "mtu-disc") && p[1] && !p[2])
+        {
+            le->opts.mtu_discover_type = translate_mtu_discover_type_name(p[1]);
+            le->opts.mtu_discover_type_defined = true;
+        }
+        else
+        {
+            msg(msglevel, "<listener>: unknown option '%s'", p[0]);
+            return false;
+        }
+    }
+    return true;
+}
+
 static struct local_list *
 alloc_local_list_if_undef(struct connection_entry *ce, struct gc_arena *gc)
 {
@@ -3075,7 +3273,8 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
 }
 
 static void
-options_postprocess_mutate_le(struct connection_entry *ce, struct local_entry *le, int mode)
+options_postprocess_mutate_le(struct connection_entry *ce, struct local_entry *le,
+                              const struct options *o, int mode)
 {
     /* use the global port if none is specified */
     if (!le->port)
@@ -3087,6 +3286,66 @@ options_postprocess_mutate_le(struct connection_entry *ce, struct local_entry *l
     if (!le->proto || mode == MODE_POINT_TO_POINT)
     {
         le->proto = ce->proto;
+    }
+
+    /* Resolve per-listener socket opts against global defaults so that
+     * socket.c can read them unconditionally after postprocess. */
+    struct listener_socket_opts *lo = &le->opts;
+
+    if (!lo->rcvbuf_defined)
+    {
+        lo->rcvbuf = o->rcvbuf;
+        lo->rcvbuf_defined = true;
+    }
+    if (!lo->sndbuf_defined)
+    {
+        lo->sndbuf = o->sndbuf;
+        lo->sndbuf_defined = true;
+    }
+    if (!lo->mark_defined)
+    {
+        lo->mark = o->mark;
+        lo->mark_defined = true;
+    }
+    if (!lo->bind_dev)
+    {
+        lo->bind_dev = o->bind_dev;
+    }
+    /* sockflags: global base OR'd with any per-listener additions */
+    lo->sockflags_add |= o->sockflags;
+
+    if (!lo->port_share_host)
+    {
+        lo->port_share_host = o->port_share_host;
+        lo->port_share_port = o->port_share_port;
+        lo->port_share_journal_dir = o->port_share_journal_dir;
+    }
+    if (!lo->bind_ipv6_only_defined)
+    {
+        lo->bind_ipv6_only = ce->bind_ipv6_only;
+        lo->bind_ipv6_only_defined = true;
+    }
+    if (!lo->mtu_discover_type_defined)
+    {
+        lo->mtu_discover_type = ce->mtu_discover_type;
+        lo->mtu_discover_type_defined = true;
+    }
+    if (!lo->sni_passthrough_server_defined)
+    {
+        lo->sni_passthrough_server = o->sni_passthrough_server;
+        lo->sni_passthrough_server_defined = true;
+    }
+    if (!lo->sni_passthrough_server_hostname_list)
+    {
+        lo->sni_passthrough_server_hostname_list =
+            o->sni_passthrough_server_hostname_list;
+        lo->sni_passthrough_server_hostname_count =
+            o->sni_passthrough_server_hostname_count;
+    }
+    if (!lo->sni_passthrough_server_ignore_alpn)
+    {
+        lo->sni_passthrough_server_ignore_alpn =
+            o->sni_passthrough_server_ignore_alpn;
     }
 }
 
@@ -3832,7 +4091,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     {
         for (i = 0; i < o->ce.local_list->len; i++)
         {
-            options_postprocess_mutate_le(&o->ce, o->ce.local_list->array[i], o->mode);
+            options_postprocess_mutate_le(&o->ce, o->ce.local_list->array[i], o, o->mode);
         }
 
         for (int i = 0; i < o->ce.local_list->len; i++)
@@ -6022,6 +6281,41 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         if (p[3])
         {
             e->proto = ascii2proto(p[3]);
+        }
+    }
+    else if (streq(p[0], "listener") && p[1] && !p[3])
+    {
+        /*
+         * listener proto:[addr:]port
+         *   — inline form, no per-listener options
+         *
+         * <listener proto:[addr:]port>
+         * sni-passthrough-server
+         * ...
+         * </listener>
+         *   — block form with per-listener options
+         *
+         * Only valid in server mode (enforced during postprocess).
+         */
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
+
+        struct local_entry *e = alloc_local_entry(&options->ce, msglevel, &options->gc);
+        if (!e)
+        {
+            goto err;
+        }
+
+        if (!parse_listener_spec(e, p[1], msglevel, &options->gc))
+        {
+            goto err;
+        }
+
+        if (is_inline && p[2])
+        {
+            if (!parse_listener_block_body(e, p[2], msglevel, &options->gc))
+            {
+                goto err;
+            }
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
