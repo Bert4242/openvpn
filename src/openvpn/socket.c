@@ -2244,10 +2244,10 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                     }
                     else
                     {
-                        /* SNI header not found  */
-                        if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                        /* SNI header not found or rejected */
+                        if (sb->error || sb->sni_passthrough_state == SNI_PT_PENDING)
                         {
-                            /* wait for more data until sni_passthrough_check_and_consume_header or is_openvpn_protocol() match */
+                            /* error: rejected; or wait for more data */
                             return false;
                         }
                     }
