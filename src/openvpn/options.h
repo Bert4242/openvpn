@@ -119,9 +119,11 @@ struct listener_socket_opts
     /* Extra socket flags OR'd with global sockflags (socket-flags directive) */
     unsigned int sockflags_add;
     /* TCP port sharing (port-share directive, TCP listeners only) */
+#if PORT_SHARE
     const char *port_share_host;
     const char *port_share_port;
     const char *port_share_journal_dir;
+#endif
     /* bind-ipv6-only directive */
     bool bind_ipv6_only_defined;
     bool bind_ipv6_only;

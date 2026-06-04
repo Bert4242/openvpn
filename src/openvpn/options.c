@@ -3314,12 +3314,14 @@ options_postprocess_mutate_le(struct connection_entry *ce, struct local_entry *l
     /* sockflags: global base OR'd with any per-listener additions */
     lo->sockflags_add |= o->sockflags;
 
+#if PORT_SHARE
     if (!lo->port_share_host)
     {
         lo->port_share_host = o->port_share_host;
         lo->port_share_port = o->port_share_port;
         lo->port_share_journal_dir = o->port_share_journal_dir;
     }
+#endif
     if (!lo->bind_ipv6_only_defined)
     {
         lo->bind_ipv6_only = ce->bind_ipv6_only;
