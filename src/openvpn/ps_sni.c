@@ -925,6 +925,15 @@ cleanup:
             return 0;
         }
     }
+    if (consumed > 0)
+    {
+        /*
+         * OpenSSL parsed a complete ClientHello (consumed > 0 means the
+         * client_hello_cb fired) but at least one filter was not satisfied.
+         * There is no point waiting for more data — reject the connection.
+         */
+        return -1;
+    }
     return 0;
 }
 
@@ -964,13 +973,17 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                             &eff_alpn_list, &eff_alpn_count);
     }
 
-/* Macro: advance cursor by n bytes, return 0 on overrun */
+/*
+ * Macro: advance cursor by n bytes.
+ * Returns -1 (reject) on overrun: we only reach this macro after confirming
+ * the record is fully received, so any internal overrun means malformed data.
+ */
 #define SNI_PT_ADVANCE(p, n, end) \
     do                            \
     {                             \
         if ((p) + (n) > (end))    \
         {                         \
-            return 0;             \
+            return -1;            \
         }                         \
         (p) += (n);               \
     } while (0)
@@ -992,23 +1005,30 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 
     /* TLS record length is at bytes [3..4] (big-endian) */
     int record_len = (int)SNI_PT_READ16(pkt + 3);
+    /* Reject records exceeding the TLS maximum plaintext size (RFC 5246 §6.2.1).
+     * A larger value is either garbage or a deliberate attempt to exhaust our buffer. */
+    if (record_len > 0x4000)
+    {
+        return -1;
+    }
     int total = 5 + record_len;
     if (total > pkt_len)
     {
-        return 0;
+        return 0; /* record is incomplete; wait for more data */
     }
 
+    /* From here the full record is in hand — any parse failure is a rejection. */
     const unsigned char *end = pkt + total;
     const unsigned char *p = pkt + 5; /* skip TLS record header */
 
     /* Handshake header: type(1) + 24-bit body length */
     if (p + 4 > end)
     {
-        return 0;
+        return -1;
     }
     if (p[0] != 0x01) /* ClientHello */
     {
-        return 0;
+        return -1;
     }
     p += 4;
 
@@ -1018,7 +1038,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     /* session_id: length(1) + data */
     if (p + 1 > end)
     {
-        return 0;
+        return -1;
     }
     unsigned int sid_len = *p;
     SNI_PT_ADVANCE(p, 1 + sid_len, end);
@@ -1026,7 +1046,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     /* cipher_suites: length(2) + data */
     if (p + 2 > end)
     {
-        return 0;
+        return -1;
     }
     unsigned int cs_len = SNI_PT_READ16(p);
     SNI_PT_ADVANCE(p, 2 + cs_len, end);
@@ -1034,7 +1054,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     /* compression_methods: length(1) + data */
     if (p + 1 > end)
     {
-        return 0;
+        return -1;
     }
     unsigned int cm_len = *p;
     SNI_PT_ADVANCE(p, 1 + cm_len, end);
@@ -1056,7 +1076,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     /* extensions: total length(2) */
     if (p + 2 > end)
     {
-        return 0;
+        return -1;
     }
     unsigned int exts_len = SNI_PT_READ16(p);
     p += 2;
@@ -1064,7 +1084,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     const unsigned char *exts_end = p + exts_len;
     if (exts_end > end)
     {
-        return 0;
+        return -1;
     }
 
     const unsigned char *ep = p;
@@ -1076,7 +1096,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 
         if (ep + ext_len > exts_end)
         {
-            return 0;
+            return -1;
         }
 
         if (ext_type == 0x0000 && !hostname_ok) /* server_name */
@@ -1171,8 +1191,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 
             if (!alpn_ok)
             {
-                /* ALPN extension present but no token matched */
-                return 0;
+                /* ALPN extension present but no token matched in a complete packet. */
+                return -1;
             }
         }
 
@@ -1186,12 +1206,16 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     {
         return total;
     }
+    /*
+     * We parsed the complete ClientHello but at least one filter was not
+     * satisfied.  Waiting for more data cannot help — reject the connection.
+     */
     if (!hostname_ok && ctx->hostname_count > 0)
     {
         msg(M_WARN,
             "--sni-passthrough-server: hostname not in allowed list, rejecting (generic path)");
     }
-    return 0;
+    return -1;
 }
 
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
@@ -1223,9 +1247,34 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
             const uint8_t *hdr = BPTR(&sb->buf);
 
             int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len, ctx);
+            if (sni_total < 0)
+            {
+                /* Complete ClientHello parsed but criteria not met — reject. */
+                sb->error = true;
+                sb->sni_passthrough_state = SNI_PT_DISABLED;
+                return false;
+            }
             if (sni_total == 0)
             {
-                /* nothing found */
+                /*
+                 * The packet was not (yet) recognised as a complete SNI header.
+                 * If we already have 5 bytes we know the TLS record length.
+                 * Reject immediately if the record would never fit in our buffer
+                 * or exceeds the TLS maximum record size — waiting longer cannot
+                 * help, and leaving the connection open would fill the buffer.
+                 */
+                if (sb->buf.len >= 5)
+                {
+                    int rlen = ((int)hdr[3] << 8) | (int)hdr[4];
+                    if (5 + rlen > sb->maxlen || rlen > 0x4000)
+                    {
+                        msg(M_WARN,
+                            "--sni-passthrough-server: oversized TLS record (%d bytes), rejecting",
+                            5 + rlen);
+                        sb->error = true;
+                        sb->sni_passthrough_state = SNI_PT_DISABLED;
+                    }
+                }
                 return false;
             }
             else if (sb->buf.len < sni_total)
