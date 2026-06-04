@@ -308,6 +308,7 @@ check_inline_file(struct in_src *is, char *p[], struct gc_arena *gc)
 
     if (p[0] && !p[1])
     {
+        /* Case 1: <tag> — no-argument block, entire tag is one token */
         char *arg = p[0];
         if (arg[0] == '<' && arg[strlen(arg) - 1] == '>')
         {
@@ -319,6 +320,30 @@ check_inline_file(struct in_src *is, char *p[], struct gc_arena *gc)
             buf_printf(&close_tag, "</%s>", p[0]);
             p[1] = read_inline_file(is, BSTR(&close_tag), &num_inline_lines, gc);
             p[2] = NULL;
+            free_buf(&close_tag);
+        }
+    }
+    else if (p[0] && p[1] && !p[2])
+    {
+        /* Case 2: <tag arg> — tag name and one argument as separate tokens.
+         * p[0] starts with '<' (but no closing '>'), p[1] ends with '>'. */
+        char *tag = p[0];
+        char *arg = p[1];
+        size_t tag_len = strlen(tag);
+        size_t arg_len = strlen(arg);
+
+        if (tag[0] == '<' && tag[tag_len - 1] != '>'
+            && arg_len > 0 && arg[arg_len - 1] == '>')
+        {
+            struct buffer close_tag;
+
+            arg[arg_len - 1] = '\0';          /* strip trailing '>' from arg */
+            p[0] = string_alloc(tag + 1, gc); /* tag name without leading '<' */
+            p[1] = string_alloc(arg, gc);     /* argument without trailing '>' */
+            close_tag = alloc_buf(strlen(p[0]) + 4);
+            buf_printf(&close_tag, "</%s>", p[0]);
+            p[2] = read_inline_file(is, BSTR(&close_tag), &num_inline_lines, gc);
+            p[3] = NULL;
             free_buf(&close_tag);
         }
     }
