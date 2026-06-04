@@ -707,6 +707,7 @@ struct sni_pt_cb_ctx
     /* results set by the callback */
     int alpn_matched;
     int hostname_matched; /* 1 = matched or no filter; 0 = filter present and failed */
+    bool callback_fired;  /* true if client_hello_cb was invoked (complete ClientHello) */
 };
 
 /*
@@ -718,6 +719,7 @@ static int
 sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
 {
     struct sni_pt_cb_ctx *cb = (struct sni_pt_cb_ctx *)arg;
+    cb->callback_fired = true;
 
     /* ---- Hostname check ---- */
     if (cb->hostname_count > 0)
@@ -839,6 +841,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     cb_ctx.hostname_count = ctx->hostname_count;
     cb_ctx.alpn_matched = 0;
     cb_ctx.hostname_matched = 0;
+    cb_ctx.callback_fired = false;
 
     if (ctx->ignore_alpn)
     {
@@ -849,6 +852,26 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     {
         sni_pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
                             &cb_ctx.alpn_list, &cb_ctx.alpn_count);
+    }
+
+    /*
+     * Mirror the generic path's early guards so both paths agree on obviously
+     * non-SNI-header packets without spinning up the SSL machinery.
+     */
+    if (pkt_len < 5 || pkt[0] != 0x16)
+    {
+        return 0;
+    }
+    {
+        int hs_record_len = ((int)pkt[3] << 8) | (int)pkt[4];
+        if (hs_record_len > 0x4000)
+        {
+            return -1; /* garbage or deliberate oversized record */
+        }
+        if (5 + hs_record_len > pkt_len)
+        {
+            return 0; /* record is incomplete; wait for more data */
+        }
     }
 
     ssl_ctx = SSL_CTX_new(TLS_server_method());
@@ -925,16 +948,12 @@ cleanup:
             return 0;
         }
     }
-    if (consumed > 0)
-    {
-        /*
-         * OpenSSL parsed a complete ClientHello (consumed > 0 means the
-         * client_hello_cb fired) but at least one filter was not satisfied.
-         * There is no point waiting for more data — reject the connection.
-         */
-        return -1;
-    }
-    return 0;
+    /*
+     * The early guards above guarantee the record is complete.  If we reach
+     * here, either the callback didn't fire (not a valid ClientHello) or at
+     * least one filter was not satisfied.  Either way, reject.
+     */
+    return -1;
 }
 
 #else /* generic byte-scan path: LibreSSL, mbedTLS, wolfSSL, … */
