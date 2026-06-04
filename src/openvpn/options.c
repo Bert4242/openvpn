@@ -4116,6 +4116,8 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->proto = o->ce.proto;
+        /* resolve socket opts so socket.c sees correct inherited values */
+        options_postprocess_mutate_le(&o->ce, e, o, o->mode);
     }
 
     /* use the same listen list for every outgoing connection */
