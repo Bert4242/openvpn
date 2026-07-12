@@ -49,9 +49,11 @@ if HAVE_SITNL
 check_PROGRAMS += networking_testdriver
 endif
 
-check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
+check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
+	sni_gw_http_testdriver
 if !CROSS_COMPILING
-TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver
+TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
+	sni_gw_http_testdriver
 endif
 
 argv_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
@@ -463,6 +465,21 @@ sni_compat_testdriver_SOURCES = test_sni_compat.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/ps_sni.c
+
+# SNI gateway http – request builder + server consume state machine
+sni_gw_http_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@
+
+sni_gw_http_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+sni_gw_http_testdriver_SOURCES = test_sni_gw_http.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_http.c
 
 socket_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
