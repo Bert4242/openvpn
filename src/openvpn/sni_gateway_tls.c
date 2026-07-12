@@ -81,6 +81,20 @@ struct sni_gw_tls
      */
     struct buffer out_ciphertext;
 
+    /*
+     * FIFO of decrypted plaintext waiting to be served to the OpenVPN read
+     * path, one stream_buf fragment at a time.  A single TLS record from the
+     * gateway (Traefik) can coalesce many OpenVPN frames (records are up to
+     * 16 KiB), and SSL_read only hands us cap==BLEN(frag) bytes per call --
+     * the rest would otherwise sit invisibly inside OpenSSL while the socket
+     * shows no more readable data, stalling the level-triggered event loop.
+     * We therefore drain ALL available plaintext out of SSL into this FIFO on
+     * each read and serve it head-first; sni_gw_tls_read_pending() lets
+     * sockets_read_residual() re-enter the loop without blocking while bytes
+     * remain here.  Same growable malloc()/realloc() layout as out_ciphertext.
+     */
+    struct buffer in_plaintext;
+
     bool handshake_done;
 };
 
@@ -88,16 +102,15 @@ struct sni_gw_tls
 #define SNI_GW_TLS_SCRATCH 16384
 
 /* -------------------------------------------------------------------------- */
-/* out_ciphertext FIFO helpers                                                */
+/* Growable byte-FIFO helpers (shared by out_ciphertext and in_plaintext)     */
 /* -------------------------------------------------------------------------- */
 
-/* Append n bytes of ciphertext to the tail of the pending FIFO, growing it as
- * needed.  Returns false only on allocation failure. */
+/* Append n bytes to the tail of FIFO b, growing it as needed.  Bytes between
+ * [offset, offset+len) are the unconsumed contents.  Returns false only on
+ * allocation failure. */
 static bool
-gw_out_append(struct sni_gw_tls *t, const uint8_t *data, int n)
+gw_fifo_append(struct buffer *b, const uint8_t *data, int n)
 {
-    struct buffer *b = &t->out_ciphertext;
-
     if (n <= 0)
     {
         return true;
@@ -133,6 +146,27 @@ gw_out_append(struct sni_gw_tls *t, const uint8_t *data, int n)
     memcpy(b->data + b->offset + b->len, data, (size_t)n);
     b->len += n;
     return true;
+}
+
+/* Consume up to n bytes from the head of FIFO b into dst; returns the number
+ * of bytes actually copied (<= n, <= b->len). */
+static int
+gw_fifo_consume(struct buffer *b, uint8_t *dst, int n)
+{
+    int take = b->len < n ? b->len : n;
+    if (take <= 0)
+    {
+        return 0;
+    }
+    memcpy(dst, b->data + b->offset, (size_t)take);
+    b->offset += take;
+    b->len -= take;
+    if (b->len == 0)
+    {
+        /* Fully drained -- reset so it stays compact. */
+        b->offset = 0;
+    }
+    return take;
 }
 
 /*
@@ -207,6 +241,7 @@ sni_gw_tls_free(struct sni_gw_tls *t)
         SSL_CTX_free(t->ctx);
     }
     free(t->out_ciphertext.data);
+    free(t->in_plaintext.data);
     free(t);
 }
 
@@ -547,82 +582,44 @@ err:
 /* Steady-state read                                                          */
 /* -------------------------------------------------------------------------- */
 
-ssize_t
-sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf)
+/*
+ * Drain all currently-decryptable plaintext out of the SSL object into the
+ * in_plaintext FIFO.  Returns true if any bytes were produced, and sets *fatal
+ * on a hard SSL error or clean TLS shutdown.  Leaves nothing readable inside
+ * SSL (subsequent SSL_read would return WANT_READ) -- this is the invariant
+ * sni_gw_tls_read_pending() relies on.
+ */
+static bool
+gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
 {
     uint8_t scratch[SNI_GW_TLS_SCRATCH];
+    bool produced = false;
 
-    /*
-     * Pull whatever ciphertext the (non-blocking) socket has and feed net_bio,
-     * bounded by the space net_bio can currently accept.  The event loop is
-     * level-triggered, so if more ciphertext remains on the socket than net_bio
-     * can hold this iteration, we will simply be called again.
-     */
-    size_t space = (size_t)BIO_ctrl_get_write_guarantee(t->net_bio);
-    if (space > 0)
+    for (;;)
     {
-        size_t want = space < sizeof(scratch) ? space : sizeof(scratch);
-        ssize_t r = recv(sd, scratch, want, MSG_NOSIGNAL);
-        if (r == 0)
+        int n = SSL_read(t->ssl, scratch, (int)sizeof(scratch));
+        if (n > 0)
         {
-            /* Peer closed the TCP connection. */
-            return -1;
-        }
-        else if (r < 0)
-        {
-            int e = openvpn_errno();
-            if (e != EAGAIN && e != EWOULDBLOCK && e != EINTR)
+            if (!gw_fifo_append(&t->in_plaintext, scratch, n))
             {
-                msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: recv() failed");
-                return -1;
+                msg(D_LINK_ERRORS, "sni-gateway tls: out of memory buffering plaintext");
+                *fatal = true;
+                return produced;
             }
-            /* EAGAIN: no new ciphertext, but SSL may still have buffered data. */
+            produced = true;
+            continue;
         }
-        else
+
+        int err = SSL_get_error(t->ssl, n);
+        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
         {
-            int off = 0;
-            while (off < (int)r)
-            {
-                int w = BIO_write(t->net_bio, scratch + off, (int)r - off);
-                if (w <= 0)
-                {
-                    break; /* net_bio full; remainder waits for the next call */
-                }
-                off += w;
-            }
+            return produced; /* no more plaintext without further ciphertext */
         }
-    }
-
-    /*
-     * Decrypt into the fragment region [BPTR(buf), BPTR(buf)+BLEN(buf)).
-     * Matching the raw recv() path exactly: stream_buf_get_next() hands us a
-     * buffer whose *len* (not forward-capacity) is the amount of space to fill,
-     * so we must read up to BLEN(buf) bytes -- the raw path passes BLENZ(&frag)
-     * to recv() for the same reason.
-     */
-    int cap = BLEN(buf);
-    if (cap <= 0)
-    {
-        return 0;
-    }
-    int n = SSL_read(t->ssl, BPTR(buf), cap);
-    if (n > 0)
-    {
-        return n;
-    }
-
-    int err = SSL_get_error(t->ssl, n);
-    switch (err)
-    {
-        case SSL_ERROR_WANT_READ:
-        case SSL_ERROR_WANT_WRITE:
-            return 0; /* no complete plaintext yet -- packet still incomplete */
-
-        case SSL_ERROR_ZERO_RETURN:
-            /* Clean TLS shutdown from the peer. */
-            return -1;
-
-        default:
+        if (err == SSL_ERROR_ZERO_RETURN)
+        {
+            *fatal = true; /* clean TLS shutdown from the peer */
+            return produced;
+        }
         {
             char e[256];
             unsigned long code = ERR_get_error();
@@ -635,9 +632,105 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
             {
                 msg(D_LINK_ERRORS, "sni-gateway tls: SSL_read failed (connection reset)");
             }
-            return -1;
+            *fatal = true;
+            return produced;
         }
     }
+}
+
+ssize_t
+sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf)
+{
+    uint8_t scratch[SNI_GW_TLS_SCRATCH];
+    bool fatal = false;
+
+    /*
+     * Phase 1: shuttle ciphertext socket -> net_bio and decrypt plaintext
+     * SSL -> in_plaintext, looping until the socket has no more data and SSL
+     * has no more plaintext.  This fully consumes a single big TLS record even
+     * when it coalesces many OpenVPN frames and exceeds the net_bio window:
+     * draining SSL frees net_bio space, letting us recv() the rest.  Because
+     * ALL available plaintext lands in the FIFO, nothing stays buffered
+     * invisibly inside OpenSSL where the level-triggered event loop can't see
+     * it (that was the stall bug this holding area fixes).
+     */
+    bool progress = true;
+    while (progress && !fatal)
+    {
+        progress = false;
+
+        size_t space = (size_t)BIO_ctrl_get_write_guarantee(t->net_bio);
+        if (space > 0)
+        {
+            size_t want = space < sizeof(scratch) ? space : sizeof(scratch);
+            ssize_t r = recv(sd, scratch, want, MSG_NOSIGNAL);
+            if (r == 0)
+            {
+                fatal = true; /* peer closed the TCP connection */
+            }
+            else if (r < 0)
+            {
+                int e = openvpn_errno();
+                if (e != EAGAIN && e != EWOULDBLOCK && e != EINTR)
+                {
+                    msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: recv() failed");
+                    fatal = true;
+                }
+                /* EAGAIN: no new ciphertext; SSL may still hold decryptable data. */
+            }
+            else
+            {
+                int off = 0;
+                while (off < (int)r)
+                {
+                    int w = BIO_write(t->net_bio, scratch + off, (int)r - off);
+                    if (w <= 0)
+                    {
+                        break; /* net_bio full; SSL drain below will free room */
+                    }
+                    off += w;
+                }
+                progress = true;
+            }
+        }
+
+        /* Decrypt everything currently available; loop again if it produced
+         * anything (it consumed ciphertext, so more may now fit from the fd). */
+        if (gw_drain_ssl(t, &fatal))
+        {
+            progress = true;
+        }
+    }
+
+    /*
+     * Phase 2: serve up to cap == BLEN(buf) bytes from the HEAD of the FIFO
+     * into the stream_buf fragment.  Matching the raw recv() path,
+     * stream_buf_get_next() hands us a buffer whose *len* is the writable span,
+     * so cap == BLEN(buf).  Serving one fragment per call (with re-entry driven
+     * by sni_gw_tls_read_pending via sockets_read_residual) lets stream_buf
+     * frame the coalesced packets exactly as it does for a raw socket.
+     */
+    int cap = BLEN(buf);
+    if (cap > 0 && t->in_plaintext.len > 0)
+    {
+        return gw_fifo_consume(&t->in_plaintext, BPTR(buf), cap);
+    }
+
+    /* Nothing left to serve: report fatal only once the FIFO is empty, so any
+     * already-decrypted plaintext is delivered before we signal a reset. */
+    if (fatal)
+    {
+        return -1;
+    }
+    return 0; /* no complete plaintext yet -- packet still incomplete */
+}
+
+bool
+sni_gw_tls_read_pending(const struct sni_gw_tls *t)
+{
+    /* gw_drain_ssl() empties SSL into the FIFO on every read, so unserved
+     * plaintext lives entirely in in_plaintext -- checking it is sufficient. */
+    return t && t->in_plaintext.len > 0;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -713,7 +806,7 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
         int c;
         while ((c = BIO_read(t->net_bio, scratch, (int)sizeof(scratch))) > 0)
         {
-            if (!gw_out_append(t, scratch, c))
+            if (!gw_fifo_append(&t->out_ciphertext, scratch, c))
             {
                 msg(D_LINK_ERRORS, "sni-gateway tls: out of memory buffering ciphertext");
                 return -1;
