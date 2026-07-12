@@ -1751,6 +1751,26 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     if (sock->info.proto == PROTO_TCP_SERVER)
     {
         phase2_tcp_server(sock, sig_info);
+        /* --sni-gateway-server http: while the accepted fd is still BLOCKING,
+         * read the HTTP/1.1 Upgrade request from the gateway and send 101.
+         * This must happen before the event loop sends HARD_RESET.
+         * Applies to both LS_MODE_DEFAULT (single-client: listen+accept combined)
+         * and LS_MODE_TCP_ACCEPT_FROM (multi-client: accept from listener). */
+        if (!sig_info->signal_received
+            && sock->mode != LS_MODE_TCP_LISTEN
+            && (sock->sockflags & SF_SNI_GW_HTTP)
+            && socket_defined(sock->sd))
+        {
+            if (!sni_gw_http_server_accept_upgrade(
+                    sock->sd, sock->stream_buf.sni_gw_http_require_path))
+            {
+                register_signal(sig_info, SIGUSR1,
+                                "sni-gateway-server-http-upgrade-error");
+                goto done;
+            }
+            sock->stream_buf.sni_gw_http_state = SNI_GW_HTTP_SUCCESS;
+            sock->stream_buf.sni_gw_http_101_sent = true;
+        }
     }
     else if (sock->info.proto == PROTO_TCP_CLIENT)
     {

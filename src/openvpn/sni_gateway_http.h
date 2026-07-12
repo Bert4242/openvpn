@@ -119,4 +119,15 @@ int sni_gw_http_check_and_consume_request(struct stream_buf *sb,
  */
 bool sni_gw_http_send_101(socket_descriptor_t sd);
 
+/*
+ * Server side: blocking accept of the HTTP/1.1 Upgrade handshake.  Called once
+ * on the accepted fd while it is still in blocking mode (before the main event
+ * loop makes it non-blocking).  Reads until CRLF CRLF, validates the request,
+ * checks the path if require_path is non-NULL, and sends the 101 response.
+ *
+ * Returns true on success, false on any error (peer closed, bad request, …).
+ */
+bool sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
+                                       const char *require_path);
+
 #endif /* SNI_GATEWAY_HTTP_H */
