@@ -274,7 +274,7 @@ reject:
 }
 
 /* ------------------------------------------------------------------------- */
-/* Server 101 emitter                                                         */
+/* Server 101 emitter + blocking Upgrade acceptor                             */
 /* ------------------------------------------------------------------------- */
 
 bool
@@ -317,4 +317,111 @@ sni_gw_http_send_101(socket_descriptor_t sd)
         return false;
     }
     return true;
+}
+
+bool
+sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_path)
+{
+    char buf[SNI_GW_HTTP_MAX_REQUEST];
+    int total = 0;
+    int end_pos = -1; /* byte offset just past the CRLFCRLF terminator */
+
+    /* Blocking read: accumulate until CRLFCRLF or cap. */
+    while (total < (int)sizeof(buf))
+    {
+        ssize_t n = recv(sd, buf + total, (size_t)(sizeof(buf) - total), 0);
+        if (n < 0)
+        {
+            if (openvpn_errno() == EINTR)
+            {
+                continue;
+            }
+            msg(D_LINK_ERRORS | M_ERRNO,
+                "--sni-gateway-server http: recv() reading Upgrade request");
+            return false;
+        }
+        if (n == 0)
+        {
+            msg(D_LINK_ERRORS,
+                "--sni-gateway-server http: connection closed before Upgrade request");
+            return false;
+        }
+        total += (int)n;
+        for (int i = 0; i + 4 <= total; i++)
+        {
+            if (buf[i] == '\r' && buf[i + 1] == '\n'
+                && buf[i + 2] == '\r' && buf[i + 3] == '\n')
+            {
+                end_pos = i + 4;
+                break;
+            }
+        }
+        if (end_pos >= 0)
+        {
+            break;
+        }
+    }
+
+    if (end_pos < 0)
+    {
+        msg(M_WARN, "--sni-gateway-server http: Upgrade request too large or truncated");
+        return false;
+    }
+
+    const char *data = buf;
+    int len = end_pos;
+
+    if (len < 4 || memcmp(data, "GET ", 4) != 0)
+    {
+        msg(M_WARN, "--sni-gateway-server http: not a GET request");
+        return false;
+    }
+
+    const char *line_end = memchr(data, '\r', (size_t)len);
+    if (!line_end)
+    {
+        msg(M_WARN, "--sni-gateway-server http: malformed request line");
+        return false;
+    }
+
+    const char *path_start = data + 4;
+    const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
+    if (!sp || sp == path_start || path_start[0] != '/')
+    {
+        msg(M_WARN, "--sni-gateway-server http: malformed request path");
+        return false;
+    }
+    int path_len = (int)(sp - path_start);
+
+    const char *ver = sp + 1;
+    if ((int)(line_end - ver) != 8 || memcmp(ver, "HTTP/1.1", 8) != 0)
+    {
+        msg(M_WARN, "--sni-gateway-server http: unsupported HTTP version");
+        return false;
+    }
+
+    const char *hdrs = line_end + 2;
+    int hdrs_len = (int)(data + len - hdrs);
+    if (!http_has_upgrade_openvpn(hdrs, hdrs_len))
+    {
+        msg(M_WARN, "--sni-gateway-server http: missing 'Upgrade: openvpn' header");
+        return false;
+    }
+
+    if (require_path)
+    {
+        int rp_len = (int)strlen(require_path);
+        if (rp_len != path_len || memcmp(path_start, require_path, (size_t)path_len) != 0)
+        {
+            msg(M_WARN,
+                "--sni-gateway-server http: path mismatch (expected '%s', got '%.*s')",
+                require_path, path_len, path_start);
+            return false;
+        }
+    }
+
+    msg(M_INFO, "--sni-gateway-server http: accepted %d-byte Upgrade request (path '%.*s')",
+        end_pos, path_len, path_start);
+
+    return sni_gw_http_send_101(sd);
 }
