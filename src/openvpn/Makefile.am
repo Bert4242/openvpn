@@ -123,6 +123,7 @@ openvpn_SOURCES = \
 	ps.c ps.h \
 	ps_sni.c ps_sni.h \
 	sni_gateway_tls.c sni_gateway_tls.h \
+	sni_gateway_http.c sni_gateway_http.h \
 	push.c push_util.c push.h \
 	pushlist.h \
 	reflect_filter.c reflect_filter.h \

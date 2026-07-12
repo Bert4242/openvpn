@@ -148,6 +148,16 @@ struct stream_buf
     const char **sni_gateway_server_host_list;
     int sni_gateway_server_host_count;
     bool sni_gateway_server_ignore_alpn;
+
+    /* --sni-gateway-server http: state machine that consumes the inbound
+     * HTTP/1.1 Upgrade request (plaintext; Traefik already terminated TLS) and
+     * triggers the 101 reply.  Parallel to sni_passthrough_state above. */
+#define SNI_GW_HTTP_DISABLED 0 /* not active / done */
+#define SNI_GW_HTTP_PENDING  1 /* waiting for / parsing the Upgrade request */
+#define SNI_GW_HTTP_SUCCESS  2 /* request consumed; 101 owed / sent */
+    int sni_gw_http_state;
+    bool sni_gw_http_101_sent;       /* the 101 response has been emitted */
+    const char *sni_gw_http_require_path; /* optional exact path to enforce */
 };
 
 /*
@@ -227,6 +237,7 @@ struct link_socket
 #define SF_PREPEND_SA        (1 << 6)
 #define SF_PKTINFO_COPY_IIF  (1 << 7)
 #define SF_SNI_PASSTHROUGH   (1 << 8)
+#define SF_SNI_GW_HTTP       (1 << 9)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;
