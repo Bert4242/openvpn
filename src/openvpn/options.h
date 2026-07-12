@@ -42,6 +42,7 @@
 #include "clinat.h"
 #include "crypto_backend.h"
 #include "dns.h"
+#include "ps_sni.h"
 
 
 /*
@@ -178,20 +179,36 @@ struct connection_entry
     /* Allow only client that support resending the wrapped client key */
     bool tls_crypt_v2_force_cookie;
 
-    /** Hostname to embed in the SNI routing header (--sni-passthrough-hostname).
-     *  NULL means SNI passthrough is inactive for this connection.
+    /** SNI gateway mode for this connection (--sni-gateway <drop|tls|http>).
+     *  Defaults to SNI_GW_DROP (the original passthrough-decoy behaviour). */
+    enum sni_gateway_mode sni_gateway_mode;
+
+    /** True once --sni-gateway has been seen for this connection entry. */
+    bool sni_gateway_defined;
+
+    /** True once any --sni-gateway* client option has been seen for this
+     *  connection entry (used for validation / cross-checks). */
+    bool sni_gateway_client_enabled;
+
+    /** Hostname to embed in the SNI routing header (--sni-gateway-host).
+     *  NULL means the SNI gateway is inactive for this connection.
      *  Set globally to apply to all connections; override per <connection> block.
      *  Once set globally, cannot be cleared per connection. */
-    const char *sni_passthrough_hostname;
+    const char *sni_gateway_host;
 
-    /** ALPN token(s) for the SNI routing header (--sni-passthrough-alpn).
+    /** ALPN token(s) for the SNI routing header (--sni-gateway-alpn).
      *  If alpn_count == 0, the built-in default "hacky-sni-passthrough/1" is used.
      *  Per-connection list replaces (not adds to) the global list. */
-    const char **sni_passthrough_alpn_list;
-    int sni_passthrough_alpn_count;
+    const char **sni_gateway_alpn_list;
+    int sni_gateway_alpn_count;
     /** True once this entry owns its own alpn list (i.e. the first
-     *  sni-passthrough-alpn was seen inside this connection block). */
-    bool sni_passthrough_alpn_defined;
+     *  sni-gateway-alpn was seen inside this connection block). */
+    bool sni_gateway_alpn_defined;
+
+    /** Reserved for tls/http gateway modes (not yet implemented). */
+    const char *sni_gateway_path;
+    const char *sni_gateway_ca;
+    bool sni_gateway_no_verify;
 };
 
 struct remote_entry
@@ -688,22 +705,23 @@ struct options
 
     int tls_crypt_v2_max_age;
 
-    /** Enable server-side detection and discarding of the SNI routing header
-     *  sent by clients using --sni-passthrough-hostname (--sni-passthrough-server).
-     *  Peeks the first byte: 0x16 = routing header present (discard it);
-     *  anything else = openvpn client (proceed normally, full backwards compat). */
-    bool sni_passthrough_server;
+    /** Enable server-side SNI gateway handling (--sni-gateway-server <drop|http>).
+     *  In "drop" mode, peeks the first byte: 0x16 = routing header present
+     *  (discard it); anything else = openvpn client (proceed normally, full
+     *  backwards compat). */
+    bool sni_gateway_server_enabled;
+    enum sni_gateway_mode sni_gateway_server_mode;
 
-    /** Accepted SNI hostnames (--sni-passthrough-server-hostname, repeatable).
+    /** Accepted SNI hostnames (--sni-gateway-server-host, repeatable).
      *  When empty, any hostname (or no SNI) is accepted.  Case-insensitive. */
-    const char **sni_passthrough_server_hostname_list;
-    int sni_passthrough_server_hostname_count;
+    const char **sni_gateway_server_host_list;
+    int sni_gateway_server_host_count;
 
-    /** Skip ALPN matching entirely (--sni-passthrough-server-ignore-alpn).
+    /** Skip ALPN matching entirely (--sni-gateway-server-ignore-alpn).
      *  When true, the ALPN extension is ignored regardless of content.
-     *  Mutually exclusive with --sni-passthrough-alpn on the server;
+     *  Mutually exclusive with --sni-gateway-alpn on the server;
      *  if both are set, ignore_alpn wins (with a warning). */
-    bool sni_passthrough_server_ignore_alpn;
+    bool sni_gateway_server_ignore_alpn;
 
     /* Allow only one session */
     bool single_session;

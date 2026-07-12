@@ -1405,7 +1405,7 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
-    if (o->sni_passthrough_server)
+    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_DROP)
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
@@ -1711,14 +1711,14 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     /* initialize buffers */
     socket_frame_init(frame, sock);
 
-    sock->stream_buf.sni_passthrough_alpn_list = (const char **)c->options.ce.sni_passthrough_alpn_list;
-    sock->stream_buf.sni_passthrough_alpn_count = c->options.ce.sni_passthrough_alpn_count;
-    sock->stream_buf.sni_passthrough_server_hostname_list =
-        (const char **)c->options.sni_passthrough_server_hostname_list;
-    sock->stream_buf.sni_passthrough_server_hostname_count =
-        c->options.sni_passthrough_server_hostname_count;
-    sock->stream_buf.sni_passthrough_server_ignore_alpn =
-        c->options.sni_passthrough_server_ignore_alpn;
+    sock->stream_buf.sni_gateway_alpn_list = (const char **)c->options.ce.sni_gateway_alpn_list;
+    sock->stream_buf.sni_gateway_alpn_count = c->options.ce.sni_gateway_alpn_count;
+    sock->stream_buf.sni_gateway_server_host_list =
+        (const char **)c->options.sni_gateway_server_host_list;
+    sock->stream_buf.sni_gateway_server_host_count =
+        c->options.sni_gateway_server_host_count;
+    sock->stream_buf.sni_gateway_server_ignore_alpn =
+        c->options.sni_gateway_server_ignore_alpn;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1794,11 +1794,12 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
-        && c->options.ce.sni_passthrough_hostname)
+        && c->options.ce.sni_gateway_mode == SNI_GW_DROP
+        && c->options.ce.sni_gateway_host)
     {
-        if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_passthrough_hostname,
-                                               (const char *const *)c->options.ce.sni_passthrough_alpn_list,
-                                               c->options.ce.sni_passthrough_alpn_count))
+        if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gateway_host,
+                                               (const char *const *)c->options.ce.sni_gateway_alpn_list,
+                                               c->options.ce.sni_gateway_alpn_count))
         {
             register_signal(sig_info, SIGUSR1, "sni-passthrough-send-error");
             goto done;
@@ -2220,12 +2221,12 @@ stream_buf_added(struct stream_buf *sb, int length_added)
                 if (sb->sni_passthrough_state == SNI_PT_PENDING)
                 {
                     struct sni_pt_server_check_ctx sni_ctx = {
-                        .alpn_list = (const char *const *)sb->sni_passthrough_alpn_list,
-                        .alpn_count = sb->sni_passthrough_alpn_count,
-                        .ignore_alpn = sb->sni_passthrough_server_ignore_alpn,
+                        .alpn_list = (const char *const *)sb->sni_gateway_alpn_list,
+                        .alpn_count = sb->sni_gateway_alpn_count,
+                        .ignore_alpn = sb->sni_gateway_server_ignore_alpn,
                         .hostname_list =
-                            (const char *const *)sb->sni_passthrough_server_hostname_list,
-                        .hostname_count = sb->sni_passthrough_server_hostname_count,
+                            (const char *const *)sb->sni_gateway_server_host_list,
+                        .hostname_count = sb->sni_gateway_server_host_count,
                     };
                     if (sni_passthrough_check_and_consume_header(sb, &sni_ctx))
                     {
