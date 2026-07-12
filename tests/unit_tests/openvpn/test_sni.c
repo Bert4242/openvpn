@@ -815,6 +815,51 @@ test_sni_consume_header_hostname_mismatch(void **state)
 }
 
 /* ==========================================================================
+ * sni_gateway_mode_from_string tests
+ *
+ * Covers the --sni-gateway / --sni-gateway-server mode argument parser
+ * added as part of the SNI passthrough -> SNI gateway option rename.
+ * ========================================================================== */
+
+static void
+test_sni_gateway_mode_from_string_drop(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_mode_from_string("drop"), SNI_GW_DROP);
+}
+
+static void
+test_sni_gateway_mode_from_string_tls(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_mode_from_string("tls"), SNI_GW_TLS);
+}
+
+static void
+test_sni_gateway_mode_from_string_http(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_mode_from_string("http"), SNI_GW_HTTP);
+}
+
+static void
+test_sni_gateway_mode_from_string_unknown(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_mode_from_string("bogus"), -1);
+    assert_int_equal(sni_gateway_mode_from_string(""), -1);
+    /* case-sensitive: "Drop" must not match "drop" */
+    assert_int_equal(sni_gateway_mode_from_string("Drop"), -1);
+}
+
+static void
+test_sni_gateway_mode_from_string_null(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_mode_from_string(NULL), -1);
+}
+
+/* ==========================================================================
  * Test entry point
  * ========================================================================== */
 
@@ -851,6 +896,13 @@ main(void)
         cmocka_unit_test(test_sni_consume_header_ignore_alpn),
         cmocka_unit_test(test_sni_consume_header_hostname_match),
         cmocka_unit_test(test_sni_consume_header_hostname_mismatch),
+
+        /* sni_gateway_mode_from_string */
+        cmocka_unit_test(test_sni_gateway_mode_from_string_drop),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_tls),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_http),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_unknown),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_null),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

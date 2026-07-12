@@ -27,6 +27,57 @@
 #include "socket.h"
 
 /*
+ * SNI gateway mode, selected via --sni-gateway <drop|tls|http> (client)
+ * and --sni-gateway-server <drop|http> (server).
+ *
+ * SNI_GW_DROP: the existing SNI passthrough decoy behaviour -- a fake
+ *              ClientHello is sent/consumed and then discarded.  This is
+ *              the only mode implemented so far.
+ * SNI_GW_TLS / SNI_GW_HTTP: reserved for later phases.
+ */
+enum sni_gateway_mode
+{
+    SNI_GW_DROP = 0,
+    SNI_GW_TLS = 1,
+    SNI_GW_HTTP = 2,
+};
+
+/*
+ * Parse a --sni-gateway[-server] mode argument.
+ * Accepts exactly "drop", "tls", "http" (case-sensitive).
+ * Returns the corresponding enum sni_gateway_mode value, or -1 if
+ * the string does not match any known mode.
+ *
+ * Defined as a header-only static inline (rather than in ps_sni.c) so that
+ * it does not add a new externally-linked symbol to ps_sni.c: ps_sni.c is
+ * compiled a second time (with public symbols renamed via macros) by
+ * tests/unit_tests/openvpn/sni_alt_impl.c, and any additional non-static,
+ * non-renamed symbol there would collide at link time with the ordinary
+ * ps_sni.o in sni_compat_testdriver.
+ */
+static inline int
+sni_gateway_mode_from_string(const char *s)
+{
+    if (!s)
+    {
+        return -1;
+    }
+    if (strcmp(s, "drop") == 0)
+    {
+        return SNI_GW_DROP;
+    }
+    if (strcmp(s, "tls") == 0)
+    {
+        return SNI_GW_TLS;
+    }
+    if (strcmp(s, "http") == 0)
+    {
+        return SNI_GW_HTTP;
+    }
+    return -1;
+}
+
+/*
  * Context for the server-side checker.
  *
  * ALPN matching:
