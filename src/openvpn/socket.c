@@ -33,6 +33,7 @@
 #include "plugin.h"
 #include "ps.h"
 #include "ps_sni.h"
+#include "sni_gateway_tls.h"
 #include "run_command.h"
 #include "manage.h"
 #include "misc.h"
@@ -1805,6 +1806,35 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             goto done;
         }
     }
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+    else if (proto_is_tcp(sock->info.proto)
+             && sock->info.proto == PROTO_TCP_CLIENT
+             && c->options.ce.sni_gateway_mode == SNI_GW_TLS
+             && c->options.ce.sni_gateway_host)
+    {
+        /* --sni-gateway tls: perform the genuine TLS handshake to the gateway
+         * while the fd is still BLOCKING (before phase2_set_socket_flags()).
+         * All subsequent OpenVPN bytes on this socket flow through the TLS
+         * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
+        sock->gw_tls = sni_gw_tls_new();
+        if (!sock->gw_tls
+            || !sni_gw_tls_client_handshake(
+                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                (const char *const *)c->options.ce.sni_gateway_alpn_list,
+                c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
+                c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
+                (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
+        {
+            sni_gw_tls_free(sock->gw_tls);
+            sock->gw_tls = NULL;
+            if (!sig_info->signal_received)
+            {
+                register_signal(sig_info, SIGUSR1, "sni-gateway-tls-handshake-error");
+            }
+            goto done;
+        }
+    }
+#endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
@@ -1869,6 +1899,10 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+        sni_gw_tls_free(sock->gw_tls);
+        sock->gw_tls = NULL;
+#endif
         if (!gremlin)
         {
             free(sock);
@@ -2375,16 +2409,47 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         len = sockethandle_finalize(sh, &sock->reads, buf, NULL);
 #else
         struct buffer frag = stream_buf_get_next(&sock->stream_buf);
-        len = recv(sock->sd, BPTR(&frag), BLENZ(&frag), MSG_NOSIGNAL);
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+        if (sock->gw_tls)
+        {
+            /* --sni-gateway tls: decrypt ciphertext off the socket into frag.
+             * Returns >0 plaintext len, 0 = incomplete, <0 = fatal -- fed into
+             * the stream_buf logic exactly like a raw recv() result. */
+            len = (int)sni_gw_tls_read(sock->gw_tls, sock->sd, &frag);
+        }
+        else
+#endif
+        {
+            len = recv(sock->sd, BPTR(&frag), BLENZ(&frag), MSG_NOSIGNAL);
+        }
 #endif
 
-        if (!len)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+        if (sock->gw_tls)
         {
-            sock->stream_reset = true;
+            /* gw_tls semantics differ from raw recv(): 0 means "plaintext not
+             * complete yet" (no reset), while <0 means the TLS session is gone
+             * (peer closed / fatal error) -- signal a reset like recv()==0. */
+            if (len < 0)
+            {
+                sock->stream_reset = true;
+            }
+            if (len <= 0)
+            {
+                return buf->len = 0;
+            }
         }
-        if (len <= 0)
+        else
+#endif
         {
-            return buf->len = len;
+            if (!len)
+            {
+                sock->stream_reset = true;
+            }
+            if (len <= 0)
+            {
+                return buf->len = len;
+            }
         }
     }
 

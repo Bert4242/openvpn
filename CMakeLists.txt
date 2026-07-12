@@ -544,6 +544,8 @@ set(SOURCE_FILES
     src/openvpn/ps.h
     src/openvpn/ps_sni.c
     src/openvpn/ps_sni.h
+    src/openvpn/sni_gateway_tls.c
+    src/openvpn/sni_gateway_tls.h
     src/openvpn/push.c
     src/openvpn/push_util.c
     src/openvpn/push.h
