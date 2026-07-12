@@ -34,6 +34,7 @@
 #include "ps.h"
 #include "ps_sni.h"
 #include "sni_gateway_tls.h"
+#include "sni_gateway_http.h"
 #include "run_command.h"
 #include "manage.h"
 #include "misc.h"
@@ -1420,6 +1421,10 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
+    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
+    {
+        sock->sockflags |= SF_SNI_GW_HTTP;
+    }
 
     sock->mark = o->mark;
     sock->bind_dev = o->bind_dev;
@@ -1730,6 +1735,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         c->options.sni_gateway_server_host_count;
     sock->stream_buf.sni_gateway_server_ignore_alpn =
         c->options.sni_gateway_server_ignore_alpn;
+    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gateway_server_path;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1840,6 +1846,37 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             if (!sig_info->signal_received)
             {
                 register_signal(sig_info, SIGUSR1, "sni-gateway-tls-handshake-error");
+            }
+            goto done;
+        }
+    }
+    else if (proto_is_tcp(sock->info.proto)
+             && sock->info.proto == PROTO_TCP_CLIENT
+             && c->options.ce.sni_gateway_mode == SNI_GW_HTTP
+             && c->options.ce.sni_gateway_host)
+    {
+        /* --sni-gateway http: FIRST open the genuine TLS session to the gateway
+         * (identical to tls mode), THEN -- while the fd is still BLOCKING --
+         * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
+         * steady-state gw_tls read/write seams carry the OpenVPN stream. */
+        sock->gw_tls = sni_gw_tls_new();
+        if (!sock->gw_tls
+            || !sni_gw_tls_client_handshake(
+                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                (const char *const *)c->options.ce.sni_gateway_alpn_list,
+                c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
+                c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
+                (int)get_server_poll_remaining_time(sock->server_poll_timeout))
+            || !sni_gw_http_client_upgrade(
+                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                c->options.ce.sni_gateway_path, &sig_info->signal_received,
+                (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
+        {
+            sni_gw_tls_free(sock->gw_tls);
+            sock->gw_tls = NULL;
+            if (!sig_info->signal_received)
+            {
+                register_signal(sig_info, SIGUSR1, "sni-gateway-http-upgrade-error");
             }
             goto done;
         }
@@ -2159,6 +2196,10 @@ stream_buf_init(struct stream_buf *sb, struct buffer *buf, const unsigned int so
     sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
                                     ? SNI_PT_PENDING
                                     : SNI_PT_DISABLED;
+    sb->sni_gw_http_state = ((sockflags & SF_SNI_GW_HTTP) && (proto == PROTO_TCP_SERVER))
+                                ? SNI_GW_HTTP_PENDING
+                                : SNI_GW_HTTP_DISABLED;
+    sb->sni_gw_http_101_sent = false;
     stream_buf_reset(sb);
 
     dmsg(D_STREAM_DEBUG, "STREAM: INIT maxlen=%d", sb->maxlen);
@@ -2244,6 +2285,36 @@ stream_buf_added(struct stream_buf *sb, int length_added)
     if (length_added > 0)
     {
         sb->buf.len += length_added;
+    }
+
+    /* --sni-gateway-server http: consume the plaintext HTTP/1.1 Upgrade request
+     * that precedes the OpenVPN stream (the 101 reply is emitted by the caller,
+     * link_socket_read_tcp, which has the socket descriptor).  Runs before the
+     * OpenVPN length-prefix logic because the request is not length-prefixed. */
+    if (sb->sni_gw_http_state == SNI_GW_HTTP_PENDING)
+    {
+        int r = sni_gw_http_check_and_consume_request(sb, sb->sni_gw_http_require_path);
+        if (r > 0)
+        {
+            /* Request consumed; state is now SNI_GW_HTTP_SUCCESS.  Fall through
+             * to parse any trailing OpenVPN bytes; if none yet, wait for more. */
+            if (sb->buf.len == 0)
+            {
+                return false;
+            }
+        }
+        else if (r == 0)
+        {
+            return false; /* need more request data */
+        }
+        else /* r < 0 */
+        {
+            if (sb->error)
+            {
+                return false; /* malformed / rejected */
+            }
+            /* else: not an HTTP client -> proceed as normal OpenVPN. */
+        }
     }
 
     /* if length unknown, see if we can get the length prefix from
@@ -2463,8 +2534,25 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         }
     }
 
-    if (sock->stream_buf.residual_fully_formed
-        || stream_buf_added(&sock->stream_buf, len)) /* packet complete? */
+    bool complete = sock->stream_buf.residual_fully_formed
+                    || stream_buf_added(&sock->stream_buf, len); /* packet complete? */
+
+    /* --sni-gateway-server http: once the Upgrade request has been consumed,
+     * emit the fixed 101 response exactly once, before any OpenVPN processing
+     * of the trailing bytes.  stream_buf_added() runs the consume state machine;
+     * sock->sd is reachable here (unlike inside stream_buf_added). */
+    if (sock->stream_buf.sni_gw_http_state == SNI_GW_HTTP_SUCCESS
+        && !sock->stream_buf.sni_gw_http_101_sent)
+    {
+        sock->stream_buf.sni_gw_http_101_sent = true;
+        if (!sni_gw_http_send_101(sock->sd))
+        {
+            sock->stream_reset = true;
+            return buf->len = 0;
+        }
+    }
+
+    if (complete)
     {
         stream_buf_get_final(&sock->stream_buf, buf);
         stream_buf_reset(&sock->stream_buf);

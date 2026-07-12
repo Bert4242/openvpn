@@ -648,8 +648,12 @@ static const char usage_message[] =
     "                  SNI routing header (ClientHello) so that SNI-aware\n"
     "                  proxies (e.g. Traefik passthrough) route the stream to\n"
     "                  the right backend by hostname, then discards it on the\n"
-    "                  server; no extra encryption is added.  'tls' and 'http'\n"
-    "                  are reserved for future use and are currently rejected.\n"
+    "                  server; no extra encryption is added.  'tls' opens a\n"
+    "                  genuine TLS session to a TLS-terminating gateway (Traefik)\n"
+    "                  that forwards the decrypted OpenVPN stream to the backend.\n"
+    "                  'http' does the same TLS session then performs an HTTP/1.1\n"
+    "                  Upgrade on --sni-gateway-path so the gateway routes by path.\n"
+    "                  tls/http need a TCP client and an OpenSSL build.\n"
     "                  The server must have --sni-gateway-server set.\n"
     "--sni-gateway-host name : (Client) The hostname the proxy must route to\n"
     "                  this OpenVPN server; embedded in the SNI routing header.\n"
@@ -659,23 +663,31 @@ static const char usage_message[] =
     "                  list replaces (not adds to) the global list.  Default when\n"
     "                  no --sni-gateway-alpn is given: hacky-sni-passthrough/1.\n"
     "                  Must match between client and server.\n"
-    "--sni-gateway-path path : (Client) Reserved for --sni-gateway http mode.\n"
-    "--sni-gateway-ca file : (Client) Reserved for --sni-gateway tls mode.\n"
-    "--sni-gateway-no-verify : (Client) Reserved for --sni-gateway tls mode.\n"
+    "--sni-gateway-path path : (Client) HTTP request path for --sni-gateway http\n"
+    "                  (must start with '/').  Required in http mode.\n"
+    "--sni-gateway-ca file : (Client) CA bundle to verify the gateway certificate\n"
+    "                  in --sni-gateway tls/http mode (default: system trust store).\n"
+    "--sni-gateway-no-verify : (Client) Skip gateway certificate verification in\n"
+    "                  --sni-gateway tls/http mode (insecure).\n"
     "--sni-gateway-server <drop|http> : (Server) Enable server-side SNI\n"
     "                  gateway handling.  'drop' detects and discards the SNI\n"
     "                  routing header sent by clients using --sni-gateway drop,\n"
     "                  then proceeds with the OpenVPN protocol. Openvpn clients\n"
     "                  (no routing header) are detected by peeking the first\n"
-    "                  byte and handled normally.  'http' is reserved for\n"
-    "                  future use and is currently rejected.\n"
+    "                  byte and handled normally.  'http' consumes the inbound\n"
+    "                  plaintext HTTP/1.1 Upgrade request (forwarded by a\n"
+    "                  TLS-terminating gateway for --sni-gateway http clients)\n"
+    "                  and replies 101 Switching Protocols before OpenVPN.\n"
     "--sni-gateway-server-host name : (Server) Accept only routing\n"
     "                  headers whose SNI extension matches <name> (case-insensitive).\n"
     "                  May be repeated; any one match is sufficient.  When not\n"
-    "                  set, any hostname (or no SNI) is accepted.\n"
+    "                  set, any hostname (or no SNI) is accepted.  (drop mode only)\n"
     "--sni-gateway-server-ignore-alpn : (Server) Skip ALPN matching.\n"
     "                  Accept any valid ClientHello regardless of ALPN content.\n"
-    "                  Wins over --sni-gateway-alpn if both are set.\n"
+    "                  Wins over --sni-gateway-alpn if both are set.  (drop mode only)\n"
+    "--sni-gateway-server-path path : (Server) In --sni-gateway-server http mode,\n"
+    "                  require the client's request path to match <path> exactly\n"
+    "                  (must start with '/').  Default: accept any path.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -2947,36 +2959,53 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
      * meaningless in drop mode and are rejected there to avoid silently
      * ignoring them.  --sni-gateway-path is http-only.
      */
-    if (ce->sni_gateway_mode == SNI_GW_HTTP)
+    if (ce->sni_gateway_mode == SNI_GW_TLS || ce->sni_gateway_mode == SNI_GW_HTTP)
     {
-        msg(M_USAGE, "--sni-gateway http is not yet implemented");
-    }
-    if (ce->sni_gateway_mode == SNI_GW_TLS)
-    {
+        /* Both tls and http open a genuine userspace TLS session to the gateway,
+         * so they share the same backend / platform requirements. */
+        const char *modename = (ce->sni_gateway_mode == SNI_GW_HTTP) ? "http" : "tls";
 #if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER))
-        msg(M_USAGE, "--sni-gateway tls requires an OpenSSL build "
-                     "(not available with this crypto backend)");
+        msg(M_USAGE, "--sni-gateway %s requires an OpenSSL build "
+                     "(not available with this crypto backend)", modename);
 #endif
 #ifdef _WIN32
-        msg(M_USAGE, "--sni-gateway tls is not yet supported on Windows");
+        msg(M_USAGE, "--sni-gateway %s is not yet supported on Windows", modename);
 #endif
         if (!ce->sni_gateway_host)
         {
-            msg(M_USAGE, "--sni-gateway tls requires --sni-gateway-host "
-                         "(used for SNI and certificate verification)");
+            msg(M_USAGE, "--sni-gateway %s requires --sni-gateway-host "
+                         "(used for SNI and certificate verification)", modename);
         }
         if (ce->proto != PROTO_TCP_CLIENT)
         {
-            msg(M_USAGE, "--sni-gateway tls is only valid for a TCP client "
-                         "(--proto tcp-client)");
-        }
-        if (ce->sni_gateway_path)
-        {
-            msg(M_USAGE, "--sni-gateway-path is only meaningful with --sni-gateway http");
+            msg(M_USAGE, "--sni-gateway %s is only valid for a TCP client "
+                         "(--proto tcp-client)", modename);
         }
         if (ce->sni_gateway_no_verify && ce->sni_gateway_ca)
         {
             msg(M_WARN, "--sni-gateway-no-verify makes --sni-gateway-ca have no effect");
+        }
+
+        if (ce->sni_gateway_mode == SNI_GW_HTTP)
+        {
+            /* http mode adds the HTTP/1.1 Upgrade over the tunnel and requires a
+             * request path to route on. */
+            if (!ce->sni_gateway_path)
+            {
+                msg(M_USAGE, "--sni-gateway http requires --sni-gateway-path "
+                             "(the HTTP path the gateway routes on)");
+            }
+            else if (ce->sni_gateway_path[0] != '/')
+            {
+                msg(M_USAGE, "--sni-gateway-path must start with '/'");
+            }
+        }
+        else /* SNI_GW_TLS */
+        {
+            if (ce->sni_gateway_path)
+            {
+                msg(M_USAGE, "--sni-gateway-path is only meaningful with --sni-gateway http");
+            }
         }
     }
     if (ce->sni_gateway_mode == SNI_GW_DROP
@@ -3388,7 +3417,32 @@ options_postprocess_verify(const struct options *o)
      */
     if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
     {
-        msg(M_USAGE, "--sni-gateway-server http is not yet implemented");
+        /* The drop-mode ALPN/SNI filters are ClientHello matchers -- meaningless
+         * when the client speaks HTTP.  Warn and ignore rather than hard-error. */
+        if (o->sni_gateway_server_host_count > 0)
+        {
+            msg(M_WARN, "--sni-gateway-server-host is ignored with "
+                        "--sni-gateway-server http (it filters the decoy ClientHello "
+                        "used by drop mode)");
+        }
+        if (o->sni_gateway_server_ignore_alpn)
+        {
+            msg(M_WARN, "--sni-gateway-server-ignore-alpn is ignored with "
+                        "--sni-gateway-server http (it only affects drop mode)");
+        }
+    }
+    if (o->sni_gateway_server_path && !o->sni_gateway_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway-server-path requires --sni-gateway-server http");
+    }
+    if (o->sni_gateway_server_path && o->sni_gateway_server_mode != SNI_GW_HTTP)
+    {
+        msg(M_USAGE, "--sni-gateway-server-path is only meaningful with "
+                     "--sni-gateway-server http");
+    }
+    if (o->sni_gateway_server_path && o->sni_gateway_server_path[0] != '/')
+    {
+        msg(M_USAGE, "--sni-gateway-server-path must start with '/'");
     }
     if (!o->sni_gateway_server_enabled
         && (o->sni_gateway_server_host_count > 0 || o->sni_gateway_server_ignore_alpn))
@@ -9300,6 +9354,11 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_gateway_server_ignore_alpn = true;
+    }
+    else if (streq(p[0], "sni-gateway-server-path") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_gateway_server_path = p[1];
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {

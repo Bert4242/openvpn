@@ -89,6 +89,34 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
                                  int server_poll_timeout);
 
 /*
+ * --sni-gateway http: after sni_gw_tls_client_handshake() has completed (and
+ * while sd is still BLOCKING), perform the HTTP/1.1 Upgrade handshake over the
+ * TLS tunnel:
+ *
+ *   -> GET <path> HTTP/1.1 / Host: <host> / Connection: Upgrade /
+ *      Upgrade: openvpn
+ *   <- HTTP/1.1 101 Switching Protocols ...
+ *
+ * The request is written through the TLS session and the response status line
+ * is read back and required to be "HTTP/1.1 101"; the remaining response
+ * headers are drained through the terminating blank line.  Reads are performed
+ * one plaintext byte at a time so that any OpenVPN bytes the gateway coalesced
+ * into the same TLS record after the blank line are left buffered for the
+ * steady-state sni_gw_tls_read() path.
+ *
+ * host / path : mirror --sni-gateway-host / --sni-gateway-path (path must be
+ *               non-empty and start with '/').
+ * signal_received / server_poll_timeout : as for the handshake, so the exchange
+ *               is interruptible and cannot hang forever.
+ *
+ * Returns true on a completed 101 upgrade, false on any failure (logged).
+ */
+bool sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
+                                const char *host, const char *path,
+                                volatile int *signal_received,
+                                int server_poll_timeout);
+
+/*
  * Steady-state read (called from link_socket_read_tcp when a gw_tls session is
  * active).  sd is now NON-BLOCKING.  Reads whatever ciphertext is available on
  * sd, feeds it to the TLS engine, and returns decrypted plaintext in buf.

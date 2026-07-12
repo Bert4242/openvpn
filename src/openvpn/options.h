@@ -723,6 +723,11 @@ struct options
      *  if both are set, ignore_alpn wins (with a warning). */
     bool sni_gateway_server_ignore_alpn;
 
+    /** Optional exact request path to enforce in --sni-gateway-server http
+     *  mode (--sni-gateway-server-path).  NULL accepts any path (the gateway
+     *  is expected to gate the path). */
+    const char *sni_gateway_server_path;
+
     /* Allow only one session */
     bool single_session;
 
