@@ -34,6 +34,7 @@
 #include "error.h"
 #include "sig.h"
 #include "fdmisc.h"
+#include "sni_gateway_http.h"
 
 #include <openssl/ssl.h>
 #include <openssl/bio.h>
@@ -576,6 +577,178 @@ err:
         BIO_free(ssl_bio);
     }
     return false;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Blocking HTTP/1.1 Upgrade over the established tunnel (--sni-gateway http)  */
+/* -------------------------------------------------------------------------- */
+
+/*
+ * Blocking SSL_write of the whole buffer, shuttling ciphertext to the (still
+ * blocking-time) socket via the handshake flush/fill helpers.  Returns false on
+ * timeout, signal, or a fatal TLS/socket error.
+ */
+static bool
+gw_ssl_write_all(struct sni_gw_tls *t, socket_descriptor_t sd,
+                 const void *data, int len,
+                 volatile int *signal_received, int poll_timeout)
+{
+    int off = 0;
+    while (off < len)
+    {
+        int w = SSL_write(t->ssl, (const char *)data + off, len - off);
+        if (w > 0)
+        {
+            off += w;
+            continue;
+        }
+        int err = SSL_get_error(t->ssl, w);
+        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+        {
+            if (!gw_handshake_flush_out(t, sd, signal_received, poll_timeout))
+            {
+                return false;
+            }
+            if (err == SSL_ERROR_WANT_READ
+                && !gw_handshake_fill_in(t, sd, signal_received, poll_timeout))
+            {
+                return false;
+            }
+        }
+        else
+        {
+            char e[256];
+            ERR_error_string_n(ERR_get_error(), e, sizeof(e));
+            msg(D_LINK_ERRORS, "sni-gateway http: SSL_write failed: %s", e);
+            return false;
+        }
+    }
+    /* Push out the ciphertext the writes produced. */
+    return gw_handshake_flush_out(t, sd, signal_received, poll_timeout);
+}
+
+/*
+ * Blocking read of exactly one plaintext byte out of the TLS tunnel.  Reading a
+ * byte at a time keeps us from consuming any OpenVPN bytes the gateway packed
+ * into the same TLS record after the response's terminating blank line -- those
+ * stay inside OpenSSL for the steady-state sni_gw_tls_read() path.  Returns
+ * false on timeout, signal, peer close, or a fatal TLS error.
+ */
+static bool
+gw_ssl_read_byte(struct sni_gw_tls *t, socket_descriptor_t sd, uint8_t *out,
+                 volatile int *signal_received, int poll_timeout)
+{
+    for (;;)
+    {
+        int r = SSL_read(t->ssl, out, 1);
+        if (r == 1)
+        {
+            return true;
+        }
+        int err = SSL_get_error(t->ssl, r);
+        if (err == SSL_ERROR_WANT_READ)
+        {
+            if (!gw_handshake_flush_out(t, sd, signal_received, poll_timeout)
+                || !gw_handshake_fill_in(t, sd, signal_received, poll_timeout))
+            {
+                return false;
+            }
+        }
+        else if (err == SSL_ERROR_WANT_WRITE)
+        {
+            if (!gw_handshake_flush_out(t, sd, signal_received, poll_timeout))
+            {
+                return false;
+            }
+        }
+        else if (err == SSL_ERROR_ZERO_RETURN)
+        {
+            msg(D_LINK_ERRORS, "sni-gateway http: gateway closed TLS during upgrade");
+            return false;
+        }
+        else
+        {
+            char e[256];
+            ERR_error_string_n(ERR_get_error(), e, sizeof(e));
+            msg(D_LINK_ERRORS, "sni-gateway http: SSL_read failed: %s", e);
+            return false;
+        }
+    }
+}
+
+bool
+sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
+                           const char *host, const char *path,
+                           volatile int *signal_received, int server_poll_timeout)
+{
+    int poll_timeout = server_poll_timeout > 0 ? server_poll_timeout : 10;
+
+    if (!t || !t->ssl || !t->handshake_done)
+    {
+        msg(D_LINK_ERRORS, "sni-gateway http: upgrade requested before TLS handshake");
+        return false;
+    }
+
+    char req[1024];
+    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path);
+    if (reqlen == 0)
+    {
+        msg(D_LINK_ERRORS, "sni-gateway http: could not build Upgrade request "
+                           "(bad --sni-gateway-host/--sni-gateway-path?)");
+        return false;
+    }
+
+    if (!gw_ssl_write_all(t, sd, req, (int)reqlen, signal_received, poll_timeout))
+    {
+        return false;
+    }
+
+    /*
+     * Read the response header block up to (and including) the terminating
+     * CRLF CRLF, one plaintext byte at a time.  Then require the status line to
+     * begin with "HTTP/1.1 101".
+     */
+    char resp[1024];
+    int rlen = 0;
+    bool complete = false;
+    while (rlen < (int)sizeof(resp))
+    {
+        uint8_t byte;
+        if (!gw_ssl_read_byte(t, sd, &byte, signal_received, poll_timeout))
+        {
+            return false;
+        }
+        resp[rlen++] = (char)byte;
+        if (rlen >= 4
+            && resp[rlen - 4] == '\r' && resp[rlen - 3] == '\n'
+            && resp[rlen - 2] == '\r' && resp[rlen - 1] == '\n')
+        {
+            complete = true;
+            break;
+        }
+    }
+    if (!complete)
+    {
+        msg(D_LINK_ERRORS, "sni-gateway http: 101 response header too large / not terminated");
+        return false;
+    }
+
+    static const char expect[] = "HTTP/1.1 101";
+    if (rlen < (int)(sizeof(expect) - 1)
+        || memcmp(resp, expect, sizeof(expect) - 1) != 0)
+    {
+        int line = 0;
+        while (line < rlen && resp[line] != '\r')
+        {
+            line++;
+        }
+        msg(D_LINK_ERRORS, "sni-gateway http: gateway did not return 101 (got '%.*s')",
+            line, resp);
+        return false;
+    }
+
+    msg(D_HANDSHAKE, "sni-gateway http: HTTP Upgrade to '%s' path '%s' complete", host, path);
+    return true;
 }
 
 /* -------------------------------------------------------------------------- */
