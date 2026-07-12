@@ -236,6 +236,12 @@ struct link_socket
     struct buffer stream_buf_data;
     bool stream_reset;
 
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+    /* --sni-gateway tls: userspace TLS wrapper around the OpenVPN TCP stream
+     * to a TLS-terminating gateway (client side only).  NULL unless active. */
+    struct sni_gw_tls *gw_tls;
+#endif
+
     /* HTTP proxy */
     struct http_proxy_info *http_proxy;
 
@@ -272,6 +278,15 @@ struct link_socket
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
+#endif
+
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+/* --sni-gateway tls steady-state I/O (defined in sni_gateway_tls.c).  Forward
+ * declared here so the inline TCP read/write paths can delegate to them without
+ * pulling in sni_gateway_tls.h (which itself includes socket.h). */
+struct sni_gw_tls;
+ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
+ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
 #endif
 
 #ifdef _WIN32
@@ -728,6 +743,13 @@ link_socket_write_udp_posix(struct link_socket *sock, struct buffer *buf,
 static inline ssize_t
 link_socket_write_tcp_posix(struct link_socket *sock, struct buffer *buf)
 {
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+    if (sock->gw_tls)
+    {
+        /* --sni-gateway tls: tunnel the plaintext through the TLS session. */
+        return sni_gw_tls_write(sock->gw_tls, sock->sd, buf);
+    }
+#endif
     return send(sock->sd, BPTR(buf), BLENZ(buf), MSG_NOSIGNAL);
 }
 

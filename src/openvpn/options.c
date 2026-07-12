@@ -2295,17 +2295,45 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
     /*
      * SNI gateway (--sni-gateway) validation.
      *
-     * Phase 1 only implements "drop" mode (the original SNI passthrough
-     * decoy behaviour).  "tls" and "http" are reserved for later phases
-     * and are rejected here so that the option parses but the feature is
-     * refused until it is actually implemented.  The tls/http-only knobs
-     * (--sni-gateway-path/-ca/-no-verify) are meaningless in drop mode and
-     * are rejected too, to avoid silently ignoring them.
+     * "drop" mode is the original SNI passthrough decoy behaviour.
+     * "tls" mode (this phase) opens a genuine TLS session to a TLS-terminating
+     * gateway (client side only).  "http" is still reserved for a later phase.
+     *
+     * The tls/http-only knobs (--sni-gateway-path/-ca/-no-verify) are
+     * meaningless in drop mode and are rejected there to avoid silently
+     * ignoring them.  --sni-gateway-path is http-only.
      */
-    if (ce->sni_gateway_mode == SNI_GW_TLS || ce->sni_gateway_mode == SNI_GW_HTTP)
+    if (ce->sni_gateway_mode == SNI_GW_HTTP)
     {
-        msg(M_USAGE, "--sni-gateway %s is not yet implemented",
-            ce->sni_gateway_mode == SNI_GW_TLS ? "tls" : "http");
+        msg(M_USAGE, "--sni-gateway http is not yet implemented");
+    }
+    if (ce->sni_gateway_mode == SNI_GW_TLS)
+    {
+#if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER))
+        msg(M_USAGE, "--sni-gateway tls requires an OpenSSL build "
+                     "(not available with this crypto backend)");
+#endif
+#ifdef _WIN32
+        msg(M_USAGE, "--sni-gateway tls is not yet supported on Windows");
+#endif
+        if (!ce->sni_gateway_host)
+        {
+            msg(M_USAGE, "--sni-gateway tls requires --sni-gateway-host "
+                         "(used for SNI and certificate verification)");
+        }
+        if (ce->proto != PROTO_TCP_CLIENT)
+        {
+            msg(M_USAGE, "--sni-gateway tls is only valid for a TCP client "
+                         "(--proto tcp-client)");
+        }
+        if (ce->sni_gateway_path)
+        {
+            msg(M_USAGE, "--sni-gateway-path is only meaningful with --sni-gateway http");
+        }
+        if (ce->sni_gateway_no_verify && ce->sni_gateway_ca)
+        {
+            msg(M_WARN, "--sni-gateway-no-verify makes --sni-gateway-ca have no effect");
+        }
     }
     if (ce->sni_gateway_mode == SNI_GW_DROP
         && (ce->sni_gateway_path || ce->sni_gateway_ca || ce->sni_gateway_no_verify))
