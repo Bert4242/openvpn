@@ -142,12 +142,12 @@ struct stream_buf
 #define SNI_PT_SUCCESS  2 /* SNI header was consumed */
     int sni_passthrough_state;
     /* client ALPN list (sent in routing header) */
-    const char **sni_passthrough_alpn_list;
-    int sni_passthrough_alpn_count;
+    const char **sni_gateway_alpn_list;
+    int sni_gateway_alpn_count;
     /* server-side filters */
-    const char **sni_passthrough_server_hostname_list;
-    int sni_passthrough_server_hostname_count;
-    bool sni_passthrough_server_ignore_alpn;
+    const char **sni_gateway_server_host_list;
+    int sni_gateway_server_host_count;
+    bool sni_gateway_server_ignore_alpn;
 };
 
 /*

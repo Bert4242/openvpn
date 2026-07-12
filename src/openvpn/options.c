@@ -647,31 +647,39 @@ static const char usage_message[] =
     "                  client-supplied tls-crypt-v2 client key\n"
     "--tls-crypt-v2-max-age n : Only accept tls-crypt-v2 client keys that have a\n"
     "                  timestamp which is at most n days old.\n"
-    "--sni-passthrough-hostname name : (Client) Prepend an SNI routing\n"
-    "                  header to every TCP connection so that SNI-aware proxies\n"
-    "                  (e.g. Traefik passthrough) route the stream to the right\n"
-    "                  backend by hostname.  name is the hostname the proxy must\n"
-    "                  route to this OpenVPN server.  No extra encryption is\n"
-    "                  added.  The server must have --sni-passthrough-server\n"
-    "                  set.\n"
-    "--sni-passthrough-server : (Server) Detect and discard the SNI routing\n"
-    "                  header sent by clients using --sni-passthrough-hostname,\n"
-    "                  then proceed with the OpenVPN protocol. Openvpn clients\n"
-    "                  (no routing header) are detected by peeking the first\n"
-    "                  byte and handled normally.\n"
-    "--sni-passthrough-server-hostname name : (Server) Accept only routing\n"
-    "                  headers whose SNI extension matches <name> (case-insensitive).\n"
-    "                  May be repeated; any one match is sufficient.  When not\n"
-    "                  set, any hostname (or no SNI) is accepted.\n"
-    "--sni-passthrough-server-ignore-alpn : (Server) Skip ALPN matching.\n"
-    "                  Accept any valid ClientHello regardless of ALPN content.\n"
-    "                  Wins over --sni-passthrough-alpn if both are set.\n"
-    "--sni-passthrough-alpn name : Append an ALPN token to the SNI routing\n"
+    "--sni-gateway <drop|tls|http> : (Client) Select the SNI gateway mode\n"
+    "                  used for this TCP connection.  'drop' prepends a fake\n"
+    "                  SNI routing header (ClientHello) so that SNI-aware\n"
+    "                  proxies (e.g. Traefik passthrough) route the stream to\n"
+    "                  the right backend by hostname, then discards it on the\n"
+    "                  server; no extra encryption is added.  'tls' and 'http'\n"
+    "                  are reserved for future use and are currently rejected.\n"
+    "                  The server must have --sni-gateway-server set.\n"
+    "--sni-gateway-host name : (Client) The hostname the proxy must route to\n"
+    "                  this OpenVPN server; embedded in the SNI routing header.\n"
+    "--sni-gateway-alpn name : Append an ALPN token to the SNI routing\n"
     "                  header.  May be repeated to offer multiple tokens.  Can\n"
     "                  be set globally or per <connection> block; a per-connection\n"
     "                  list replaces (not adds to) the global list.  Default when\n"
-    "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough/1.\n"
+    "                  no --sni-gateway-alpn is given: hacky-sni-passthrough/1.\n"
     "                  Must match between client and server.\n"
+    "--sni-gateway-path path : (Client) Reserved for --sni-gateway http mode.\n"
+    "--sni-gateway-ca file : (Client) Reserved for --sni-gateway tls mode.\n"
+    "--sni-gateway-no-verify : (Client) Reserved for --sni-gateway tls mode.\n"
+    "--sni-gateway-server <drop|http> : (Server) Enable server-side SNI\n"
+    "                  gateway handling.  'drop' detects and discards the SNI\n"
+    "                  routing header sent by clients using --sni-gateway drop,\n"
+    "                  then proceeds with the OpenVPN protocol. Openvpn clients\n"
+    "                  (no routing header) are detected by peeking the first\n"
+    "                  byte and handled normally.  'http' is reserved for\n"
+    "                  future use and is currently rejected.\n"
+    "--sni-gateway-server-host name : (Server) Accept only routing\n"
+    "                  headers whose SNI extension matches <name> (case-insensitive).\n"
+    "                  May be repeated; any one match is sufficient.  When not\n"
+    "                  set, any hostname (or no SNI) is accepted.\n"
+    "--sni-gateway-server-ignore-alpn : (Server) Skip ALPN matching.\n"
+    "                  Accept any valid ClientHello regardless of ALPN content.\n"
+    "                  Wins over --sni-gateway-alpn if both are set.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -2284,6 +2292,28 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--auth-user-pass requires --pull");
     }
 
+    /*
+     * SNI gateway (--sni-gateway) validation.
+     *
+     * Phase 1 only implements "drop" mode (the original SNI passthrough
+     * decoy behaviour).  "tls" and "http" are reserved for later phases
+     * and are rejected here so that the option parses but the feature is
+     * refused until it is actually implemented.  The tls/http-only knobs
+     * (--sni-gateway-path/-ca/-no-verify) are meaningless in drop mode and
+     * are rejected too, to avoid silently ignoring them.
+     */
+    if (ce->sni_gateway_mode == SNI_GW_TLS || ce->sni_gateway_mode == SNI_GW_HTTP)
+    {
+        msg(M_USAGE, "--sni-gateway %s is not yet implemented",
+            ce->sni_gateway_mode == SNI_GW_TLS ? "tls" : "http");
+    }
+    if (ce->sni_gateway_mode == SNI_GW_DROP
+        && (ce->sni_gateway_path || ce->sni_gateway_ca || ce->sni_gateway_no_verify))
+    {
+        msg(M_USAGE, "--sni-gateway-path, --sni-gateway-ca and --sni-gateway-no-verify "
+                     "are only meaningful with --sni-gateway tls or http");
+    }
+
     uninit_options(&defaults);
 }
 
@@ -2679,6 +2709,21 @@ options_postprocess_verify(const struct options *o)
     }
 
     dns_options_verify(M_FATAL, &o->dns_options);
+
+    /*
+     * SNI gateway server-side validation (--sni-gateway-server).
+     * "http" is reserved for a later phase; only "drop" is implemented.
+     */
+    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
+    {
+        msg(M_USAGE, "--sni-gateway-server http is not yet implemented");
+    }
+    if (!o->sni_gateway_server_enabled
+        && (o->sni_gateway_server_host_count > 0 || o->sni_gateway_server_ignore_alpn))
+    {
+        msg(M_USAGE, "--sni-gateway-server-host and --sni-gateway-server-ignore-alpn "
+                     "require --sni-gateway-server to be set");
+    }
 
     if (dco_enabled(o))
     {
@@ -4192,6 +4237,45 @@ key_is_external(const struct options *options)
 #endif
 
     return ret;
+}
+
+/**
+ * Append an ALPN token to the SNI gateway ALPN list of the given
+ * connection entry (--sni-gateway-alpn).
+ *
+ * Replace semantics: the first --sni-gateway-alpn seen inside a
+ * <connection> block starts a fresh list, discarding whatever was
+ * inherited from the global connection entry.  Subsequent values in the
+ * same block (or further global declarations) are appended.
+ *
+ * @param ce               connection entry to update
+ * @param val              ALPN token to append
+ * @param gc               gc_arena used to (re)allocate the list
+ * @param inside_connection true if called while parsing inside a
+ *                          <connection> block (i.e. options->connection_list
+ *                          is NULL at that point)
+ */
+static void
+sni_gateway_alpn_append(struct connection_entry *ce, const char *val,
+                        struct gc_arena *gc, bool inside_connection)
+{
+    if (inside_connection && !ce->sni_gateway_alpn_defined)
+    {
+        /* First entry in this connection block – start from scratch. */
+        ce->sni_gateway_alpn_list = NULL;
+        ce->sni_gateway_alpn_count = 0;
+        ce->sni_gateway_alpn_defined = true;
+    }
+    else if (!ce->sni_gateway_alpn_defined)
+    {
+        /* Global scope, first entry. */
+        ce->sni_gateway_alpn_defined = true;
+    }
+    int n = ce->sni_gateway_alpn_count;
+    ce->sni_gateway_alpn_list =
+        gc_realloc(ce->sni_gateway_alpn_list, (size_t)(n + 1) * sizeof(const char *), gc);
+    ce->sni_gateway_alpn_list[n] = val;
+    ce->sni_gateway_alpn_count = n + 1;
 }
 
 #if defined(__GNUC__) || defined(__clang__)
@@ -7702,63 +7786,79 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
             goto err;
         }
     }
-    else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
+    else if (streq(p[0], "sni-gateway") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
-        options->ce.sni_passthrough_hostname = p[1];
+        int mode = sni_gateway_mode_from_string(p[1]);
+        if (mode < 0)
+        {
+            msg(msglevel, "--sni-gateway: unknown mode '%s' (expected drop, tls, or http)", p[1]);
+            goto err;
+        }
+        options->ce.sni_gateway_mode = (enum sni_gateway_mode)mode;
+        options->ce.sni_gateway_defined = true;
+        options->ce.sni_gateway_client_enabled = true;
     }
-    else if (streq(p[0], "sni-passthrough-server") && !p[1])
-    {
-        VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_passthrough_server = true;
-    }
-    else if (streq(p[0], "sni-passthrough-alpn") && p[1] && !p[2])
+    else if (streq(p[0], "sni-gateway-host") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
-        struct connection_entry *ce = &options->ce;
-        /*
-         * Replace semantics: the first --sni-passthrough-alpn seen inside
-         * a <connection> block starts a fresh list, discarding whatever was
-         * inherited from the global ce.  Subsequent values in the same block
-         * (or further global declarations) are appended.
-         *
-         * We detect "inside a connection block" by the absence of
-         * connection_list: the sub-options struct used when parsing a
-         * <connection> block is initialised fresh and never gets a list.
-         */
-        if (!options->connection_list && !ce->sni_passthrough_alpn_defined)
-        {
-            /* First entry in this connection block – start from scratch. */
-            ce->sni_passthrough_alpn_list = NULL;
-            ce->sni_passthrough_alpn_count = 0;
-            ce->sni_passthrough_alpn_defined = true;
-        }
-        else if (!ce->sni_passthrough_alpn_defined)
-        {
-            /* Global scope, first entry. */
-            ce->sni_passthrough_alpn_defined = true;
-        }
-        int n = ce->sni_passthrough_alpn_count;
-        ce->sni_passthrough_alpn_list =
-            gc_realloc(ce->sni_passthrough_alpn_list,
-                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
-        ce->sni_passthrough_alpn_list[n] = p[1];
-        ce->sni_passthrough_alpn_count = n + 1;
+        options->ce.sni_gateway_host = p[1];
+        options->ce.sni_gateway_client_enabled = true;
     }
-    else if (streq(p[0], "sni-passthrough-server-hostname") && p[1] && !p[2])
+    else if (streq(p[0], "sni-gateway-alpn") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        sni_gateway_alpn_append(&options->ce, p[1], &options->gc,
+                                options->connection_list == NULL);
+        options->ce.sni_gateway_client_enabled = true;
+    }
+    else if (streq(p[0], "sni-gateway-path") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gateway_path = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-ca") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gateway_ca = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-no-verify") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gateway_no_verify = true;
+    }
+    else if (streq(p[0], "sni-gateway-server") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        int n = options->sni_passthrough_server_hostname_count;
-        options->sni_passthrough_server_hostname_list =
-            gc_realloc(options->sni_passthrough_server_hostname_list,
-                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
-        options->sni_passthrough_server_hostname_list[n] = p[1];
-        options->sni_passthrough_server_hostname_count = n + 1;
+        int mode = sni_gateway_mode_from_string(p[1]);
+        if (mode < 0)
+        {
+            msg(msglevel, "--sni-gateway-server: unknown mode '%s' (expected drop or http)", p[1]);
+            goto err;
+        }
+        if (mode == SNI_GW_TLS)
+        {
+            msg(msglevel, "--sni-gateway-server: mode 'tls' is not supported on the server "
+                          "(server-side TLS gateway mode is not implemented yet)");
+            goto err;
+        }
+        options->sni_gateway_server_enabled = true;
+        options->sni_gateway_server_mode = (enum sni_gateway_mode)mode;
     }
-    else if (streq(p[0], "sni-passthrough-server-ignore-alpn") && !p[1])
+    else if (streq(p[0], "sni-gateway-server-host") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_passthrough_server_ignore_alpn = true;
+        int n = options->sni_gateway_server_host_count;
+        options->sni_gateway_server_host_list =
+            gc_realloc(options->sni_gateway_server_host_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        options->sni_gateway_server_host_list[n] = p[1];
+        options->sni_gateway_server_host_count = n + 1;
+    }
+    else if (streq(p[0], "sni-gateway-server-ignore-alpn") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_gateway_server_ignore_alpn = true;
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
