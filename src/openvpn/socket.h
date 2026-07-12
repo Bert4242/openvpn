@@ -286,6 +286,7 @@ struct link_socket
 struct sni_gw_tls;
 ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
 ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
+bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
 #endif
 
 #ifdef _WIN32
