@@ -52,6 +52,16 @@ sockets_read_residual(const struct context *c)
         {
             return true;
         }
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+        /* --sni-gateway tls: plaintext decrypted from a coalesced TLS record can
+         * outlast the socket's readable state (the fd is drained but bytes remain
+         * buffered in the tunnel).  Force a non-blocking re-entry so the read path
+         * drains it frame by frame instead of stalling in event_wait(). */
+        if (sni_gw_tls_read_pending(c->c2.link_sockets[i]->gw_tls))
+        {
+            return true;
+        }
+#endif
     }
     return false;
 }

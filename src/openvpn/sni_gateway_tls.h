@@ -125,6 +125,15 @@ ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd,
 /*
  * Free all resources.  Safe to call with t == NULL.
  */
+/*
+ * Returns true when decrypted plaintext is buffered inside the tunnel waiting
+ * to be served by sni_gw_tls_read().  The event loop consults this (via
+ * sockets_read_residual) so it re-enters the read path without blocking on the
+ * socket, which would otherwise stall packets coalesced into a single TLS
+ * record after the fd has been fully drained.
+ */
+bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
+
 void sni_gw_tls_free(struct sni_gw_tls *t);
 
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
