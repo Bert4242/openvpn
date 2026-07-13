@@ -207,7 +207,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     const char *line_end = memchr(data, '\r', (size_t)request_len);
     if (!line_end)
     {
-        goto reject; /* cannot happen (CRLFCRLF found) but be defensive */
+        goto reject;                   /* cannot happen (CRLFCRLF found) but be defensive */
     }
     const char *path_start = data + 4; /* just past "GET " */
     const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
@@ -287,7 +287,7 @@ sni_gw_http_send_101(socket_descriptor_t sd)
 
     while (sent < total)
     {
-        ssize_t s = send(sd, p + sent, total - sent, MSG_NOSIGNAL);
+        ssize_t s = send(sd, p + sent, (int)(total - sent), MSG_NOSIGNAL);
         if (s > 0)
         {
             sent += (size_t)s;
@@ -329,7 +329,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
     /* Blocking read: accumulate until CRLFCRLF or cap. */
     while (total < (int)sizeof(buf))
     {
-        ssize_t n = recv(sd, buf + total, (size_t)(sizeof(buf) - total), 0);
+        ssize_t n = recv(sd, buf + total, (int)(sizeof(buf) - total), 0);
         if (n < 0)
         {
             if (openvpn_errno() == EINTR)

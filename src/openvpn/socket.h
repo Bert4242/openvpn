@@ -151,11 +151,11 @@ struct stream_buf
     /* --sni-gateway-server http: state machine that consumes the inbound
      * HTTP/1.1 Upgrade request (plaintext; Traefik already terminated TLS) and
      * triggers the 101 reply.  Parallel to sni_passthrough_state above. */
-#define SNI_GW_HTTP_DISABLED 0 /* not active / done */
-#define SNI_GW_HTTP_PENDING  1 /* waiting for / parsing the Upgrade request */
-#define SNI_GW_HTTP_SUCCESS  2 /* request consumed; 101 owed / sent */
+#define SNI_GW_HTTP_DISABLED 0            /* not active / done */
+#define SNI_GW_HTTP_PENDING  1            /* waiting for / parsing the Upgrade request */
+#define SNI_GW_HTTP_SUCCESS  2            /* request consumed; 101 owed / sent */
     int sni_gw_http_state;
-    bool sni_gw_http_101_sent;       /* the 101 response has been emitted */
+    bool sni_gw_http_101_sent;            /* the 101 response has been emitted */
     const char *sni_gw_http_require_path; /* optional exact path to enforce */
 };
 
