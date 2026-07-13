@@ -2322,7 +2322,8 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         const char *modename = (ce->sni_gateway_mode == SNI_GW_HTTP) ? "http" : "tls";
 #if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER))
         msg(M_USAGE, "--sni-gateway %s requires an OpenSSL build "
-                     "(not available with this crypto backend)", modename);
+                     "(not available with this crypto backend)",
+            modename);
 #endif
 #ifdef _WIN32
         msg(M_USAGE, "--sni-gateway %s is not yet supported on Windows", modename);
@@ -2330,12 +2331,14 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         if (!ce->sni_gateway_host)
         {
             msg(M_USAGE, "--sni-gateway %s requires --sni-gateway-host "
-                         "(used for SNI and certificate verification)", modename);
+                         "(used for SNI and certificate verification)",
+                modename);
         }
         if (ce->proto != PROTO_TCP_CLIENT)
         {
             msg(M_USAGE, "--sni-gateway %s is only valid for a TCP client "
-                         "(--proto tcp-client)", modename);
+                         "(--proto tcp-client)",
+                modename);
         }
         if (ce->sni_gateway_no_verify && ce->sni_gateway_ca)
         {
