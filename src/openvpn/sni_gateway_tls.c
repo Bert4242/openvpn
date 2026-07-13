@@ -186,7 +186,7 @@ gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
 
     while (b->len > 0)
     {
-        ssize_t s = send(sd, b->data + b->offset, (size_t)b->len, MSG_NOSIGNAL);
+        ssize_t s = send(sd, (const char *)(b->data + b->offset), (int)b->len, MSG_NOSIGNAL);
         if (s > 0)
         {
             b->offset += (int)s;
@@ -328,7 +328,7 @@ gw_handshake_flush_out(struct sni_gw_tls *t, socket_descriptor_t sd,
                 return false;
             }
 
-            ssize_t s = send(sd, scratch + sent, (size_t)(n - sent), MSG_NOSIGNAL);
+            ssize_t s = send(sd, (const char *)(scratch + sent), (int)(n - sent), MSG_NOSIGNAL);
             if (s > 0)
             {
                 sent += (int)s;
@@ -383,7 +383,7 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
         return false;
     }
 
-    ssize_t r = recv(sd, scratch, sizeof(scratch), MSG_NOSIGNAL);
+    ssize_t r = recv(sd, (char *)scratch, (int)sizeof(scratch), MSG_NOSIGNAL);
     if (r == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway tls: gateway closed connection during handshake");
@@ -836,7 +836,7 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
         if (space > 0)
         {
             size_t want = space < sizeof(scratch) ? space : sizeof(scratch);
-            ssize_t r = recv(sd, scratch, want, MSG_NOSIGNAL);
+            ssize_t r = recv(sd, (char *)scratch, (int)want, MSG_NOSIGNAL);
             if (r == 0)
             {
                 fatal = true; /* peer closed the TCP connection */

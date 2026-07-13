@@ -1970,7 +1970,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         {
             return false; /* need more request data */
         }
-        else /* r < 0 */
+        else              /* r < 0 */
         {
             if (sb->error)
             {
