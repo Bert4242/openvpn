@@ -477,9 +477,18 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
     }
     else
     {
+        /* Pin the expected gateway hostname so the peer certificate's
+         * SAN/CN is checked, not just the chain.  OpenSSL 4.0 deprecated the
+         * SSL_set1_host() convenience wrapper, so on 4.0+ use the underlying
+         * X509_VERIFY_PARAM primitive it wraps (available on all supported
+         * versions); keep the proven wrapper for shipping OpenSSL/LibreSSL. */
+#if defined(OPENSSL_VERSION_NUMBER) && OPENSSL_VERSION_NUMBER >= 0x40000000L
+        if (X509_VERIFY_PARAM_set1_host(SSL_get0_param(t->ssl), host, 0) != 1)
+#else
         if (SSL_set1_host(t->ssl, host) != 1)
+#endif
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: SSL_set1_host failed");
+            msg(D_LINK_ERRORS, "sni-gateway tls: failed to set verification hostname");
             goto err;
         }
         SSL_set_verify(t->ssl, SSL_VERIFY_PEER, NULL);
