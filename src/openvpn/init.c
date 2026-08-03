@@ -53,6 +53,7 @@
 #include "mudp.h"
 #include "dco.h"
 #include "tun_afunix.h"
+#include "schedule.h"
 
 #include "memdbg.h"
 
@@ -875,11 +876,6 @@ init_static(void)
     update_time();
 
     init_ssl_lib();
-
-#ifdef SCHEDULE_TEST
-    schedule_test();
-    return false;
-#endif
 
 #ifdef IFCONFIG_POOL_TEST
     ifconfig_pool_test(0x0A010004, 0x0A0100FF);
@@ -2647,15 +2643,6 @@ do_deferred_options(struct context *c, const uint64_t found, const bool is_updat
         {
             link_socket_update_buffer_sizes(c->c2.link_sockets[i], c->options.rcvbuf,
                                             c->options.sndbuf);
-        }
-    }
-
-    if (found & OPT_P_SOCKFLAGS)
-    {
-        msg(D_PUSH, "OPTIONS IMPORT: --socket-flags option modified");
-        for (int i = 0; i < c->c1.link_sockets_num; i++)
-        {
-            link_socket_update_flags(c->c2.link_sockets[i], c->options.sockflags);
         }
     }
 

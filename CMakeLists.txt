@@ -248,6 +248,7 @@ endif()
 check_symbol_exists(chsize io.h HAVE_CHSIZE)
 check_symbol_exists(getrlimit sys/resource.h HAVE_GETRLIMIT)
 check_symbol_exists(strsep string.h HAVE_STRSEP)
+check_symbol_exists(strtok_r string.h HAVE_STRTOK_R)
 
 # Some OS (e.g. FreeBSD) need some basic headers to allow
 # including network headers
@@ -385,12 +386,20 @@ if (BUILD_TESTING)
     find_package(cmocka CONFIG)
     if (TARGET cmocka::cmocka)
         set(CMOCKA_LIBRARIES cmocka::cmocka)
+        get_target_property(CMOCKA_INCLUDE_DIRS cmocka::cmocka INTERFACE_INCLUDE_DIRECTORIES)
     else ()
         pkg_search_module(cmocka cmocka REQUIRED IMPORTED_TARGET)
         set(CMOCKA_LIBRARIES PkgConfig::cmocka)
+        set(CMOCKA_INCLUDE_DIRS ${cmocka_INCLUDE_DIRS})
     endif ()
-    set(CMAKE_REQUIRED_LIBRARIES ${CMOCKA_LIBRARIES})
+    # cmocka_version.h exists since cmocka 2.0; its absence selects the
+    # cmocka 1.x compat shims in test_common.h. Detecting a header only needs
+    # the include path - do NOT add cmocka to CMAKE_REQUIRED_LIBRARIES, as that
+    # makes check_include_files link the shared library, which can fail in the
+    # probe for unrelated reasons and wrongly mis-detect cmocka 2.x as < 2.0.
+    set(CMAKE_REQUIRED_INCLUDES ${CMOCKA_INCLUDE_DIRS})
     check_include_files(cmocka_version.h HAVE_CMOCKA_VERSION_H)
+    unset(CMAKE_REQUIRED_INCLUDES)
 endif ()
 
 configure_file(config.h.cmake.in config.h)
@@ -415,6 +424,7 @@ set(SOURCE_FILES
     src/compat/compat-dirname.c
     src/compat/compat-gettimeofday.c
     src/compat/compat-strsep.c
+    src/compat/compat-strtok_r.c
     src/openvpn/argv.c
     src/openvpn/argv.h
     src/openvpn/base64.c
@@ -741,6 +751,8 @@ if (BUILD_TESTING)
             src/openvpn/platform.c
             src/openvpn/win32-util.c
             src/compat/compat-gettimeofday.c
+            src/compat/compat-strsep.c
+            src/compat/compat-strtok_r.c
             )
 
         add_library_deps(${test_name})
@@ -817,16 +829,19 @@ if (BUILD_TESTING)
 
     target_sources(test_mbuf PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
-        src/openvpn/buffer.c
         src/openvpn/mbuf.c
         )
 
     target_sources(test_misc PRIVATE
         tests/unit_tests/openvpn/mock_get_random.c
+        tests/unit_tests/openvpn/test_schedule.c
         src/openvpn/options_util.c
+        src/openvpn/otime.c
         src/openvpn/ssl_util.c
         src/openvpn/list.c
-        )
+        src/openvpn/session_id.c
+        src/openvpn/schedule.c
+    )
 
     target_sources(test_ncp PRIVATE
         src/openvpn/crypto_epoch.c

@@ -114,6 +114,7 @@ ssl_testdriver_SOURCES = test_ssl.c \
 	$(top_srcdir)/src/openvpn/base64.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/compat/compat-strsep.c \
+	$(top_srcdir)/src/compat/compat-strtok_r.c \
 	$(top_srcdir)/src/openvpn/crypto.c \
 	$(top_srcdir)/src/openvpn/cryptoapi.c \
 	$(top_srcdir)/src/openvpn/crypto_epoch.c \
@@ -352,6 +353,7 @@ ncp_testdriver_SOURCES = test_ncp.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/compat/compat-strsep.c \
+	$(top_srcdir)/src/compat/compat-strtok_r.c \
 	$(top_srcdir)/src/openvpn/ssl_util.c
 
 mbuf_testdriver_CFLAGS  = \
@@ -375,6 +377,7 @@ misc_testdriver_CFLAGS  = \
 misc_testdriver_LDFLAGS = @TEST_LDFLAGS@
 
 misc_testdriver_SOURCES = test_misc.c \
+	test_schedule.c test_schedule.h \
 	mock_msg.c test_common.h  \
 	mock_get_random.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
@@ -382,7 +385,9 @@ misc_testdriver_SOURCES = test_misc.c \
 	$(top_srcdir)/src/openvpn/ssl_util.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/platform.c \
-	$(top_srcdir)/src/openvpn/list.c
+	$(top_srcdir)/src/openvpn/list.c \
+	$(top_srcdir)/src/openvpn/otime.c \
+	$(top_srcdir)/src/openvpn/schedule.c
 
 push_update_msg_testdriver_CFLAGS = -I$(top_srcdir)/src/openvpn \
 	-I$(top_srcdir)/src/compat \

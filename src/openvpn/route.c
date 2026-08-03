@@ -1780,7 +1780,7 @@ route_ipv6_clear_host_bits(struct route_ipv6 *r6)
         }
         else
         {
-            r6->network.s6_addr[byte--] &= (0xff << bits_to_clear);
+            r6->network.s6_addr[byte--] &= (uint8_t)(0xff << bits_to_clear);
             bits_to_clear = 0;
         }
     }
