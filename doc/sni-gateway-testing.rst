@@ -18,16 +18,23 @@ Clone + branch
 Build
 -----
 
-``tls``/``http`` modes need OpenSSL and DCO off (they are userspace TLS,
-incompatible with kernel data-channel offload)::
+``tls``/``http`` modes need OpenSSL::
 
     autoreconf -i
-    ./configure --with-crypto-library=openssl --disable-dco
+    ./configure --with-crypto-library=openssl
     make -j$(nproc)
     make -C tests/unit_tests/openvpn check   # expect 21/21
 
-``drop`` mode has no such requirement -- a plain ``./configure && make``
-is enough if that's all you're testing.
+DCO does not need to be disabled at build time. It is a normal build
+default; OpenVPN falls back to userspace automatically, per connection
+entry, whenever ``--sni-gateway tls`` or ``--sni-gateway http`` is set
+on that entry (same mechanism as ``--fragment``/``--http-proxy``/
+``--socks-proxy``), logging a note when it does. DCO stays available
+for everything else -- plain OpenVPN, ``--sni-gateway drop``, or no
+``--sni-gateway`` at all.
+
+``drop`` mode has no build requirement beyond a plain
+``./configure && make`` if that's all you're testing.
 
 Sample configs
 ---------------
