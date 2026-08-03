@@ -33,6 +33,7 @@
 #include "plugin.h"
 #include "ps.h"
 #include "ps_sni.h"
+#include "https_tunnel.h"
 #include "run_command.h"
 #include "manage.h"
 #include "misc.h"
@@ -1805,6 +1806,28 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         }
     }
 
+#ifdef ENABLE_CRYPTO_OPENSSL
+    if (proto_is_tcp(sock->info.proto)
+        && sock->info.proto == PROTO_TCP_CLIENT
+        && c->options.ce.https_tunnel_hostname)
+    {
+        const char *path = c->options.ce.https_tunnel_path
+                               ? c->options.ce.https_tunnel_path
+                               : "/";
+        sock->https_tunnel_ssl =
+            establish_https_tunnel(sock->sd, c->options.ce.https_tunnel_hostname,
+                                   path, sig_info);
+        if (!sock->https_tunnel_ssl)
+        {
+            if (!sig_info->signal_received)
+            {
+                register_signal(sig_info, SIGUSR1, "https-tunnel-failed");
+            }
+            goto done;
+        }
+    }
+#endif
+
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);
 
@@ -1868,6 +1891,12 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
+#ifdef ENABLE_CRYPTO_OPENSSL
+        if (sock->https_tunnel_ssl)
+        {
+            https_tunnel_close((SSL **)&sock->https_tunnel_ssl);
+        }
+#endif
         if (!gremlin)
         {
             free(sock);
@@ -2374,7 +2403,15 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         len = sockethandle_finalize(sh, &sock->reads, buf, NULL);
 #else
         struct buffer frag = stream_buf_get_next(&sock->stream_buf);
-        len = recv(sock->sd, BPTR(&frag), BLENZ(&frag), MSG_NOSIGNAL);
+#ifdef ENABLE_CRYPTO_OPENSSL
+        if (sock->https_tunnel_ssl)
+        {
+            len = (int)https_tunnel_read((SSL *)sock->https_tunnel_ssl,
+                                         BPTR(&frag), BLENZ(&frag));
+        }
+        else
+#endif
+            len = recv(sock->sd, BPTR(&frag), BLENZ(&frag), MSG_NOSIGNAL);
 #endif
 
         if (!len)
@@ -2530,6 +2567,12 @@ link_socket_write_tcp(struct link_socket *sock, struct buffer *buf, struct link_
 #ifdef _WIN32
     return link_socket_write_win32(sock, buf, to);
 #else
+#ifdef ENABLE_CRYPTO_OPENSSL
+    if (sock->https_tunnel_ssl)
+    {
+        return https_tunnel_write((SSL *)sock->https_tunnel_ssl, BPTR(buf), BLENZ(buf));
+    }
+#endif
     return link_socket_write_tcp_posix(sock, buf);
 #endif
 }

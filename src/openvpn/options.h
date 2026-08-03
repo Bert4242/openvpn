@@ -192,6 +192,17 @@ struct connection_entry
     /** True once this entry owns its own alpn list (i.e. the first
      *  sni-passthrough-alpn was seen inside this connection block). */
     bool sni_passthrough_alpn_defined;
+
+    /** Hostname for the outer HTTPS tunnel (--https-tunnel <hostname>).
+     *  NULL means the feature is disabled.  When set, a real TLS handshake
+     *  plus HTTP/1.1 Upgrade exchange is performed before the OpenVPN
+     *  protocol starts; all subsequent traffic flows inside that TLS
+     *  session.  Mutually exclusive with sni_passthrough_hostname. */
+    const char *https_tunnel_hostname;
+
+    /** HTTP request path for the outer HTTPS tunnel (--https-tunnel-path).
+     *  Defaults to "/" when https_tunnel_hostname is set. */
+    const char *https_tunnel_path;
 };
 
 struct remote_entry

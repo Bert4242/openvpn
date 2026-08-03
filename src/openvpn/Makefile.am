@@ -74,6 +74,7 @@ openvpn_SOURCES = \
 	gremlin.c gremlin.h \
 	helper.c helper.h \
 	httpdigest.c httpdigest.h \
+	https_tunnel.c https_tunnel.h \
 	lladdr.c lladdr.h \
 	init.c init.h \
 	integer.h \

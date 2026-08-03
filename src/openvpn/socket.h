@@ -240,6 +240,13 @@ struct link_socket
 
     /* Socks proxy */
     struct socks_proxy_info *socks_proxy;
+
+#ifdef ENABLE_CRYPTO_OPENSSL
+    /* Outer HTTPS tunnel: live SSL session that carries all OpenVPN traffic.
+     * NULL when the feature is inactive.  Declared as void* so that socket.h
+     * does not need to pull in <openssl/ssl.h>; cast to SSL* in socket.c. */
+    void *https_tunnel_ssl;
+#endif
     struct link_socket_actual socks_relay; /* Socks UDP relay address */
 
     /* The OpenVPN server we will use the proxy to connect to */

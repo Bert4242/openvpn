@@ -667,6 +667,17 @@ static const char usage_message[] =
     "                  list replaces (not adds to) the global list.  Default when\n"
     "                  no --sni-passthrough-alpn is given: hacky-sni-passthrough/1.\n"
     "                  Must match between client and server.\n"
+    "--https-tunnel hostname : (Client) Perform a real HTTPS handshake before\n"
+    "                  the OpenVPN session.  After TCP connect the client completes\n"
+    "                  a TLS handshake with the given hostname (used as SNI and\n"
+    "                  Host header), sends an HTTP/1.1 Upgrade request, and\n"
+    "                  expects a '101 Switching Protocols' response.  All OpenVPN\n"
+    "                  traffic then flows inside the live TLS session.  The server\n"
+    "                  side must be an HTTPS reverse proxy (e.g. nginx/haproxy)\n"
+    "                  that terminates TLS and proxies the decrypted stream to\n"
+    "                  the OpenVPN listener.  Mutually exclusive with\n"
+    "                  --sni-passthrough-hostname.\n"
+    "--https-tunnel-path path : HTTP request path for --https-tunnel (default /).\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -9099,6 +9110,12 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     else if (streq(p[0], "sni-passthrough-hostname") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        if (options->ce.https_tunnel_hostname)
+        {
+            msg(msglevel, "--sni-passthrough-hostname is mutually exclusive with "
+                          "--https-tunnel");
+            goto err;
+        }
         options->ce.sni_passthrough_hostname = p[1];
     }
     else if (streq(p[0], "sni-passthrough-server") && !p[1])
@@ -9153,6 +9170,22 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_passthrough_server_ignore_alpn = true;
+    }
+    else if (streq(p[0], "https-tunnel") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        if (options->ce.sni_passthrough_hostname)
+        {
+            msg(msglevel, "--https-tunnel is mutually exclusive with "
+                          "--sni-passthrough-hostname");
+            goto err;
+        }
+        options->ce.https_tunnel_hostname = p[1];
+    }
+    else if (streq(p[0], "https-tunnel-path") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.https_tunnel_path = p[1];
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
