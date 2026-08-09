@@ -24,22 +24,22 @@
 #define SNI_GATEWAY_TLS_H
 
 /*
- * --sni-gateway tls (client side only)
+ * --sni-gateway sni-tls (client side only)
  *
- * In "tls" mode the OpenVPN TCP client opens a *real* TLS session to a
+ * In "sni-tls" mode the OpenVPN TCP client opens a *real* TLS session to a
  * TLS-terminating gateway (e.g. Traefik).  The gateway terminates that TLS
  * (it holds the certificate), decrypts, and forwards the plaintext OpenVPN
  * byte stream to the backend OpenVPN server.  The server therefore sees a
  * vanilla plaintext OpenVPN stream and needs no changes at all.
  *
- * There is NO decoy ClientHello here (that is "drop" mode).  After a genuine
+ * There is NO decoy ClientHello here (that is "sni" mode).  After a genuine
  * TLS handshake to the gateway, every subsequent OpenVPN byte that the client
  * sends/receives on the TCP socket is tunnelled through the TLS session via
  * SSL_write()/SSL_read().
  *
  * This module is only compiled with a real OpenSSL backend.  LibreSSL and the
  * non-OpenSSL crypto backends are excluded (see the guard below); the option
- * validation in options.c rejects "tls" mode on those builds.  It is also
+ * validation in options.c rejects "sni-tls" mode on those builds.  It is also
  * incompatible with Linux-DCO (kernel does the socket I/O) and with the
  * Windows overlapped-I/O read path -- both are handled in options.c.
  */
@@ -89,7 +89,7 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
                                  int server_poll_timeout);
 
 /*
- * --sni-gateway http: after sni_gw_tls_client_handshake() has completed (and
+ * --sni-gateway sni-tls-http-path-upgrade: after sni_gw_tls_client_handshake() has completed (and
  * while sd is still BLOCKING), perform the HTTP/1.1 Upgrade handshake over the
  * TLS tunnel:
  *

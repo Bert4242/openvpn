@@ -167,7 +167,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     {
         if (data[i] != get_prefix[i])
         {
-            msg(M_INFO, "--sni-gateway-server http: non-HTTP client, proceeding as OpenVPN");
+            msg(M_INFO, "--sni-gateway-server sni-tls-http-path-upgrade: non-HTTP client, proceeding as OpenVPN");
             sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
             return -1; /* sb->error left false -> proceed as normal OpenVPN */
         }
@@ -192,7 +192,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     {
         if (len > SNI_GW_HTTP_MAX_REQUEST)
         {
-            msg(M_WARN, "--sni-gateway-server http: request header exceeds %d bytes, rejecting",
+            msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: request header exceeds %d bytes, rejecting",
                 SNI_GW_HTTP_MAX_REQUEST);
             sb->error = true;
             sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
@@ -213,13 +213,13 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
     if (!sp || sp == path_start)
     {
-        msg(M_WARN, "--sni-gateway-server http: malformed request line, rejecting");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: malformed request line, rejecting");
         goto reject;
     }
     int path_len = (int)(sp - path_start);
     if (path_start[0] != '/')
     {
-        msg(M_WARN, "--sni-gateway-server http: request path does not start with '/', rejecting");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: request path does not start with '/', rejecting");
         goto reject;
     }
 
@@ -228,7 +228,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     int ver_len = (int)(line_end - ver);
     if (ver_len != 8 || memcmp(ver, "HTTP/1.1", 8) != 0)
     {
-        msg(M_WARN, "--sni-gateway-server http: unsupported HTTP version, rejecting");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: unsupported HTTP version, rejecting");
         goto reject;
     }
 
@@ -237,7 +237,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     int hdrs_len = (int)(end - hdrs);
     if (!http_has_upgrade_openvpn(hdrs, hdrs_len))
     {
-        msg(M_WARN, "--sni-gateway-server http: missing 'Upgrade: openvpn' header, rejecting");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: missing 'Upgrade: openvpn' header, rejecting");
         goto reject;
     }
 
@@ -247,7 +247,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         int rp_len = (int)strlen(require_path);
         if (rp_len != path_len || memcmp(path_start, require_path, (size_t)path_len) != 0)
         {
-            msg(M_WARN, "--sni-gateway-server http: request path does not match "
+            msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: request path does not match "
                         "--sni-gateway-server-path, rejecting");
             goto reject;
         }
@@ -256,7 +256,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     /* Success: strip the consumed request, leaving any trailing OpenVPN bytes. */
     {
         int remaining = len - request_len;
-        msg(M_INFO, "--sni-gateway-server http: consumed %d-byte Upgrade request (path '%.*s')",
+        msg(M_INFO, "--sni-gateway-server sni-tls-http-path-upgrade: consumed %d-byte Upgrade request (path '%.*s')",
             request_len, path_len, path_start);
         if (remaining > 0)
         {
@@ -299,7 +299,7 @@ sni_gw_http_send_101(socket_descriptor_t sd)
         {
             if (++attempts > 100)
             {
-                msg(D_LINK_ERRORS, "--sni-gateway-server http: timed out sending 101 response");
+                msg(D_LINK_ERRORS, "--sni-gateway-server sni-tls-http-path-upgrade: timed out sending 101 response");
                 return false;
             }
             /* Wait (briefly, bounded) for the socket to drain. */
@@ -313,7 +313,7 @@ sni_gw_http_send_101(socket_descriptor_t sd)
             continue;
         }
 
-        msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway-server http: send() of 101 response failed");
+        msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway-server sni-tls-http-path-upgrade: send() of 101 response failed");
         return false;
     }
     return true;
@@ -337,13 +337,13 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
                 continue;
             }
             msg(D_LINK_ERRORS | M_ERRNO,
-                "--sni-gateway-server http: recv() reading Upgrade request");
+                "--sni-gateway-server sni-tls-http-path-upgrade: recv() reading Upgrade request");
             return false;
         }
         if (n == 0)
         {
             msg(D_LINK_ERRORS,
-                "--sni-gateway-server http: connection closed before Upgrade request");
+                "--sni-gateway-server sni-tls-http-path-upgrade: connection closed before Upgrade request");
             return false;
         }
         total += (int)n;
@@ -364,7 +364,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
 
     if (end_pos < 0)
     {
-        msg(M_WARN, "--sni-gateway-server http: Upgrade request too large or truncated");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: Upgrade request too large or truncated");
         return false;
     }
 
@@ -373,14 +373,14 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
 
     if (len < 4 || memcmp(data, "GET ", 4) != 0)
     {
-        msg(M_WARN, "--sni-gateway-server http: not a GET request");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: not a GET request");
         return false;
     }
 
     const char *line_end = memchr(data, '\r', (size_t)len);
     if (!line_end)
     {
-        msg(M_WARN, "--sni-gateway-server http: malformed request line");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: malformed request line");
         return false;
     }
 
@@ -388,7 +388,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
     const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
     if (!sp || sp == path_start || path_start[0] != '/')
     {
-        msg(M_WARN, "--sni-gateway-server http: malformed request path");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: malformed request path");
         return false;
     }
     int path_len = (int)(sp - path_start);
@@ -396,7 +396,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
     const char *ver = sp + 1;
     if ((int)(line_end - ver) != 8 || memcmp(ver, "HTTP/1.1", 8) != 0)
     {
-        msg(M_WARN, "--sni-gateway-server http: unsupported HTTP version");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: unsupported HTTP version");
         return false;
     }
 
@@ -404,7 +404,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
     int hdrs_len = (int)(data + len - hdrs);
     if (!http_has_upgrade_openvpn(hdrs, hdrs_len))
     {
-        msg(M_WARN, "--sni-gateway-server http: missing 'Upgrade: openvpn' header");
+        msg(M_WARN, "--sni-gateway-server sni-tls-http-path-upgrade: missing 'Upgrade: openvpn' header");
         return false;
     }
 
@@ -414,13 +414,13 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
         if (rp_len != path_len || memcmp(path_start, require_path, (size_t)path_len) != 0)
         {
             msg(M_WARN,
-                "--sni-gateway-server http: path mismatch (expected '%s', got '%.*s')",
+                "--sni-gateway-server sni-tls-http-path-upgrade: path mismatch (expected '%s', got '%.*s')",
                 require_path, path_len, path_start);
             return false;
         }
     }
 
-    msg(M_INFO, "--sni-gateway-server http: accepted %d-byte Upgrade request (path '%.*s')",
+    msg(M_INFO, "--sni-gateway-server sni-tls-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
         end_pos, path_len, path_start);
 
     return sni_gw_http_send_101(sd);

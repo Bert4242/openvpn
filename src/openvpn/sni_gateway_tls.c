@@ -42,7 +42,7 @@
 #include <openssl/x509.h>
 
 /*
- * --sni-gateway tls: client-side userspace TLS wrapper around an OpenVPN TCP
+ * --sni-gateway sni-tls: client-side userspace TLS wrapper around an OpenVPN TCP
  * stream.  See sni_gateway_tls.h for the high-level description.
  *
  * Design: memory-BIO-over-the-event-loop.
@@ -589,7 +589,7 @@ err:
 }
 
 /* -------------------------------------------------------------------------- */
-/* Blocking HTTP/1.1 Upgrade over the established tunnel (--sni-gateway http)  */
+/* Blocking HTTP/1.1 Upgrade over the established tunnel (--sni-gateway sni-tls-http-path-upgrade)  */
 /* -------------------------------------------------------------------------- */
 
 /*
