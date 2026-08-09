@@ -27,13 +27,19 @@
 #include "socket.h"
 
 /*
- * SNI gateway mode, selected via --sni-gateway <drop|tls|http> (client)
- * and --sni-gateway-server <drop|http> (server).
+ * SNI gateway mode, selected via
+ * --sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade> (client) and
+ * --sni-gateway-server <sni|sni-tls-http-path-upgrade> (server).
  *
- * SNI_GW_DROP: the existing SNI passthrough decoy behaviour -- a fake
- *              ClientHello is sent/consumed and then discarded.  This is
- *              the only mode implemented so far.
- * SNI_GW_TLS / SNI_GW_HTTP: reserved for later phases.
+ * SNI_GW_DROP: CLI value "sni" -- the existing SNI passthrough decoy
+ *              behaviour: a fake ClientHello is sent/consumed and then
+ *              discarded, no real TLS added.
+ * SNI_GW_TLS: CLI value "sni-tls" -- a genuine TLS session to a
+ *             TLS-terminating gateway (client-side only; the server never
+ *             terminates TLS itself).
+ * SNI_GW_HTTP: CLI value "sni-tls-http-path-upgrade" -- the "sni-tls"
+ *              session plus an HTTP/1.1 Upgrade on a path, so the gateway
+ *              can route by path.
  */
 enum sni_gateway_mode
 {
@@ -44,7 +50,8 @@ enum sni_gateway_mode
 
 /*
  * Parse a --sni-gateway[-server] mode argument.
- * Accepts exactly "drop", "tls", "http" (case-sensitive).
+ * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade"
+ * (case-sensitive).
  * Returns the corresponding enum sni_gateway_mode value, or -1 if
  * the string does not match any known mode.
  *
@@ -62,15 +69,15 @@ sni_gateway_mode_from_string(const char *s)
     {
         return -1;
     }
-    if (strcmp(s, "drop") == 0)
+    if (strcmp(s, "sni") == 0)
     {
         return SNI_GW_DROP;
     }
-    if (strcmp(s, "tls") == 0)
+    if (strcmp(s, "sni-tls") == 0)
     {
         return SNI_GW_TLS;
     }
-    if (strcmp(s, "http") == 0)
+    if (strcmp(s, "sni-tls-http-path-upgrade") == 0)
     {
         return SNI_GW_HTTP;
     }

@@ -822,24 +822,24 @@ test_sni_consume_header_hostname_mismatch(void **state)
  * ========================================================================== */
 
 static void
-test_sni_gateway_mode_from_string_drop(void **state)
+test_sni_gateway_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("drop"), SNI_GW_DROP);
+    assert_int_equal(sni_gateway_mode_from_string("sni"), SNI_GW_DROP);
 }
 
 static void
-test_sni_gateway_mode_from_string_tls(void **state)
+test_sni_gateway_mode_from_string_sni_tls(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("tls"), SNI_GW_TLS);
+    assert_int_equal(sni_gateway_mode_from_string("sni-tls"), SNI_GW_TLS);
 }
 
 static void
-test_sni_gateway_mode_from_string_http(void **state)
+test_sni_gateway_mode_from_string_sni_tls_http_path_upgrade(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("http"), SNI_GW_HTTP);
+    assert_int_equal(sni_gateway_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_HTTP);
 }
 
 static void
@@ -848,8 +848,8 @@ test_sni_gateway_mode_from_string_unknown(void **state)
     (void)state;
     assert_int_equal(sni_gateway_mode_from_string("bogus"), -1);
     assert_int_equal(sni_gateway_mode_from_string(""), -1);
-    /* case-sensitive: "Drop" must not match "drop" */
-    assert_int_equal(sni_gateway_mode_from_string("Drop"), -1);
+    /* case-sensitive: "Sni" must not match "sni" */
+    assert_int_equal(sni_gateway_mode_from_string("Sni"), -1);
 }
 
 static void
@@ -898,9 +898,9 @@ main(void)
         cmocka_unit_test(test_sni_consume_header_hostname_mismatch),
 
         /* sni_gateway_mode_from_string */
-        cmocka_unit_test(test_sni_gateway_mode_from_string_drop),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_tls),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_http),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_sni),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_sni_tls),
+        cmocka_unit_test(test_sni_gateway_mode_from_string_sni_tls_http_path_upgrade),
         cmocka_unit_test(test_sni_gateway_mode_from_string_unknown),
         cmocka_unit_test(test_sni_gateway_mode_from_string_null),
     };
