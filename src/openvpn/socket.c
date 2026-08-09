@@ -54,7 +54,7 @@ sockets_read_residual(const struct context *c)
             return true;
         }
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-        /* --sni-gateway tls: plaintext decrypted from a coalesced TLS record can
+        /* --sni-gateway sni-tls: plaintext decrypted from a coalesced TLS record can
          * outlast the socket's readable state (the fd is drained but bytes remain
          * buffered in the tunnel).  Force a non-blocking re-entry so the read path
          * drains it frame by frame instead of stalling in event_wait(). */
@@ -1765,7 +1765,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     if (sock->info.proto == PROTO_TCP_SERVER)
     {
         phase2_tcp_server(sock, sig_info);
-        /* --sni-gateway-server http: while the accepted fd is still BLOCKING,
+        /* --sni-gateway-server sni-tls-http-path-upgrade: while the accepted fd is still BLOCKING,
          * read the HTTP/1.1 Upgrade request from the gateway and send 101.
          * This must happen before the event loop sends HARD_RESET.
          * Applies to both LS_MODE_DEFAULT (single-client: listen+accept combined)
@@ -1824,7 +1824,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
              && c->options.ce.sni_gateway_mode == SNI_GW_TLS
              && c->options.ce.sni_gateway_host)
     {
-        /* --sni-gateway tls: perform the genuine TLS handshake to the gateway
+        /* --sni-gateway sni-tls: perform the genuine TLS handshake to the gateway
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
          * All subsequent OpenVPN bytes on this socket flow through the TLS
          * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
@@ -1851,7 +1851,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
              && c->options.ce.sni_gateway_mode == SNI_GW_HTTP
              && c->options.ce.sni_gateway_host)
     {
-        /* --sni-gateway http: FIRST open the genuine TLS session to the gateway
+        /* --sni-gateway sni-tls-http-path-upgrade: FIRST open the genuine TLS session to the gateway
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
          * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
          * steady-state gw_tls read/write seams carry the OpenVPN stream. */
@@ -2288,7 +2288,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         sb->buf.len += (int)length_added;
     }
 
-    /* --sni-gateway-server http: consume the plaintext HTTP/1.1 Upgrade request
+    /* --sni-gateway-server sni-tls-http-path-upgrade: consume the plaintext HTTP/1.1 Upgrade request
      * that precedes the OpenVPN stream (the 101 reply is emitted by the caller,
      * link_socket_read_tcp, which has the socket descriptor).  Runs before the
      * OpenVPN length-prefix logic because the request is not length-prefixed. */
@@ -2494,7 +2494,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
         if (sock->gw_tls)
         {
-            /* --sni-gateway tls: decrypt ciphertext off the socket into frag.
+            /* --sni-gateway sni-tls: decrypt ciphertext off the socket into frag.
              * Returns >0 plaintext len, 0 = incomplete, <0 = fatal -- fed into
              * the stream_buf logic exactly like a raw recv() result. */
             len = (int)sni_gw_tls_read(sock->gw_tls, sock->sd, &frag);
@@ -2539,7 +2539,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
     bool complete = sock->stream_buf.residual_fully_formed
                     || stream_buf_added(&sock->stream_buf, len); /* packet complete? */
 
-    /* --sni-gateway-server http: once the Upgrade request has been consumed,
+    /* --sni-gateway-server sni-tls-http-path-upgrade: once the Upgrade request has been consumed,
      * emit the fixed 101 response exactly once, before any OpenVPN processing
      * of the trailing bytes.  stream_buf_added() runs the consume state machine;
      * sock->sd is reachable here (unlike inside stream_buf_added). */

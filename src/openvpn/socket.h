@@ -149,7 +149,7 @@ struct stream_buf
     int sni_gateway_server_host_count;
     bool sni_gateway_server_ignore_alpn;
 
-    /* --sni-gateway-server http: state machine that consumes the inbound
+    /* --sni-gateway-server sni-tls-http-path-upgrade: state machine that consumes the inbound
      * HTTP/1.1 Upgrade request (plaintext; Traefik already terminated TLS) and
      * triggers the 101 reply.  Parallel to sni_passthrough_state above. */
 #define SNI_GW_HTTP_DISABLED 0            /* not active / done */
@@ -248,7 +248,7 @@ struct link_socket
     bool stream_reset;
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-    /* --sni-gateway tls: userspace TLS wrapper around the OpenVPN TCP stream
+    /* --sni-gateway sni-tls: userspace TLS wrapper around the OpenVPN TCP stream
      * to a TLS-terminating gateway (client side only).  NULL unless active. */
     struct sni_gw_tls *gw_tls;
 #endif
@@ -292,7 +292,7 @@ struct link_socket
 #endif
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-/* --sni-gateway tls steady-state I/O (defined in sni_gateway_tls.c).  Forward
+/* --sni-gateway sni-tls steady-state I/O (defined in sni_gateway_tls.c).  Forward
  * declared here so the inline TCP read/write paths can delegate to them without
  * pulling in sni_gateway_tls.h (which itself includes socket.h). */
 struct sni_gw_tls;
@@ -756,7 +756,7 @@ link_socket_write_tcp_posix(struct link_socket *sock, struct buffer *buf)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     if (sock->gw_tls)
     {
-        /* --sni-gateway tls: tunnel the plaintext through the TLS session. */
+        /* --sni-gateway sni-tls: tunnel the plaintext through the TLS session. */
         return sni_gw_tls_write(sock->gw_tls, sock->sd, buf);
     }
 #endif
