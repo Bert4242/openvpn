@@ -24,12 +24,12 @@
 #define SNI_GATEWAY_HTTP_H
 
 /*
- * --sni-gateway http / --sni-gateway-server http
+ * --sni-gateway sni-tls-http-path-upgrade / --sni-gateway-server sni-tls-http-path-upgrade
  *
- * In "http" mode the OpenVPN TCP client first opens a genuine TLS session to a
- * TLS-terminating gateway (exactly like "tls" mode -- see sni_gateway_tls.c),
- * and then performs an HTTP/1.1 Upgrade handshake over that TLS channel on a
- * configured path:
+ * In "sni-tls-http-path-upgrade" mode the OpenVPN TCP client first opens a
+ * genuine TLS session to a TLS-terminating gateway (exactly like "sni-tls"
+ * mode -- see sni_gateway_tls.c), and then performs an HTTP/1.1 Upgrade
+ * handshake over that TLS channel on a configured path:
  *
  *      GET <path> HTTP/1.1\r\n
  *      Host: <host>\r\n
@@ -39,7 +39,7 @@
  *
  * The gateway (Traefik) terminates the TLS, routes by the HTTP path, and
  * forwards the DECRYPTED, upgraded stream (plaintext) to the OpenVPN backend.
- * The OpenVPN server, in "http" server mode, consumes that inbound plaintext
+ * The OpenVPN server, in "sni-tls-http-path-upgrade" server mode, consumes that inbound plaintext
  * HTTP Upgrade request, replies:
  *
  *      HTTP/1.1 101 Switching Protocols\r\n
@@ -92,7 +92,7 @@ size_t sni_gw_http_101_response_len(void);
 
 /*
  * Server side: drive the state machine that detects and consumes the HTTP/1.1
- * Upgrade request prepended (over the now-plaintext link) by --sni-gateway http
+ * Upgrade request prepended (over the now-plaintext link) by --sni-gateway sni-tls-http-path-upgrade
  * clients before the OpenVPN stream begins.  Mirrors
  * sni_passthrough_check_and_consume_header().
  *

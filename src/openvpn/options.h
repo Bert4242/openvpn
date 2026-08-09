@@ -181,8 +181,10 @@ struct connection_entry
     /* Allow only client that support resending the wrapped client key */
     bool tls_crypt_v2_force_cookie;
 
-    /** SNI gateway mode for this connection (--sni-gateway <drop|tls|http>).
-     *  Defaults to SNI_GW_DROP (the original passthrough-decoy behaviour). */
+    /** SNI gateway mode for this connection
+     *  (--sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade>).
+     *  Defaults to SNI_GW_DROP, CLI value "sni" (the original
+     *  passthrough-decoy behaviour). */
     enum sni_gateway_mode sni_gateway_mode;
 
     /** True once --sni-gateway has been seen for this connection entry. */
@@ -207,7 +209,7 @@ struct connection_entry
      *  sni-gateway-alpn was seen inside this connection block). */
     bool sni_gateway_alpn_defined;
 
-    /** Reserved for tls/http gateway modes (not yet implemented). */
+    /** Used by the sni-tls-http-path-upgrade gateway mode. */
     const char *sni_gateway_path;
     const char *sni_gateway_ca;
     bool sni_gateway_no_verify;
@@ -707,8 +709,9 @@ struct options
 
     int tls_crypt_v2_max_age;
 
-    /** Enable server-side SNI gateway handling (--sni-gateway-server <drop|http>).
-     *  In "drop" mode, peeks the first byte: 0x16 = routing header present
+    /** Enable server-side SNI gateway handling
+     *  (--sni-gateway-server <sni|sni-tls-http-path-upgrade>).
+     *  In "sni" mode, peeks the first byte: 0x16 = routing header present
      *  (discard it); anything else = openvpn client (proceed normally, full
      *  backwards compat). */
     bool sni_gateway_server_enabled;
@@ -725,9 +728,9 @@ struct options
      *  if both are set, ignore_alpn wins (with a warning). */
     bool sni_gateway_server_ignore_alpn;
 
-    /** Optional exact request path to enforce in --sni-gateway-server http
-     *  mode (--sni-gateway-server-path).  NULL accepts any path (the gateway
-     *  is expected to gate the path). */
+    /** Optional exact request path to enforce in --sni-gateway-server
+     *  sni-tls-http-path-upgrade mode (--sni-gateway-server-path).  NULL
+     *  accepts any path (the gateway is expected to gate the path). */
     const char *sni_gateway_server_path;
 
     /* Allow only one session */
