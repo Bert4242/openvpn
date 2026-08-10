@@ -804,7 +804,7 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
         }
         {
             char e[256];
-            unsigned long code = ERR_get_error();
+            openssl_err_t code = ERR_get_error();
             if (code)
             {
                 ERR_error_string_n(code, e, sizeof(e));
