@@ -190,7 +190,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         {
             char err_buf[256];
             ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-            msg(M_NONFATAL, "--sni-passthrough-hostname: SSL_do_handshake failed: %s", err_buf);
+            msg(M_NONFATAL, "--sni-gateway sni: SSL_do_handshake failed: %s", err_buf);
             goto cleanup;
         }
         else
@@ -209,7 +209,7 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
         if (!pending || pending > bufsz)
         {
-            msg(M_NONFATAL, "--sni-passthrough-hostname: ClientHello too large: pending=%zu bufsz=%zu", pending, bufsz);
+            msg(M_NONFATAL, "--sni-gateway sni: ClientHello too large: pending=%zu bufsz=%zu", pending, bufsz);
             goto cleanup;
         }
 
@@ -289,7 +289,7 @@ static const uint8_t sni_pt_renegotiation_info[5] = { 0xff, 0x01, 0x00, 0x01, 0x
 
 /*
  * The suffix is split into two halves around the ALPN extension, which is
- * now built dynamically so that --sni-passthrough-alpn can override it.
+ * now built dynamically so that --sni-gateway-alpn can override it.
  *
  * sni_pt_suffix_pre_alpn  – extensions before the ALPN extension (34 bytes)
  * sni_pt_suffix_post_alpn – extensions after the ALPN extension (1352 bytes)
@@ -553,7 +553,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     int i;
 
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-passthrough-hostname: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+    msg(M_INFO, "--sni-gateway sni: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
 
     if (!sni || !*sni)
@@ -566,7 +566,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     if (!sni_pt_build_alpn_proto_list(&alpn_buf, eff_list, eff_count)
         || !BLEN(&alpn_buf))
     {
-        msg(M_NONFATAL, "--sni-passthrough-alpn: ALPN token list too long or empty");
+        msg(M_NONFATAL, "--sni-gateway-alpn: ALPN token list too long or empty");
         return 0;
     }
 
@@ -590,7 +590,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
 
     if (total > bufsz || total > 0xffffU + 5)
     {
-        msg(M_NONFATAL, "--sni-passthrough-hostname: SNI hostname too long");
+        msg(M_NONFATAL, "--sni-gateway sni: SNI hostname too long");
         return 0;
     }
 
@@ -648,7 +648,7 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
 /*
- * Client side (--sni-passthrough-hostname): send the SNI routing header,
+ * Client side (--sni-gateway sni): send the SNI routing header,
  * then return. The OpenVPN protocol will follow immediately after.
  */
 bool
@@ -664,7 +664,7 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
 
     if (!len)
     {
-        msg(M_NONFATAL, "--sni-passthrough-hostname: failed to build SNI routing header");
+        msg(M_NONFATAL, "--sni-gateway sni: failed to build SNI routing header");
         goto error;
     }
 
@@ -674,13 +674,13 @@ sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
         ssize_t n = send(sd, (const char *)(buf + sent), (int)(len - sent), MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(D_LINK_ERRORS | M_ERRNO, "--sni-passthrough-hostname: send() failed");
+            msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway sni: send() failed");
             goto error;
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-passthrough-hostname: sent SNI routing header (hostname: %s)", sni);
+    msg(M_INFO, "--sni-gateway sni: sent SNI routing header (hostname: %s)", sni);
     return true;
 
 error:
@@ -757,7 +757,7 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
                         {
                             cb->hostname_matched = 1;
                             msg(M_INFO,
-                                "--sni-passthrough-server: client_hello_cb: %s hostname matched",
+                                "--sni-gateway-server sni: client_hello_cb: %s hostname matched",
                                 cb->hostname_list[i]);
                             break;
                         }
@@ -769,7 +769,7 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
         if (!cb->hostname_matched)
         {
             msg(M_WARN,
-                "--sni-passthrough-server: client_hello_cb: hostname not in allowed list, rejecting");
+                "--sni-gateway-server sni: client_hello_cb: hostname not in allowed list, rejecting");
         }
     }
     else
@@ -811,7 +811,7 @@ sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
                     {
                         cb->alpn_matched = 1;
                         msg(M_INFO,
-                            "--sni-passthrough-server: client_hello_cb: %s ALPN matched",
+                            "--sni-gateway-server sni: client_hello_cb: %s ALPN matched",
                             name);
                         break;
                     }
@@ -913,7 +913,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     }
     else
     {
-        msg(M_WARN, "--sni-passthrough-server: BIO_ctrl_pending returned %zu > pkt_len %d",
+        msg(M_WARN, "--sni-gateway-server sni: BIO_ctrl_pending returned %zu > pkt_len %d",
             remaining, pkt_len);
     }
 
@@ -939,12 +939,12 @@ cleanup:
     {
         if (consumed)
         {
-            msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet consumed");
+            msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_packet consumed");
             return consumed;
         }
         else
         {
-            msg(M_WARN, "--sni-passthrough-server: routing header found but not consumed");
+            msg(M_WARN, "--sni-gateway-server sni: routing header found but not consumed");
             return 0;
         }
     }
@@ -983,7 +983,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     const char *const *eff_alpn_list = NULL;
     int eff_alpn_count = 0;
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+    msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
 
     if (!ctx->ignore_alpn)
@@ -1157,7 +1157,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                         {
                             hostname_ok = 1;
                             msg(M_INFO,
-                                "--sni-passthrough-server: %s hostname matched (generic path)",
+                                "--sni-gateway-server sni: %s hostname matched (generic path)",
                                 ctx->hostname_list[i]);
                             break;
                         }
@@ -1200,7 +1200,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                     {
                         alpn_ok = 1;
                         msg(M_INFO,
-                            "--sni-passthrough-server: %s ALPN matched (generic path)",
+                            "--sni-gateway-server sni: %s ALPN matched (generic path)",
                             exp);
                         break;
                     }
@@ -1232,7 +1232,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     if (!hostname_ok && ctx->hostname_count > 0)
     {
         msg(M_WARN,
-            "--sni-passthrough-server: hostname not in allowed list, rejecting (generic path)");
+            "--sni-gateway-server sni: hostname not in allowed list, rejecting (generic path)");
     }
     return -1;
 }
@@ -1241,8 +1241,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 
 
 /*
- * Server side (--sni-passthrough-server): detect and consume the SNI routing
- * header prepended by --sni-passthrough-hostname clients before the OpenVPN
+ * Server side (--sni-gateway-server sni): detect and consume the SNI routing
+ * header prepended by --sni-gateway sni clients before the OpenVPN
  * stream begins.
  */
 bool
@@ -1250,14 +1250,14 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                                          const struct sni_pt_server_check_ctx *ctx)
 {
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-passthrough-server: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+    msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
     if (sb->buf.len >= 5)
     {
         if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
         {
-            /* client without --sni-passthrough-hostname. */
-            msg(M_INFO, "--sni-passthrough-server: client without routing header");
+            /* client without --sni-gateway sni. */
+            msg(M_INFO, "--sni-gateway-server sni: client without routing header");
             sb->sni_passthrough_state = SNI_PT_DISABLED;
             return false;
         }
@@ -1288,7 +1288,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                     if (5 + rlen > sb->maxlen || rlen > 0x4000)
                     {
                         msg(M_WARN,
-                            "--sni-passthrough-server: oversized TLS record (%d bytes), rejecting",
+                            "--sni-gateway-server sni: oversized TLS record (%d bytes), rejecting",
                             5 + rlen);
                         sb->error = true;
                         sb->sni_passthrough_state = SNI_PT_DISABLED;
@@ -1299,7 +1299,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
             else if (sb->buf.len < sni_total)
             {
                 /* Not enough data yet; should not happen. */
-                msg(M_WARN, "--sni-passthrough-server: cant discard SNI routing header %d bytes of %d buffer", sni_total, sb->buf.len);
+                msg(M_WARN, "--sni-gateway-server sni: cant discard SNI routing header %d bytes of %d buffer", sni_total, sb->buf.len);
                 return false;
             }
             else
@@ -1307,7 +1307,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                 /* Full routing header received; discard it and reset the buffer so
                  * normal OpenVPN stream parsing sees a clean slate. */
                 int remaining = sb->buf.len - sni_total;
-                msg(M_INFO, "--sni-passthrough-server: discarded SNI routing header %d bytes of %d buffer", sni_total, sb->buf.len);
+                msg(M_INFO, "--sni-gateway-server sni: discarded SNI routing header %d bytes of %d buffer", sni_total, sb->buf.len);
 
                 uint8_t *src = BPTR(&sb->buf) + sni_total;
                 sb->buf.len = remaining;

@@ -703,7 +703,7 @@ test_sni_consume_header_with_trailing_data(void **state)
 }
 
 /*
- * OpenVPN client without --sni-passthrough-hostname.
+ * OpenVPN client without --sni-gateway sni.
  * First byte != 0x16 → SNI_PT_DISABLED immediately.
  */
 static void
