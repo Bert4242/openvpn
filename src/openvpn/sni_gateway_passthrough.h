@@ -20,69 +20,18 @@
  *  with this program; if not, see <https://www.gnu.org/licenses/>.
  */
 
-#ifndef PS_SNI_H
-#define PS_SNI_H
+#ifndef SNI_GATEWAY_PASSTHROUGH_H
+#define SNI_GATEWAY_PASSTHROUGH_H
 
 
 #include "socket.h"
 
 /*
- * SNI gateway mode, selected via
- * --sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade> (client) and
- * --sni-gateway-server <sni|sni-tls-http-path-upgrade> (server).
- *
- * SNI_GW_DROP: CLI value "sni" -- the existing SNI passthrough decoy
- *              behaviour: a fake ClientHello is sent/consumed and then
- *              discarded, no real TLS added.
- * SNI_GW_TLS: CLI value "sni-tls" -- a genuine TLS session to a
- *             TLS-terminating gateway (client-side only; the server never
- *             terminates TLS itself).
- * SNI_GW_HTTP: CLI value "sni-tls-http-path-upgrade" -- the "sni-tls"
- *              session plus an HTTP/1.1 Upgrade on a path, so the gateway
- *              can route by path.
+ * Implementation of the --sni-gateway "sni" mode (SNI_GW_DROP): a fake
+ * ClientHello is sent/consumed and then discarded, no real TLS added.
+ * The shared mode enum and CLI string parser live in sni_gateway.h, not
+ * here -- this file only needs its own mode's declarations.
  */
-enum sni_gateway_mode
-{
-    SNI_GW_DROP = 0,
-    SNI_GW_TLS = 1,
-    SNI_GW_HTTP = 2,
-};
-
-/*
- * Parse a --sni-gateway[-server] mode argument.
- * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade"
- * (case-sensitive).
- * Returns the corresponding enum sni_gateway_mode value, or -1 if
- * the string does not match any known mode.
- *
- * Defined as a header-only static inline (rather than in ps_sni.c) so that
- * it does not add a new externally-linked symbol to ps_sni.c: ps_sni.c is
- * compiled a second time (with public symbols renamed via macros) by
- * tests/unit_tests/openvpn/sni_alt_impl.c, and any additional non-static,
- * non-renamed symbol there would collide at link time with the ordinary
- * ps_sni.o in sni_compat_testdriver.
- */
-static inline int
-sni_gateway_mode_from_string(const char *s)
-{
-    if (!s)
-    {
-        return -1;
-    }
-    if (strcmp(s, "sni") == 0)
-    {
-        return SNI_GW_DROP;
-    }
-    if (strcmp(s, "sni-tls") == 0)
-    {
-        return SNI_GW_TLS;
-    }
-    if (strcmp(s, "sni-tls-http-path-upgrade") == 0)
-    {
-        return SNI_GW_HTTP;
-    }
-    return -1;
-}
 
 /*
  * Context for the server-side checker.
@@ -157,4 +106,4 @@ size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
 #endif /* UNIT_TESTING */
 
 
-#endif /* PS_SNI_H */
+#endif /* SNI_GATEWAY_PASSTHROUGH_H */
