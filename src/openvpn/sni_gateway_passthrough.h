@@ -75,7 +75,7 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
 
 /*
  * Server side: drive the state machine that detects and discards the SNI
- * routing header prepended by --sni-passthrough-hostname clients.
+ * routing header prepended by --sni-gateway sni clients.
  *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
