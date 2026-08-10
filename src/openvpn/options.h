@@ -42,7 +42,7 @@
 #include "clinat.h"
 #include "crypto_backend.h"
 #include "dns.h"
-#include "ps_sni.h"
+#include "sni_gateway.h"
 
 
 /*

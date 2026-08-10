@@ -24,10 +24,10 @@
  * Cross-path compatibility test for the SNI passthrough builder and checker.
  *
  * sni_compat_testdriver links two separately-compiled translations of
- * ps_sni.c into the same binary:
+ * sni_gateway_passthrough.c into the same binary:
  *
- *   ps_sni.c        – compiled normally (OpenSSL path on OpenSSL builds,
- *                     generic path on LibreSSL / mbedTLS / …).
+ *   sni_gateway_passthrough.c – compiled normally (OpenSSL path on OpenSSL
+ *                     builds, generic path on LibreSSL / mbedTLS / …).
  *   sni_alt_impl.c  – compiled with SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH
  *                     forced, all public symbols renamed with an "_alt"
  *                     suffix to avoid linker conflicts.
@@ -62,8 +62,8 @@
 
 #include "buffer.h"
 #include "socket.h"
-#include "ps_sni.h" /* declares sni_passthrough_build_client_hello_test,
-                          * sni_passthrough_check_and_consume_header         */
+#include "sni_gateway_passthrough.h" /* declares sni_passthrough_build_client_hello_test,
+                                       * sni_passthrough_check_and_consume_header         */
 #include "mock_msg.h"
 #include "test_common.h"
 
