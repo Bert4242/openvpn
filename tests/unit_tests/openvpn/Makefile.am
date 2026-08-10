@@ -421,7 +421,7 @@ sni_testdriver_SOURCES = test_sni.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
-	$(top_srcdir)/src/openvpn/ps_sni.c
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
 
 # SNI passthrough – OpenSSL client_hello_cb path (or generic path on non-OpenSSL)
 sni_openssl_testdriver_CFLAGS = \
@@ -436,10 +436,10 @@ sni_openssl_testdriver_SOURCES = test_sni.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
-	$(top_srcdir)/src/openvpn/ps_sni.c
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
 
 # SNI passthrough – cross-path compatibility test
-# Links ps_sni.c (normal path) alongside sni_alt_impl.c (forced generic
+# Links sni_gateway_passthrough.c (normal path) alongside sni_alt_impl.c (forced generic
 # path, all public symbols renamed) so all four builder × checker
 # combinations can be exercised in a single binary.
 sni_compat_testdriver_CFLAGS = \
@@ -456,7 +456,7 @@ sni_compat_testdriver_SOURCES = test_sni_compat.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
-	$(top_srcdir)/src/openvpn/ps_sni.c
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
 
 # SNI gateway http – request builder + server consume state machine
 sni_gw_http_testdriver_CFLAGS = \

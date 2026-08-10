@@ -32,11 +32,11 @@
 #endif
 #include "socket.h"
 #include "error.h"
-#include "ps_sni.h"
+#include "sni_gateway_passthrough.h"
 
 /*
- * SNI passthrough support
- * (--sni-passthrough-hostname / --sni-passthrough-server).
+ * SNI passthrough support -- implements the --sni-gateway "sni" mode
+ * (client) and --sni-gateway-server "sni" mode (server).
  *
  * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
  * as Traefik (passthrough mode) on any port, without any double encryption.
@@ -45,13 +45,13 @@
  * and route the connection accordingly.  They expect those bytes to be
  * formatted as a ClientHello record (the standard carrier for SNI in TCP).
  *
- *   Client (--sni-passthrough-hostname <hostname>):
+ *   Client (--sni-gateway sni --sni-gateway-host <hostname>):
  *     Prepends a single SNI routing header — a ClientHello record
  *     carrying the given hostname — before the OpenVPN protocol bytes.
  *     The proxy reads the hostname, routes the stream to the right backend,
  *     and forwards all bytes (including the header) maybe unchanged.
  *
- *   Server (--sni-passthrough-server):
+ *   Server (--sni-gateway-server sni):
  *     Receives the routed stream, reads and discards the SNI routing header,
  *     then proceeds with the normal OpenVPN protocol. Openvpn clients that
  *     do not send the header are detected automatically and handled normally.
@@ -61,7 +61,7 @@
  * control-channel and data-channel security are used unchanged.
  */
 
-/* Default ALPN protocol name when --sni-passthrough-alpn is not set. */
+/* Default ALPN protocol name when --sni-gateway-alpn is not set. */
 #define SNI_PT_DEFAULT_ALPN     "hacky-sni-passthrough/1"
 #define SNI_PT_DEFAULT_ALPN_LEN 23u /* strlen("hacky-sni-passthrough/1") */
 

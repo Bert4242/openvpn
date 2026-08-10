@@ -21,7 +21,7 @@
  */
 
 /*
- * sni_alt_impl.c – re-compilation of ps_sni.c with
+ * sni_alt_impl.c – re-compilation of sni_gateway_passthrough.c with
  * SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH forced, exporting all public
  * symbols under distinct "_alt" names.
  *
@@ -31,7 +31,7 @@
  *
  * Symbol mapping (via #define before #include):
  *
- *   ps_sni.c name                              alt name
+ *   sni_gateway_passthrough.c name             alt name
  *   ─────────────────────────────────────────  ──────────────────────────────────────────────────
  *   sni_passthrough_build_client_hello         sni_passthrough_build_client_hello_alt_test_path
  *   sni_passthrough_send_client_hello          sni_passthrough_send_client_hello_alt_test_path
@@ -49,7 +49,7 @@
 
 /*
  * Rename all public (non-static) symbols so this translation unit can
- * coexist with the normal ps_sni.o in the same link step.
+ * coexist with the normal sni_gateway_passthrough.o in the same link step.
  *
  * The static builder sni_passthrough_build_client_hello is also renamed
  * (to sni_passthrough_build_client_hello_alt_test_path) so we can wrap it below.
@@ -60,22 +60,23 @@
 #define sni_passthrough_check_and_consume_header sni_passthrough_check_and_consume_header_alt_test_path
 
 /*
- * Pull in the full ps_sni.c source.  The -I flag for src/openvpn is
- * always present in the test driver CFLAGS so the include resolves
- * correctly.  The UNIT_TESTING wrapper added to ps_sni.c is suppressed
- * by the SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH guard, so no conflicting
+ * Pull in the full sni_gateway_passthrough.c source.  The -I flag for
+ * src/openvpn is always present in the test driver CFLAGS so the include
+ * resolves correctly.  The UNIT_TESTING wrapper added to
+ * sni_gateway_passthrough.c is suppressed by the
+ * SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH guard, so no conflicting
  * sni_passthrough_build_client_hello_test symbol is emitted here.
  */
-#include "ps_sni.c"
+#include "sni_gateway_passthrough.c"
 
 #include <stdint.h>
 #include <stddef.h>
 
 /*
  * sni_passthrough_build_client_hello_alt_test_path is defined static inside
- * the included ps_sni.c.  Expose it under an externally-linkable name so
- * the compatibility test can call both the normal and alt builders from
- * the same test binary.
+ * the included sni_gateway_passthrough.c.  Expose it under an
+ * externally-linkable name so the compatibility test can call both the
+ * normal and alt builders from the same test binary.
  */
 size_t
 sni_passthrough_build_client_hello_alt_test_path_wrapper(uint8_t *buf, size_t bufsz,

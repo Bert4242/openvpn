@@ -21,7 +21,8 @@
  */
 
 /*
- * Unit tests for ps_sni.c: SNI passthrough header parsing and consumption.
+ * Unit tests for sni_gateway_passthrough.c: SNI passthrough header parsing
+ * and consumption; plus sni_gateway.h's mode-string parser.
  *
  * This file is compiled twice:
  *   sni_testdriver          - SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH defined,
@@ -45,7 +46,8 @@
 
 #include "buffer.h"
 #include "socket.h"
-#include "ps_sni.h"
+#include "sni_gateway.h"
+#include "sni_gateway_passthrough.h"
 #include "mock_msg.h"
 #include "test_common.h"
 
