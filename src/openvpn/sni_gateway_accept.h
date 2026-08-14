@@ -33,9 +33,11 @@
  * like:
  *
  *   - an sni-mode decoy ClientHello (first byte 0x16), or
- *   - an sni-tls-http-path-upgrade HTTP/1.1 Upgrade request (starts with
- *     the literal bytes "GET ", the only method sni_gw_http_build_upgrade()
- *     ever emits), or
+ *   - an HTTP/1.1 Upgrade request from an sni-tls-http-path-upgrade or
+ *     sni-http-path-upgrade client (starts with the literal bytes "GET ",
+ *     the only method sni_gw_http_build_upgrade() ever emits -- both client
+ *     modes produce byte-identical plaintext at this point, one via a
+ *     TLS-terminating gateway, the other directly), or
  *   - neither -- plain OpenVPN, or sni-tls-forwarded plaintext OpenVPN,
  *     which are indistinguishable from each other on the wire at this
  *     point and both need no eager handling here.
@@ -60,7 +62,7 @@ enum sni_gw_accept_class
 {
     SNI_GW_ACCEPT_NEED_MORE = 0, /* not enough bytes peeked yet to decide */
     SNI_GW_ACCEPT_SNI,           /* 0x16: sni-mode decoy ClientHello */
-    SNI_GW_ACCEPT_HTTP,          /* "GET ": sni-tls-http-path-upgrade */
+    SNI_GW_ACCEPT_HTTP,          /* "GET ": sni-tls-http-path-upgrade or sni-http-path-upgrade */
     SNI_GW_ACCEPT_OTHER,         /* anything else: plain OpenVPN / sni-tls */
 };
 
