@@ -1755,7 +1755,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     if (sock->info.proto == PROTO_TCP_SERVER)
     {
         phase2_tcp_server(sock, sig_info);
-        /* --sni-gateway-server sni-tls-http-path-upgrade (and, conditionally,
+        /* --sni-gateway-server sni-http-path-upgrade (and, conditionally,
          * auto): while the accepted fd is still BLOCKING, read the HTTP/1.1
          * Upgrade request from the gateway and send 101.
          * This must happen before the event loop sends HARD_RESET.
@@ -2327,7 +2327,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         sb->buf.len += (int)length_added;
     }
 
-    /* --sni-gateway-server sni-tls-http-path-upgrade: consume the plaintext HTTP/1.1 Upgrade request
+    /* --sni-gateway-server sni-http-path-upgrade: consume the plaintext HTTP/1.1 Upgrade request
      * that precedes the OpenVPN stream (the 101 reply is emitted by the caller,
      * link_socket_read_tcp, which has the socket descriptor).  Runs before the
      * OpenVPN length-prefix logic because the request is not length-prefixed. */
@@ -2578,7 +2578,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
     bool complete = sock->stream_buf.residual_fully_formed
                     || stream_buf_added(&sock->stream_buf, len); /* packet complete? */
 
-    /* --sni-gateway-server sni-tls-http-path-upgrade: once the Upgrade request has been consumed,
+    /* --sni-gateway-server sni-http-path-upgrade: once the Upgrade request has been consumed,
      * emit the fixed 101 response exactly once, before any OpenVPN processing
      * of the trailing bytes.  stream_buf_added() runs the consume state machine;
      * sock->sd is reachable here (unlike inside stream_buf_added). */
