@@ -182,7 +182,7 @@ struct connection_entry
     bool tls_crypt_v2_force_cookie;
 
     /** SNI gateway mode for this connection
-     *  (--sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade>).
+     *  (--sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>).
      *  Defaults to SNI_GW_DROP, CLI value "sni" (the original
      *  passthrough-decoy behaviour). */
     enum sni_gateway_mode sni_gateway_mode;
@@ -209,8 +209,12 @@ struct connection_entry
      *  sni-gateway-alpn was seen inside this connection block). */
     bool sni_gateway_alpn_defined;
 
-    /** Used by the sni-tls-http-path-upgrade gateway mode. */
+    /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
+     *  gateway modes. */
     const char *sni_gateway_path;
+    /** Used by sni-tls/sni-tls-http-path-upgrade only -- meaningless (and
+     *  rejected) in sni-http-path-upgrade, which has no TLS session to
+     *  verify. */
     const char *sni_gateway_ca;
     bool sni_gateway_no_verify;
 };
@@ -710,15 +714,15 @@ struct options
     int tls_crypt_v2_max_age;
 
     /** Enable server-side SNI gateway handling
-     *  (--sni-gateway-server <sni|sni-tls-http-path-upgrade|auto>).
+     *  (--sni-gateway-server <sni|sni-http-path-upgrade|auto>).
      *  In "sni" mode, peeks the first byte: 0x16 = routing header present
      *  (discard it); anything else = openvpn client (proceed normally, full
      *  backwards compat) -- this also transparently accepts sni-tls traffic.
      *  In "auto" mode, the first bytes of each accepted connection are
      *  classified (sni_gateway_accept.h) to additionally accept
-     *  sni-tls-http-path-upgrade clients on the same port; both the sni-mode
-     *  host/ALPN filters and the http-mode path filter are simultaneously
-     *  meaningful under "auto". */
+     *  sni-tls-http-path-upgrade/sni-http-path-upgrade clients on the same
+     *  port; both the sni-mode host/ALPN filters and the http-mode path
+     *  filter are simultaneously meaningful under "auto". */
     bool sni_gateway_server_enabled;
     enum sni_gateway_mode sni_gateway_server_mode;
 
@@ -736,7 +740,7 @@ struct options
     bool sni_gateway_server_ignore_alpn;
 
     /** Optional exact request path to enforce in --sni-gateway-server
-     *  sni-tls-http-path-upgrade or auto mode (--sni-gateway-server-path).
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-path).
      *  NULL accepts any path (the gateway is expected to gate the path). */
     const char *sni_gateway_server_path;
 
