@@ -33,6 +33,7 @@
 #include "plugin.h"
 #include "ps.h"
 #include "sni_gateway.h"
+#include "sni_gateway_accept.h"
 #include "sni_gateway_passthrough.h"
 #include "sni_gateway_tls.h"
 #include "sni_gateway_http.h"
@@ -1390,11 +1391,13 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
-    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_DROP)
+    if (o->sni_gateway_server_enabled
+        && (o->sni_gateway_server_mode == SNI_GW_DROP || o->sni_gateway_server_mode == SNI_GW_AUTO))
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
-    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
+    if (o->sni_gateway_server_enabled
+        && (o->sni_gateway_server_mode == SNI_GW_HTTP || o->sni_gateway_server_mode == SNI_GW_AUTO))
     {
         sock->sockflags |= SF_SNI_GW_HTTP;
     }
@@ -1766,8 +1769,9 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     if (sock->info.proto == PROTO_TCP_SERVER)
     {
         phase2_tcp_server(sock, sig_info);
-        /* --sni-gateway-server sni-tls-http-path-upgrade: while the accepted fd is still BLOCKING,
-         * read the HTTP/1.1 Upgrade request from the gateway and send 101.
+        /* --sni-gateway-server sni-tls-http-path-upgrade (and, conditionally,
+         * auto): while the accepted fd is still BLOCKING, read the HTTP/1.1
+         * Upgrade request from the gateway and send 101.
          * This must happen before the event loop sends HARD_RESET.
          * Applies to both LS_MODE_DEFAULT (single-client: listen+accept combined)
          * and LS_MODE_TCP_ACCEPT_FROM (multi-client: accept from listener). */
@@ -1776,15 +1780,44 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             && (sock->sockflags & SF_SNI_GW_HTTP)
             && socket_defined(sock->sd))
         {
-            if (!sni_gw_http_server_accept_upgrade(
-                    sock->sd, sock->stream_buf.sni_gw_http_require_path))
+            bool run_http_upgrade = true;
+
+            if (sock->sockflags & SF_SNI_PASSTHROUGH)
             {
-                register_signal(sig_info, SIGUSR1,
-                                "sni-gateway-server-http-upgrade-error");
-                goto done;
+                /* auto mode: both flags are set on this socket -- classify
+                 * the connection's first bytes before deciding whether to
+                 * run the (blocking) HTTP eager path at all, so sni/sni-tls
+                 * clients don't hang here waiting for an Upgrade request
+                 * that will never arrive. */
+                bool classify_error = false;
+                enum sni_gw_accept_class cls =
+                    sni_gw_accept_classify_fd(sock->sd, &classify_error);
+                if (classify_error)
+                {
+                    register_signal(sig_info, SIGUSR1,
+                                    "sni-gateway-server-auto-classify-error");
+                    goto done;
+                }
+                run_http_upgrade = (cls == SNI_GW_ACCEPT_HTTP);
+                /* cls == SNI_GW_ACCEPT_SNI or _OTHER: do nothing eager here;
+                 * the lazy SF_SNI_PASSTHROUGH peek in stream_buf_added() and
+                 * sni_gw_http_check_and_consume_request()'s own "not HTTP"
+                 * self-disable take it from here, exactly as they do outside
+                 * of auto mode. */
             }
-            sock->stream_buf.sni_gw_http_state = SNI_GW_HTTP_SUCCESS;
-            sock->stream_buf.sni_gw_http_101_sent = true;
+
+            if (run_http_upgrade)
+            {
+                if (!sni_gw_http_server_accept_upgrade(
+                        sock->sd, sock->stream_buf.sni_gw_http_require_path))
+                {
+                    register_signal(sig_info, SIGUSR1,
+                                    "sni-gateway-server-http-upgrade-error");
+                    goto done;
+                }
+                sock->stream_buf.sni_gw_http_state = SNI_GW_HTTP_SUCCESS;
+                sock->stream_buf.sni_gw_http_101_sent = true;
+            }
         }
     }
     else if (sock->info.proto == PROTO_TCP_CLIENT)

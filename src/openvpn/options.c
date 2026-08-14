@@ -678,28 +678,37 @@ static const char usage_message[] =
     "--sni-gateway-no-verify : (Client) Skip gateway certificate verification in\n"
     "                  --sni-gateway sni-tls/sni-tls-http-path-upgrade mode\n"
     "                  (insecure).\n"
-    "--sni-gateway-server <sni|sni-tls-http-path-upgrade> : (Server) Enable\n"
-    "                  server-side SNI gateway handling.  'sni' detects and\n"
-    "                  discards the SNI routing header sent by clients using\n"
-    "                  --sni-gateway sni, then proceeds with the OpenVPN\n"
+    "--sni-gateway-server <sni|sni-tls-http-path-upgrade|auto> : (Server)\n"
+    "                  Enable server-side SNI gateway handling.  'sni' detects\n"
+    "                  and discards the SNI routing header sent by clients\n"
+    "                  using --sni-gateway sni, then proceeds with the OpenVPN\n"
     "                  protocol. Openvpn clients (no routing header) are\n"
-    "                  detected by peeking the first byte and handled normally.\n"
+    "                  detected by peeking the first byte and handled normally\n"
+    "                  -- this also transparently accepts --sni-gateway\n"
+    "                  sni-tls clients, which look identical at this point.\n"
     "                  'sni-tls-http-path-upgrade' consumes the inbound\n"
     "                  plaintext HTTP/1.1 Upgrade request (forwarded by a\n"
     "                  TLS-terminating gateway for --sni-gateway\n"
     "                  sni-tls-http-path-upgrade clients) and replies 101\n"
     "                  Switching Protocols before OpenVPN.\n"
+    "                  'auto' accepts sni, sni-tls, and sni-tls-http-path-\n"
+    "                  upgrade client connections on the same port: the first\n"
+    "                  bytes of each connection are inspected at accept time\n"
+    "                  to tell them apart before any OpenVPN protocol\n"
+    "                  processing begins.\n"
     "--sni-gateway-server-host name : (Server) Accept only routing\n"
     "                  headers whose SNI extension matches <name> (case-insensitive).\n"
     "                  May be repeated; any one match is sufficient.  When not\n"
-    "                  set, any hostname (or no SNI) is accepted.  (sni mode only)\n"
+    "                  set, any hostname (or no SNI) is accepted.  (sni and\n"
+    "                  auto modes)\n"
     "--sni-gateway-server-ignore-alpn : (Server) Skip ALPN matching.\n"
     "                  Accept any valid ClientHello regardless of ALPN content.\n"
-    "                  Wins over --sni-gateway-alpn if both are set.  (sni mode only)\n"
+    "                  Wins over --sni-gateway-alpn if both are set.  (sni and\n"
+    "                  auto modes)\n"
     "--sni-gateway-server-path path : (Server) In --sni-gateway-server\n"
-    "                  sni-tls-http-path-upgrade mode, require the client's\n"
-    "                  request path to match <path> exactly (must start with\n"
-    "                  '/').  Default: accept any path.\n"
+    "                  sni-tls-http-path-upgrade or auto mode, require the\n"
+    "                  client's request path to match <path> exactly (must\n"
+    "                  start with '/').  Default: accept any path.\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -3440,8 +3449,12 @@ options_postprocess_verify(const struct options *o)
 
     /*
      * SNI gateway server-side validation (--sni-gateway-server).
-     * Accepts "sni" or "sni-tls-http-path-upgrade" (the server never
-     * terminates TLS itself, so there is no "sni-tls" server mode).
+     * Accepts "sni", "sni-tls-http-path-upgrade", or "auto" (the server
+     * never terminates TLS itself, so there is no "sni-tls" server mode).
+     * Deliberately NOT extended to SNI_GW_AUTO below: under "auto" both the
+     * sni-mode host/ALPN filters and the http-mode path filter are
+     * simultaneously meaningful (any of the three client modes may arrive
+     * on the same port), so neither "ignored" warning should fire.
      */
     if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
     {
@@ -3463,12 +3476,14 @@ options_postprocess_verify(const struct options *o)
     if (o->sni_gateway_server_path && !o->sni_gateway_server_enabled)
     {
         msg(M_USAGE, "--sni-gateway-server-path requires "
-                     "--sni-gateway-server sni-tls-http-path-upgrade");
+                     "--sni-gateway-server sni-tls-http-path-upgrade or auto");
     }
-    if (o->sni_gateway_server_path && o->sni_gateway_server_mode != SNI_GW_HTTP)
+    if (o->sni_gateway_server_path
+        && o->sni_gateway_server_mode != SNI_GW_HTTP
+        && o->sni_gateway_server_mode != SNI_GW_AUTO)
     {
         msg(M_USAGE, "--sni-gateway-server-path is only meaningful with "
-                     "--sni-gateway-server sni-tls-http-path-upgrade");
+                     "--sni-gateway-server sni-tls-http-path-upgrade or auto");
     }
     if (o->sni_gateway_server_path && o->sni_gateway_server_path[0] != '/')
     {
@@ -9326,6 +9341,12 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
                 p[1]);
             goto err;
         }
+        if (mode == SNI_GW_AUTO)
+        {
+            msg(msglevel, "--sni-gateway: mode 'auto' is only valid for "
+                          "--sni-gateway-server (there is no client-side auto mode)");
+            goto err;
+        }
         options->ce.sni_gateway_mode = (enum sni_gateway_mode)mode;
         options->ce.sni_gateway_defined = true;
         options->ce.sni_gateway_client_enabled = true;
@@ -9366,7 +9387,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         {
             msg(msglevel,
                 "--sni-gateway-server: unknown mode '%s' "
-                "(expected sni or sni-tls-http-path-upgrade)",
+                "(expected sni, sni-tls-http-path-upgrade, or auto)",
                 p[1]);
             goto err;
         }
