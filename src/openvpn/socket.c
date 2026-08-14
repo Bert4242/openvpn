@@ -1834,7 +1834,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                                                (const char *const *)c->options.ce.sni_gateway_alpn_list,
                                                c->options.ce.sni_gateway_alpn_count))
         {
-            register_signal(sig_info, SIGUSR1, "sni-passthrough-send-error");
+            register_signal(sig_info, SIGUSR1, "sni-gateway-send-error");
             goto done;
         }
     }
