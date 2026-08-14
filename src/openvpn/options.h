@@ -710,27 +710,34 @@ struct options
     int tls_crypt_v2_max_age;
 
     /** Enable server-side SNI gateway handling
-     *  (--sni-gateway-server <sni|sni-tls-http-path-upgrade>).
+     *  (--sni-gateway-server <sni|sni-tls-http-path-upgrade|auto>).
      *  In "sni" mode, peeks the first byte: 0x16 = routing header present
      *  (discard it); anything else = openvpn client (proceed normally, full
-     *  backwards compat). */
+     *  backwards compat) -- this also transparently accepts sni-tls traffic.
+     *  In "auto" mode, the first bytes of each accepted connection are
+     *  classified (sni_gateway_accept.h) to additionally accept
+     *  sni-tls-http-path-upgrade clients on the same port; both the sni-mode
+     *  host/ALPN filters and the http-mode path filter are simultaneously
+     *  meaningful under "auto". */
     bool sni_gateway_server_enabled;
     enum sni_gateway_mode sni_gateway_server_mode;
 
     /** Accepted SNI hostnames (--sni-gateway-server-host, repeatable).
-     *  When empty, any hostname (or no SNI) is accepted.  Case-insensitive. */
+     *  When empty, any hostname (or no SNI) is accepted.  Case-insensitive.
+     *  Meaningful in "sni" and "auto" server modes. */
     const char **sni_gateway_server_host_list;
     int sni_gateway_server_host_count;
 
     /** Skip ALPN matching entirely (--sni-gateway-server-ignore-alpn).
      *  When true, the ALPN extension is ignored regardless of content.
      *  Mutually exclusive with --sni-gateway-alpn on the server;
-     *  if both are set, ignore_alpn wins (with a warning). */
+     *  if both are set, ignore_alpn wins (with a warning).
+     *  Meaningful in "sni" and "auto" server modes. */
     bool sni_gateway_server_ignore_alpn;
 
     /** Optional exact request path to enforce in --sni-gateway-server
-     *  sni-tls-http-path-upgrade mode (--sni-gateway-server-path).  NULL
-     *  accepts any path (the gateway is expected to gate the path). */
+     *  sni-tls-http-path-upgrade or auto mode (--sni-gateway-server-path).
+     *  NULL accepts any path (the gateway is expected to gate the path). */
     const char *sni_gateway_server_path;
 
     /* Allow only one session */
