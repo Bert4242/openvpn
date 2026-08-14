@@ -685,6 +685,23 @@ gw_ssl_read_byte(struct sni_gw_tls *t, socket_descriptor_t sd, uint8_t *out,
     }
 }
 
+/* Adapter matching sni_gw_http_read_byte_fn, wrapping gw_ssl_read_byte() so
+ * sni_gw_http_client_read_101() (sni_gateway_http.c) can drive either
+ * transport. */
+struct gw_ssl_read_ctx
+{
+    struct sni_gw_tls *t;
+    socket_descriptor_t sd;
+};
+
+static bool
+gw_ssl_read_byte_adapter(void *ctx, uint8_t *out,
+                         volatile int *signal_received, int poll_timeout)
+{
+    struct gw_ssl_read_ctx *c = (struct gw_ssl_read_ctx *)ctx;
+    return gw_ssl_read_byte(c->t, c->sd, out, signal_received, poll_timeout);
+}
+
 bool
 sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
                            const char *host, const char *path,
@@ -712,47 +729,10 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
         return false;
     }
 
-    /*
-     * Read the response header block up to (and including) the terminating
-     * CRLF CRLF, one plaintext byte at a time.  Then require the status line to
-     * begin with "HTTP/1.1 101".
-     */
-    char resp[1024];
-    int rlen = 0;
-    bool complete = false;
-    while (rlen < (int)sizeof(resp))
+    struct gw_ssl_read_ctx ctx = { .t = t, .sd = sd };
+    if (!sni_gw_http_client_read_101(gw_ssl_read_byte_adapter, &ctx, signal_received,
+                                     poll_timeout, "sni-gateway http"))
     {
-        uint8_t byte;
-        if (!gw_ssl_read_byte(t, sd, &byte, signal_received, poll_timeout))
-        {
-            return false;
-        }
-        resp[rlen++] = (char)byte;
-        if (rlen >= 4
-            && resp[rlen - 4] == '\r' && resp[rlen - 3] == '\n'
-            && resp[rlen - 2] == '\r' && resp[rlen - 1] == '\n')
-        {
-            complete = true;
-            break;
-        }
-    }
-    if (!complete)
-    {
-        msg(D_LINK_ERRORS, "sni-gateway http: 101 response header too large / not terminated");
-        return false;
-    }
-
-    static const char expect[] = "HTTP/1.1 101";
-    if (rlen < (int)(sizeof(expect) - 1)
-        || memcmp(resp, expect, sizeof(expect) - 1) != 0)
-    {
-        int line = 0;
-        while (line < rlen && resp[line] != '\r')
-        {
-            line++;
-        }
-        msg(D_LINK_ERRORS, "sni-gateway http: gateway did not return 101 (got '%.*s')",
-            line, resp);
         return false;
     }
 
