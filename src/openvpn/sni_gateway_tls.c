@@ -768,11 +768,6 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
                 *fatal = true;
                 return produced;
             }
-            /* TEMPORARY DEBUG (2026-08-14, field "Bad encapsulated packet
-             * length" investigation) -- remove once root-caused. */
-            dmsg(D_STREAM_DEBUG,
-                 "sni-gateway tls DEBUG: SSL_read n=%d fifo_len_after=%d fifo_offset=%d",
-                 n, t->in_plaintext.len, t->in_plaintext.offset);
             produced = true;
             continue;
         }
@@ -857,11 +852,6 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
                     }
                     off += w;
                 }
-                /* TEMPORARY DEBUG (2026-08-14, field "Bad encapsulated packet
-                 * length" investigation) -- remove once root-caused. */
-                dmsg(D_STREAM_DEBUG,
-                     "sni-gateway tls DEBUG: recv() r=%d space=%zu bio_write_off=%d",
-                     (int)r, space, off);
                 progress = true;
             }
         }
@@ -885,23 +875,13 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
     int cap = BLEN(buf);
     if (cap > 0 && t->in_plaintext.len > 0)
     {
-        int fifo_len_before = t->in_plaintext.len;
-        ssize_t served = gw_fifo_consume(&t->in_plaintext, BPTR(buf), cap);
-        /* TEMPORARY DEBUG (2026-08-14, field "Bad encapsulated packet
-         * length" investigation) -- remove once root-caused. */
-        dmsg(D_STREAM_DEBUG,
-             "sni-gateway tls DEBUG: serve cap=%d fifo_len_before=%d served=%zd fifo_len_after=%d",
-             cap, fifo_len_before, served, t->in_plaintext.len);
-        return served;
+        return gw_fifo_consume(&t->in_plaintext, BPTR(buf), cap);
     }
 
     /* Nothing left to serve: report fatal only once the FIFO is empty, so any
      * already-decrypted plaintext is delivered before we signal a reset. */
     if (fatal)
     {
-        /* TEMPORARY DEBUG (2026-08-14, field "Bad encapsulated packet
-         * length" investigation) -- remove once root-caused. */
-        dmsg(D_STREAM_DEBUG, "sni-gateway tls DEBUG: read() reporting fatal, fifo empty");
         return -1;
     }
     return 0; /* no complete plaintext yet -- packet still incomplete */
@@ -1002,12 +982,6 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
     {
         return -1;
     }
-
-    /* TEMPORARY DEBUG (2026-08-14, field "Bad encapsulated packet length"
-     * investigation) -- remove once root-caused. */
-    dmsg(D_STREAM_DEBUG,
-         "sni-gateway tls DEBUG: write plaintext_len=%d out_ciphertext_pending=%d",
-         plaintext_len, t->out_ciphertext.len);
 
     /* 5. Plaintext was fully accepted into the TLS stream. */
     return plaintext_len;
