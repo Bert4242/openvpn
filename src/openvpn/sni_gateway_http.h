@@ -51,18 +51,26 @@
  *
  * This module holds the transport-independent pieces:
  *   - sni_gw_http_build_upgrade():             build the client request bytes.
+ *   - sni_gw_http_client_read_101():           shared client-side response
+ *                                              reader/validator (used by both
+ *                                              the TLS-backed and plain
+ *                                              client-side upgrades below).
  *   - sni_gw_http_check_and_consume_request(): the server-side state machine
  *                                              that detects/consumes the request.
  *   - sni_gw_http_send_101():                  emit the fixed 101 response.
  *
- * The client-side upgrade over the TLS tunnel lives in sni_gateway_tls.c
- * (sni_gw_http_client_upgrade()) because it needs the SSL object.
+ * The TLS-backed client-side upgrade (--sni-gateway sni-tls-http-path-upgrade)
+ * lives in sni_gateway_tls.c (sni_gw_http_client_upgrade()) because it needs
+ * the SSL object.  The plain-socket client-side upgrade
+ * (--sni-gateway sni-http-path-upgrade, no TLS at all) lives entirely in this
+ * module (sni_gw_http_client_upgrade_plain()).
  */
 
 #include "syshead.h"
 
 #include <stddef.h>
 #include <stdbool.h>
+#include <stdint.h>
 
 struct stream_buf;
 
@@ -89,6 +97,44 @@ size_t sni_gw_http_build_upgrade(char *buf, size_t bufsz,
  */
 extern const char sni_gw_http_101_response[];
 size_t sni_gw_http_101_response_len(void);
+
+/*
+ * Client side: read a byte from whatever transport a client-side Upgrade
+ * caller is using (TLS tunnel or plain socket), honoring poll_timeout and
+ * signal_received the same way the two transports already do individually.
+ * Returns true with *out set on success, false on timeout/signal/peer-close/
+ * fatal error (the implementation is responsible for logging the specific
+ * reason).
+ */
+typedef bool (*sni_gw_http_read_byte_fn)(void *ctx, uint8_t *out,
+                                          volatile int *signal_received,
+                                          int poll_timeout);
+
+/*
+ * Client side: shared "read the 101 response" loop used by both the
+ * TLS-backed (sni_gateway_tls.c) and plain-socket (this module) client-side
+ * Upgrade implementations.  Reads bytes one at a time via read_byte(ctx, ...)
+ * until the terminating CRLF CRLF (bounded to a 1024-byte header), then
+ * requires the status line to start with "HTTP/1.1 101".  log_prefix is used
+ * verbatim in log messages so each transport keeps its own existing wording.
+ * Returns true on a validated 101 response, false otherwise (logged).
+ */
+bool sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
+                                 volatile int *signal_received, int poll_timeout,
+                                 const char *log_prefix);
+
+/*
+ * Client side: --sni-gateway sni-http-path-upgrade -- perform the HTTP/1.1
+ * Upgrade handshake directly over the plain, still-blocking TCP socket sd --
+ * no TLS at all.  host/path mirror --sni-gateway-host/--sni-gateway-path.
+ * signal_received/server_poll_timeout as for sni_gw_http_client_upgrade() in
+ * sni_gateway_tls.c, so this is interruptible and cannot hang forever.
+ * Returns true on a completed 101 upgrade, false on any failure (logged).
+ */
+bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
+                                      const char *host, const char *path,
+                                      volatile int *signal_received,
+                                      int server_poll_timeout);
 
 /*
  * Server side: drive the state machine that detects and consumes the HTTP/1.1
