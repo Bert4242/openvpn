@@ -35,7 +35,7 @@
  *
  * SNI gateway mode, selected via
  * --sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade> (client) and
- * --sni-gateway-server <sni|sni-tls-http-path-upgrade> (server).
+ * --sni-gateway-server <sni|sni-tls-http-path-upgrade|auto> (server).
  *
  * SNI_GW_DROP: CLI value "sni" -- the existing SNI passthrough decoy
  *              behaviour: a fake ClientHello is sent/consumed and then
@@ -50,17 +50,25 @@
  *              client-side upgrade, which needs the SSL object) and
  *              sni_gateway_http.c (the transport-independent protocol
  *              pieces).
+ * SNI_GW_AUTO: CLI value "auto" -- SERVER-SIDE ONLY, never valid for
+ *              client --sni-gateway.  Accepts sni, sni-tls (for free, as
+ *              with plain "sni"), and sni-tls-http-path-upgrade client
+ *              connections on one process/port: the first bytes of each
+ *              just-accepted connection are classified (see
+ *              sni_gateway_accept.h) to decide whether to run the http
+ *              mode's eager accept-time upgrade handling.
  */
 enum sni_gateway_mode
 {
     SNI_GW_DROP = 0,
     SNI_GW_TLS = 1,
     SNI_GW_HTTP = 2,
+    SNI_GW_AUTO = 3,
 };
 
 /*
  * Parse a --sni-gateway[-server] mode argument.
- * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade"
+ * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade", "auto"
  * (case-sensitive).
  * Returns the corresponding enum sni_gateway_mode value, or -1 if
  * the string does not match any known mode.
@@ -91,6 +99,10 @@ sni_gateway_mode_from_string(const char *s)
     if (strcmp(s, "sni-tls-http-path-upgrade") == 0)
     {
         return SNI_GW_HTTP;
+    }
+    if (strcmp(s, "auto") == 0)
+    {
+        return SNI_GW_AUTO;
     }
     return -1;
 }

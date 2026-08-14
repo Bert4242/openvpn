@@ -2,8 +2,9 @@ Testing --sni-gateway (sni / sni-tls / sni-tls-http-path-upgrade)
 ===================================================================
 
 This document is a quick how-to for building and exercising the three
-``--sni-gateway`` modes added on the ``sni-gateway-modes`` branch. It
-only covers what's needed to test the feature; see ``--help`` output
+``--sni-gateway`` client modes, plus the server-side ``auto`` mode that
+accepts all three on one port, added on the ``sni-gateway-modes`` branch.
+It only covers what's needed to test the feature; see ``--help`` output
 in ``options.c`` for the full option reference.
 
 Clone + branch
@@ -23,7 +24,7 @@ Build
     autoreconf -i
     ./configure --with-crypto-library=openssl
     make -j$(nproc)
-    make -C tests/unit_tests/openvpn check   # expect 21/21
+    make -C tests/unit_tests/openvpn check   # expect all tests to pass
 
 DCO does not need to be disabled at build time. It is a normal build
 default; OpenVPN falls back to userspace automatically, per connection
@@ -42,7 +43,10 @@ Sample configs
 All three modes are client-side (``--sni-gateway``); the server opts in
 with ``--sni-gateway-server``. ``sni`` and ``sni-tls-http-path-upgrade``
 need matching server config; ``sni-tls`` needs no server config at all
-since Traefik terminates it.
+since Traefik terminates it. A fourth, server-only value,
+``--sni-gateway-server auto``, accepts all three client modes on one
+process/port (see the ``auto`` section below) instead of needing a
+dedicated server config per mode.
 
 sni -- fake ClientHello, Traefik TCP-passthrough SNI routing
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
@@ -102,6 +106,35 @@ server.conf::
 Traefik: HTTP router matching ``Host(vpn.example.com) &&
 Path(/vpn-upgrade)``, ``tls: {}``, forwarding to
 ``http://openvpn-server:1194``.
+
+auto -- one server process/port, all three client modes at once
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+``sni`` and ``sni-tls`` already coexist for free on one
+``--sni-gateway-server sni`` port. ``auto`` additionally classifies each
+just-accepted connection's first bytes to also accept
+``sni-tls-http-path-upgrade`` clients on that same port, so a single
+``openvpn`` process/port can sit behind all three Traefik routers instead
+of needing a second port/process for the HTTP-Upgrade case.
+
+server.conf::
+
+    proto tcp-server
+    port 1298
+    sni-gateway-server auto
+    sni-gateway-server-path /vpn-upgrade   # optional, still enforced for http clients
+
+Traefik: three routers, all forwarding to the *same* backend
+(``los.hudzia.net:1298`` in the real deployment behind
+``*.test.1blu.hudzia.net``):
+
+- TCP router matching ``HostSNI(sni.test.1blu.hudzia.net)``, passthrough
+  (no cert) -- for ``--sni-gateway sni`` clients.
+- TCP router matching ``HostSNI(sni-tls.test.1blu.hudzia.net)`` with
+  ``tls: {}`` -- for ``--sni-gateway sni-tls`` clients.
+- HTTP router matching ``Host(sni-tls-http-path-upgrade.test.1blu.hudzia.net)
+  && Path(/vpn-upgrade)``, ``tls: {}`` -- for
+  ``--sni-gateway sni-tls-http-path-upgrade`` clients.
 
 Notes
 -----
