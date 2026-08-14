@@ -31,6 +31,7 @@
 #include "socket.h"
 #include "error.h"
 #include "fdmisc.h"
+#include "sig.h"
 
 /*
  * Upper bound on the HTTP Upgrade request we are willing to buffer before the
@@ -79,6 +80,219 @@ sni_gw_http_build_upgrade(char *buf, size_t bufsz, const char *host, const char 
         return 0; /* encoding error or truncated -> overflow */
     }
     return (size_t)n;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Client-side: shared "read the 101 response" reader                        */
+/* ------------------------------------------------------------------------- */
+
+bool
+sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
+                            volatile int *signal_received, int poll_timeout,
+                            const char *log_prefix)
+{
+    char resp[1024];
+    int rlen = 0;
+    bool complete = false;
+
+    while (rlen < (int)sizeof(resp))
+    {
+        uint8_t byte;
+        if (!read_byte(ctx, &byte, signal_received, poll_timeout))
+        {
+            return false;
+        }
+        resp[rlen++] = (char)byte;
+        if (rlen >= 4
+            && resp[rlen - 4] == '\r' && resp[rlen - 3] == '\n'
+            && resp[rlen - 2] == '\r' && resp[rlen - 1] == '\n')
+        {
+            complete = true;
+            break;
+        }
+    }
+    if (!complete)
+    {
+        msg(D_LINK_ERRORS, "%s: 101 response header too large / not terminated", log_prefix);
+        return false;
+    }
+
+    static const char expect[] = "HTTP/1.1 101";
+    if (rlen < (int)(sizeof(expect) - 1)
+        || memcmp(resp, expect, sizeof(expect) - 1) != 0)
+    {
+        int line = 0;
+        while (line < rlen && resp[line] != '\r')
+        {
+            line++;
+        }
+        msg(D_LINK_ERRORS, "%s: gateway did not return 101 (got '%.*s')",
+            log_prefix, line, resp);
+        return false;
+    }
+
+    return true;
+}
+
+/* ------------------------------------------------------------------------- */
+/* Client-side: plain-socket Upgrade (--sni-gateway sni-http-path-upgrade)   */
+/* ------------------------------------------------------------------------- */
+
+/*
+ * Blocking write of the whole buffer over a plain (still-blocking) TCP
+ * socket, honoring poll_timeout/signal_received.  Mirrors gw_ssl_write_all()
+ * in sni_gateway_tls.c but shuttles plaintext bytes directly with send(),
+ * no TLS record layer involved.
+ */
+static bool
+gw_plain_write_all(socket_descriptor_t sd, const void *data, int len,
+                   volatile int *signal_received, int poll_timeout)
+{
+    int off = 0;
+    while (off < len)
+    {
+        fd_set writes;
+        struct timeval tv;
+        FD_ZERO(&writes);
+        openvpn_fd_set(sd, &writes);
+        tv.tv_sec = poll_timeout;
+        tv.tv_usec = 0;
+
+        int status = openvpn_select(sd + 1, NULL, &writes, NULL, &tv);
+        get_signal(signal_received);
+        if (*signal_received)
+        {
+            return false;
+        }
+        if (status == 0)
+        {
+            msg(D_LINK_ERRORS, "sni-gateway http (plain): write timeout");
+            return false;
+        }
+        if (status < 0)
+        {
+            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): select() failed");
+            return false;
+        }
+
+        ssize_t s = send(sd, (const char *)data + off, len - off, MSG_NOSIGNAL);
+        if (s > 0)
+        {
+            off += (int)s;
+        }
+        else
+        {
+            int e = openvpn_errno();
+            if (e == EAGAIN || e == EWOULDBLOCK || e == EINTR)
+            {
+                continue;
+            }
+            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): send() failed");
+            return false;
+        }
+    }
+    return true;
+}
+
+/*
+ * Blocking read of exactly one plaintext byte, honoring
+ * poll_timeout/signal_received.  Mirrors gw_ssl_read_byte()'s per-byte
+ * strategy in sni_gateway_tls.c: trailing bytes the gateway coalesced into
+ * the same TCP segment after the response's terminating blank line are left
+ * in the kernel socket buffer for the steady-state raw recv() path -- this
+ * mode never allocates a userspace FIFO to buffer them in.
+ */
+static bool
+gw_plain_read_byte(socket_descriptor_t sd, uint8_t *out,
+                   volatile int *signal_received, int poll_timeout)
+{
+    for (;;)
+    {
+        fd_set reads;
+        struct timeval tv;
+        FD_ZERO(&reads);
+        openvpn_fd_set(sd, &reads);
+        tv.tv_sec = poll_timeout;
+        tv.tv_usec = 0;
+
+        int status = openvpn_select(sd + 1, &reads, NULL, NULL, &tv);
+        get_signal(signal_received);
+        if (*signal_received)
+        {
+            return false;
+        }
+        if (status == 0)
+        {
+            msg(D_LINK_ERRORS, "sni-gateway http (plain): read timeout");
+            return false;
+        }
+        if (status < 0)
+        {
+            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): select() failed");
+            return false;
+        }
+
+        ssize_t r = recv(sd, (char *)out, 1, MSG_NOSIGNAL);
+        if (r == 1)
+        {
+            return true;
+        }
+        if (r == 0)
+        {
+            msg(D_LINK_ERRORS, "sni-gateway http (plain): gateway closed connection during upgrade");
+            return false;
+        }
+
+        int e = openvpn_errno();
+        if (e == EAGAIN || e == EWOULDBLOCK || e == EINTR)
+        {
+            continue; /* spurious wakeup, try again */
+        }
+        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): recv() failed");
+        return false;
+    }
+}
+
+/* Adapter matching sni_gw_http_read_byte_fn; ctx is a socket_descriptor_t *. */
+static bool
+plain_read_byte_adapter(void *ctx, uint8_t *out,
+                        volatile int *signal_received, int poll_timeout)
+{
+    socket_descriptor_t sd = *(socket_descriptor_t *)ctx;
+    return gw_plain_read_byte(sd, out, signal_received, poll_timeout);
+}
+
+bool
+sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
+                                 const char *host, const char *path,
+                                 volatile int *signal_received,
+                                 int server_poll_timeout)
+{
+    int poll_timeout = server_poll_timeout > 0 ? server_poll_timeout : 10;
+
+    char req[1024];
+    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path);
+    if (reqlen == 0)
+    {
+        msg(D_LINK_ERRORS, "sni-gateway http (plain): could not build Upgrade request "
+                           "(bad --sni-gateway-host/--sni-gateway-path?)");
+        return false;
+    }
+
+    if (!gw_plain_write_all(sd, req, (int)reqlen, signal_received, poll_timeout))
+    {
+        return false;
+    }
+
+    if (!sni_gw_http_client_read_101(plain_read_byte_adapter, &sd, signal_received,
+                                     poll_timeout, "sni-gateway http (plain)"))
+    {
+        return false;
+    }
+
+    msg(D_HANDSHAKE, "sni-gateway http (plain): HTTP Upgrade to '%s' path '%s' complete",
+        host, path);
+    return true;
 }
 
 /* ------------------------------------------------------------------------- */
