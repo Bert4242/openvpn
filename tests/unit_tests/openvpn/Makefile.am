@@ -50,10 +50,10 @@ check_PROGRAMS += networking_testdriver
 endif
 
 check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
-	sni_gw_http_testdriver sni_gw_accept_testdriver
+	sni_gw_http_testdriver sni_gw_accept_testdriver sni_gw_tls_burst_testdriver
 if !CROSS_COMPILING
 TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
-	sni_gw_http_testdriver sni_gw_accept_testdriver
+	sni_gw_http_testdriver sni_gw_accept_testdriver sni_gw_tls_burst_testdriver
 endif
 
 argv_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
@@ -487,6 +487,26 @@ sni_gw_accept_testdriver_SOURCES = test_sni_gw_accept.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
 	$(top_srcdir)/src/openvpn/sni_gateway_accept.c
+
+# SNI gateway tls -- real-TLS handshake + steady-state read path stress test
+# (coalesced/bursty gateway delivery, see test_sni_gw_tls_burst.c). Uses real
+# OpenSSL client+server over a socketpair, so it needs the OpenSSL crypto
+# backend (same guard sni_gateway_tls.c itself uses) and pthread.
+sni_gw_tls_burst_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DUNIT_TEST_SOURCEDIR=\"$(srcdir)\" \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_gw_tls_burst_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS) -lpthread
+
+sni_gw_tls_burst_testdriver_SOURCES = test_sni_gw_tls_burst.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_tls.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_http.c
 
 socket_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
