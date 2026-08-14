@@ -560,6 +560,8 @@ set(SOURCE_FILES
     src/openvpn/ps.c
     src/openvpn/ps.h
     src/openvpn/sni_gateway.h
+    src/openvpn/sni_gateway_accept.c
+    src/openvpn/sni_gateway_accept.h
     src/openvpn/sni_gateway_passthrough.c
     src/openvpn/sni_gateway_passthrough.h
     src/openvpn/sni_gateway_tls.c
