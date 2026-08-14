@@ -817,48 +817,125 @@ test_sni_consume_header_hostname_mismatch(void **state)
 }
 
 /* ==========================================================================
- * sni_gateway_mode_from_string tests
+ * sni_gateway_client_mode_from_string / sni_gateway_server_mode_from_string
+ * tests
  *
- * Covers the --sni-gateway / --sni-gateway-server mode argument parser
- * added as part of the SNI passthrough -> SNI gateway option rename.
+ * Covers the --sni-gateway / --sni-gateway-server mode argument parsers.
+ * These used to be one shared function; split into two once the HTTP-Upgrade
+ * mode's client and server CLI string sets diverged ("sni-tls-http-path-upgrade"
+ * stays client-only -- the client genuinely does TLS in that mode --  while
+ * the server, which never terminates TLS in ANY mode, uses
+ * "sni-http-path-upgrade" for the same SNI_GW_HTTP enum value instead;
+ * "sni-http-path-upgrade" itself is client-only for a DIFFERENT enum value,
+ * SNI_GW_HTTP_PLAIN, since it's also a valid no-TLS client mode name).
  * ========================================================================== */
 
 static void
-test_sni_gateway_mode_from_string_sni(void **state)
+test_sni_gateway_client_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("sni"), SNI_GW_DROP);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni"), SNI_GW_DROP);
 }
 
 static void
-test_sni_gateway_mode_from_string_sni_tls(void **state)
+test_sni_gateway_client_mode_from_string_sni_tls(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("sni-tls"), SNI_GW_TLS);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls"), SNI_GW_TLS);
 }
 
 static void
-test_sni_gateway_mode_from_string_sni_tls_http_path_upgrade(void **state)
+test_sni_gateway_client_mode_from_string_sni_tls_http_path_upgrade(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_HTTP);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_HTTP);
 }
 
 static void
-test_sni_gateway_mode_from_string_unknown(void **state)
+test_sni_gateway_client_mode_from_string_sni_http_path_upgrade(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string("bogus"), -1);
-    assert_int_equal(sni_gateway_mode_from_string(""), -1);
+    /* Client-side: "sni-http-path-upgrade" is the no-TLS mode, SNI_GW_HTTP_PLAIN
+     * -- NOT the same enum value the server accepts under the same string. */
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-http-path-upgrade"), SNI_GW_HTTP_PLAIN);
+}
+
+static void
+test_sni_gateway_client_mode_from_string_auto(void **state)
+{
+    (void)state;
+    /* "auto" DOES parse client-side (so options.c can give it a dedicated
+     * "server-only" error) even though it is never a valid client mode. */
+    assert_int_equal(sni_gateway_client_mode_from_string("auto"), SNI_GW_AUTO);
+}
+
+static void
+test_sni_gateway_client_mode_from_string_unknown(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_client_mode_from_string("bogus"), -1);
+    assert_int_equal(sni_gateway_client_mode_from_string(""), -1);
     /* case-sensitive: "Sni" must not match "sni" */
-    assert_int_equal(sni_gateway_mode_from_string("Sni"), -1);
+    assert_int_equal(sni_gateway_client_mode_from_string("Sni"), -1);
 }
 
 static void
-test_sni_gateway_mode_from_string_null(void **state)
+test_sni_gateway_client_mode_from_string_null(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_mode_from_string(NULL), -1);
+    assert_int_equal(sni_gateway_client_mode_from_string(NULL), -1);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_sni(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_server_mode_from_string("sni"), SNI_GW_DROP);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_sni_http_path_upgrade(void **state)
+{
+    (void)state;
+    /* Server-side: "sni-http-path-upgrade" means "accept the plaintext
+     * HTTP/1.1 Upgrade" -- the same SNI_GW_HTTP enum value the client-side
+     * parser returns for "sni-tls-http-path-upgrade". */
+    assert_int_equal(sni_gateway_server_mode_from_string("sni-http-path-upgrade"), SNI_GW_HTTP);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_auto(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_server_mode_from_string("auto"), SNI_GW_AUTO);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_tls_strings_not_recognized(void **state)
+{
+    (void)state;
+    /* Neither TLS-flavored string is a real server mode: the server never
+     * terminates TLS itself, in any mode.  options.c intercepts both
+     * directly with one unified "no TLS on the server" error before ever
+     * calling this parser, so it doesn't need to special-case either one --
+     * both are plain unknowns here, same as any other bogus string. */
+    assert_int_equal(sni_gateway_server_mode_from_string("sni-tls"), -1);
+    assert_int_equal(sni_gateway_server_mode_from_string("sni-tls-http-path-upgrade"), -1);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_unknown(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_server_mode_from_string("bogus"), -1);
+    assert_int_equal(sni_gateway_server_mode_from_string(""), -1);
+}
+
+static void
+test_sni_gateway_server_mode_from_string_null(void **state)
+{
+    (void)state;
+    assert_int_equal(sni_gateway_server_mode_from_string(NULL), -1);
 }
 
 /* ==========================================================================
@@ -899,12 +976,22 @@ main(void)
         cmocka_unit_test(test_sni_consume_header_hostname_match),
         cmocka_unit_test(test_sni_consume_header_hostname_mismatch),
 
-        /* sni_gateway_mode_from_string */
-        cmocka_unit_test(test_sni_gateway_mode_from_string_sni),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_sni_tls),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_sni_tls_http_path_upgrade),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_unknown),
-        cmocka_unit_test(test_sni_gateway_mode_from_string_null),
+        /* sni_gateway_client_mode_from_string */
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_tls),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_tls_http_path_upgrade),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_http_path_upgrade),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_auto),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_unknown),
+        cmocka_unit_test(test_sni_gateway_client_mode_from_string_null),
+
+        /* sni_gateway_server_mode_from_string */
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_sni),
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_sni_http_path_upgrade),
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_auto),
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_tls_strings_not_recognized),
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_unknown),
+        cmocka_unit_test(test_sni_gateway_server_mode_from_string_null),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
