@@ -1912,6 +1912,29 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         }
     }
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
+    else if (proto_is_tcp(sock->info.proto)
+             && sock->info.proto == PROTO_TCP_CLIENT
+             && c->options.ce.sni_gateway_mode == SNI_GW_HTTP_PLAIN
+             && c->options.ce.sni_gateway_host)
+    {
+        /* --sni-gateway sni-http-path-upgrade: the same HTTP/1.1 Upgrade
+         * handshake as sni-tls-http-path-upgrade, but over the PLAIN socket
+         * -- no TLS at all.  sock->gw_tls is deliberately never touched:
+         * with no userspace steady-state wrapper allocated, every later
+         * read/write/close path falls through to the existing raw-socket
+         * behavior automatically, exactly as SNI_GW_DROP does above. */
+        if (!sni_gw_http_client_upgrade_plain(
+                sock->sd, c->options.ce.sni_gateway_host, c->options.ce.sni_gateway_path,
+                &sig_info->signal_received,
+                (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
+        {
+            if (!sig_info->signal_received)
+            {
+                register_signal(sig_info, SIGUSR1, "sni-gateway-http-upgrade-plain-error");
+            }
+            goto done;
+        }
+    }
 
     phase2_set_socket_flags(sock);
     linksock_print_addr(sock);

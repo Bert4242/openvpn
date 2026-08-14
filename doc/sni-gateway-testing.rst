@@ -1,9 +1,9 @@
-Testing --sni-gateway (sni / sni-tls / sni-tls-http-path-upgrade)
-===================================================================
+Testing --sni-gateway (sni / sni-tls / sni-tls-http-path-upgrade / sni-http-path-upgrade)
+===========================================================================================
 
-This document is a quick how-to for building and exercising the three
+This document is a quick how-to for building and exercising the four
 ``--sni-gateway`` client modes, plus the server-side ``auto`` mode that
-accepts all three on one port, added on the ``sni-gateway-modes`` branch.
+accepts all of them on one port, added on the ``sni-gateway-modes`` branch.
 It only covers what's needed to test the feature; see ``--help`` output
 in ``options.c`` for the full option reference.
 
@@ -40,12 +40,13 @@ OpenVPN, ``--sni-gateway sni``, or no ``--sni-gateway`` at all.
 Sample configs
 ---------------
 
-All three modes are client-side (``--sni-gateway``); the server opts in
-with ``--sni-gateway-server``. ``sni`` and ``sni-tls-http-path-upgrade``
-need matching server config; ``sni-tls`` needs no server config at all
-since Traefik terminates it. A fourth, server-only value,
-``--sni-gateway-server auto``, accepts all three client modes on one
-process/port (see the ``auto`` section below) instead of needing a
+All four modes are client-side (``--sni-gateway``); the server opts in
+with ``--sni-gateway-server``. ``sni``, ``sni-tls-http-path-upgrade``, and
+``sni-http-path-upgrade`` need matching server config; ``sni-tls`` needs no
+server config at all since Traefik terminates it. A fifth, server-only
+value, ``--sni-gateway-server auto``, accepts ``sni``/``sni-tls``/
+``sni-tls-http-path-upgrade``/``sni-http-path-upgrade`` client connections
+on one process/port (see the ``auto`` section below) instead of needing a
 dedicated server config per mode.
 
 sni -- fake ClientHello, Traefik TCP-passthrough SNI routing
@@ -100,22 +101,76 @@ server.conf::
 
     proto tcp-server
     port 1194
-    sni-gateway-server sni-tls-http-path-upgrade
+    sni-gateway-server sni-http-path-upgrade
     sni-gateway-server-path /vpn-upgrade
 
 Traefik: HTTP router matching ``Host(vpn.example.com) &&
 Path(/vpn-upgrade)``, ``tls: {}``, forwarding to
 ``http://openvpn-server:1194``.
 
-auto -- one server process/port, all three client modes at once
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+sni-http-path-upgrade -- the same Upgrade dance, no outer TLS at all
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+client.conf::
+
+    remote gateway.example.com 1194 tcp
+    sni-gateway sni-http-path-upgrade
+    sni-gateway-host vpn.example.com
+    sni-gateway-path /vpn-upgrade
+    # no sni-gateway-ca / sni-gateway-no-verify -- there is no TLS session
+    # to verify in this mode.
+
+server.conf::
+
+    proto tcp-server
+    port 1194
+    sni-gateway-server sni-http-path-upgrade
+    sni-gateway-server-path /vpn-upgrade
+
+This server.conf is **byte-for-byte identical** to the
+``sni-tls-http-path-upgrade`` section's above -- ``--sni-gateway-server
+sni-http-path-upgrade``/``auto`` accepts both this mode's clients and
+``sni-tls-http-path-upgrade`` clients unchanged -- the server never
+terminates TLS itself in *either* case, so it cannot tell, and does not
+need to tell, which of the two produced the plaintext Upgrade request it
+received. Note the server-side mode is spelled ``sni-http-path-upgrade``
+(no "tls") even when pairing it with a ``sni-tls-http-path-upgrade``
+client above -- the "tls" in the client mode name describes what the
+*client* does, not the server; the server never had a "tls" spelling and
+never will.
+
+**No Traefik / no reverse proxy needed.** Unlike the other three modes,
+this one needs no ``tls: {}`` block, and in fact no proxy in front at
+all -- a direct client-to-backend TCP connection satisfies the protocol.
+That's the point of the mode: it's the one to reach for when testing or
+deploying directly against ``--sni-gateway-server
+sni-http-path-upgrade``/``auto`` with nothing in between, or behind a
+plain (non-TLS) HTTP router if you do want one.
+
+**Security note -- don't confuse this with sni-tls-http-path-upgrade.**
+The outer HTTP-Upgrade exchange, and the Host/Path routing metadata it
+carries, travel in cleartext in this mode: there is no outer TLS at all.
+The inner OpenVPN protocol's own independent tls-crypt/control-channel TLS
+still fully protects actual VPN traffic, so this is a routing/metadata-
+privacy tradeoff, not a VPN-security one -- but it is a real tradeoff, and
+a different one than ``sni-tls-http-path-upgrade`` makes.
+
+Note for ``auto`` mode: a ``sni-http-path-upgrade`` client's first bytes on
+the wire (a bare ``GET /vpn-upgrade HTTP/1.1...`` request) are identical to
+a ``sni-tls-http-path-upgrade`` client's post-TLS-termination bytes, so the
+``auto`` classifier (see below) already handles both with no changes and
+no extra Traefik router.
+
+auto -- one server process/port, all client modes at once
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 
 ``sni`` and ``sni-tls`` already coexist for free on one
 ``--sni-gateway-server sni`` port. ``auto`` additionally classifies each
 just-accepted connection's first bytes to also accept
-``sni-tls-http-path-upgrade`` clients on that same port, so a single
-``openvpn`` process/port can sit behind all three Traefik routers instead
-of needing a second port/process for the HTTP-Upgrade case.
+``sni-tls-http-path-upgrade`` (and, for free, ``sni-http-path-upgrade`` --
+see above) clients on that same port, so a single ``openvpn`` process/port
+can sit behind all the Traefik routers instead of needing a second
+port/process for the HTTP-Upgrade case.
 
 server.conf::
 
@@ -142,6 +197,9 @@ Notes
 - ``--sni-gateway-alpn`` defaults to ``hacky-sni-passthrough/1`` if
   unset; it must match between client and server.
 - ``sni-tls``/``sni-tls-http-path-upgrade`` require a TCP client
-  (``remote ... tcp``) and are rejected at parse time on Windows.
+  (``remote ... tcp``) and are rejected at parse time on Windows (they
+  need an OpenSSL build). ``sni-http-path-upgrade`` also requires a TCP
+  client, but needs **no** OpenSSL build and is **not** excluded on
+  Windows -- it's plain sockets, no TLS involved.
 - Success looks like ``Initialization Sequence Completed`` on the
   client; add ``-v 7`` on both ends if something stalls.
