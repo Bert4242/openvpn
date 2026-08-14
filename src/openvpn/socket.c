@@ -62,6 +62,24 @@ sockets_read_residual(const struct context *c)
          * drains it frame by frame instead of stalling in event_wait(). */
         if (sni_gw_tls_read_pending(c->c2.link_sockets[i]->gw_tls))
         {
+            /* This shortcut bypasses the event_wait() prep that normally
+             * calls socket_set() -> stream_buf_read_setup() ->
+             * stream_buf_read_setup_dowork() to fold stream_buf.residual
+             * into stream_buf.buf before any read decision is made. That
+             * prep can legitimately be skipped this iteration if
+             * multi_io_process_flags() prioritized something else (e.g. a
+             * pending TUN write), leaving EVENT_READ never requested for
+             * this socket. If stream_buf.residual is ALSO pending at the
+             * same time (a big FIFO-fed read can produce both leftover FIFO
+             * bytes and leftover stream_buf residual in one shot -- see
+             * commit message / sni-gateway-android-data-reset memory for a
+             * full trace), link_socket_read_tcp() would otherwise start
+             * from an empty stream_buf.buf and silently strand those
+             * residual bytes, desyncing the length-prefix framing ("Bad
+             * encapsulated packet length"). Run the merge here explicitly
+             * so it always happens before the forced read below, regardless
+             * of what this iteration's socket_set() call decided. */
+            stream_buf_read_setup(c->c2.link_sockets[i]);
             return true;
         }
 #endif
