@@ -32,6 +32,7 @@
 #endif
 #include "socket.h"
 #include "error.h"
+#include "crypto.h"
 #include "sni_gateway_passthrough.h"
 
 /*
@@ -550,7 +551,6 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     struct buffer alpn_buf;
     const char *const *eff_list;
     int eff_count;
-    int i;
 
 #if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
     msg(M_INFO, "--sni-gateway sni: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
@@ -596,11 +596,8 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
 
     uint8_t random_bytes[32];
     uint8_t session_id[32];
-    for (i = 0; i < 32; i++)
-    {
-        random_bytes[i] = (uint8_t)(rand() & 0xff);
-        session_id[i] = (uint8_t)(rand() & 0xff);
-    }
+    prng_bytes(random_bytes, sizeof(random_bytes));
+    prng_bytes(session_id, sizeof(session_id));
 
     struct buffer buf;
     buf_set_write(&buf, raw_buf, (int)bufsz);
@@ -633,14 +630,8 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
 
     /* Randomise ephemeral key shares inside sni_pt_suffix_post_alpn */
     uint8_t *post_alpn = BPTR(&buf) + (total - SNI_PT_SUFFIX_POST_ALPN_LEN);
-    for (i = 0; i < (int)SNI_PT_POST_ALPN_MLKEM_LEN; i++)
-    {
-        post_alpn[SNI_PT_POST_ALPN_MLKEM_OFF + i] = (uint8_t)(rand() & 0xff);
-    }
-    for (i = 0; i < (int)SNI_PT_POST_ALPN_X25519_LEN; i++)
-    {
-        post_alpn[SNI_PT_POST_ALPN_X25519_OFF + i] = (uint8_t)(rand() & 0xff);
-    }
+    prng_bytes(post_alpn + SNI_PT_POST_ALPN_MLKEM_OFF, SNI_PT_POST_ALPN_MLKEM_LEN);
+    prng_bytes(post_alpn + SNI_PT_POST_ALPN_X25519_OFF, SNI_PT_POST_ALPN_X25519_LEN);
 
     return total;
 }
