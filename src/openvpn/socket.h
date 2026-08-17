@@ -158,8 +158,9 @@ struct stream_buf
 #define SNI_GW_HTTP_PENDING  1            /* waiting for / parsing the Upgrade request */
 #define SNI_GW_HTTP_SUCCESS  2            /* request consumed; 101 owed / sent */
     int sni_gw_http_state;
-    bool sni_gw_http_101_sent;            /* the 101 response has been emitted */
-    const char *sni_gw_http_require_path; /* optional exact path to enforce */
+    bool sni_gw_http_101_sent;             /* the 101 response has been emitted */
+    const char *sni_gw_http_require_path;  /* optional exact path to enforce */
+    const char *sni_gw_http_upgrade_token; /* required Upgrade: header token */
 };
 
 /*

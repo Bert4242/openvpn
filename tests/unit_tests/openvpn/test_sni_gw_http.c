@@ -25,6 +25,7 @@
  * --sni-gateway sni-tls-http-path-upgrade, plus the plain-socket
  * --sni-gateway sni-http-path-upgrade client-side upgrade:
  *   - sni_gw_http_build_upgrade()             (client request builder)
+ *   - sni_gw_http_build_101()                 (server response builder)
  *   - sni_gw_http_check_and_consume_request() (server request state machine)
  *   - sni_gw_http_client_read_101()           (shared client response reader)
  *   - sni_gw_http_client_upgrade_plain()      (plain-socket client upgrade)
@@ -67,7 +68,7 @@ test_build_upgrade_exact_bytes(void **state)
         "Connection: Upgrade\r\n"
         "Upgrade: openvpn\r\n"
         "\r\n";
-    size_t n = sni_gw_http_build_upgrade(buf, sizeof(buf), "gw.example.com", "/vpn");
+    size_t n = sni_gw_http_build_upgrade(buf, sizeof(buf), "gw.example.com", "/vpn", "openvpn");
     assert_int_equal((int)n, (int)strlen(expect));
     assert_memory_equal(buf, expect, n);
     /* NUL-terminated because bufsz > n. */
@@ -85,7 +86,23 @@ test_build_upgrade_root_path(void **state)
         "Connection: Upgrade\r\n"
         "Upgrade: openvpn\r\n"
         "\r\n";
-    size_t n = sni_gw_http_build_upgrade(buf, sizeof(buf), "h", "/");
+    size_t n = sni_gw_http_build_upgrade(buf, sizeof(buf), "h", "/", "openvpn");
+    assert_int_equal((int)n, (int)strlen(expect));
+    assert_memory_equal(buf, expect, n);
+}
+
+static void
+test_build_upgrade_custom_token_exact_bytes(void **state)
+{
+    (void)state;
+    char buf[512];
+    const char *expect =
+        "GET /vpn HTTP/1.1\r\n"
+        "Host: gw.example.com\r\n"
+        "Connection: Upgrade\r\n"
+        "Upgrade: websocket\r\n"
+        "\r\n";
+    size_t n = sni_gw_http_build_upgrade(buf, sizeof(buf), "gw.example.com", "/vpn", "websocket");
     assert_int_equal((int)n, (int)strlen(expect));
     assert_memory_equal(buf, expect, n);
 }
@@ -96,14 +113,14 @@ test_build_upgrade_overflow(void **state)
     (void)state;
     char small[16];
     assert_int_equal((int)sni_gw_http_build_upgrade(small, sizeof(small),
-                                                    "gw.example.com", "/vpn"),
+                                                    "gw.example.com", "/vpn", "openvpn"),
                      0);
     /* Exactly one byte too small (bufsz == request length -> no room for NUL). */
     char buf[512];
-    size_t need = sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/p");
+    size_t need = sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/p", "openvpn");
     assert_true(need > 0);
     char tight[512];
-    assert_int_equal((int)sni_gw_http_build_upgrade(tight, need, "host", "/p"), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(tight, need, "host", "/p", "openvpn"), 0);
 }
 
 static void
@@ -112,14 +129,77 @@ test_build_upgrade_bad_path(void **state)
     (void)state;
     char buf[512];
     /* empty path */
-    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", ""), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "", "openvpn"), 0);
     /* path not starting with '/' */
-    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "vpn"), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "vpn", "openvpn"), 0);
     /* NULL path / host */
-    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", NULL), 0);
-    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), NULL, "/vpn"), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", NULL, "openvpn"), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), NULL, "/vpn", "openvpn"), 0);
     /* empty host */
-    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "", "/vpn"), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "", "/vpn", "openvpn"), 0);
+}
+
+static void
+test_build_upgrade_bad_token(void **state)
+{
+    (void)state;
+    char buf[512];
+    /* empty / NULL token -- build_upgrade only checks non-empty defensively
+     * (the real charset/length validation happens once at options-parse
+     * time via sni_gw_upgrade_token_is_valid()). */
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/vpn", ""), 0);
+    assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/vpn", NULL), 0);
+}
+
+/* ==========================================================================
+ * sni_gw_http_build_101
+ * ========================================================================== */
+
+static void
+test_build_101_default_token_exact_bytes(void **state)
+{
+    (void)state;
+    char buf[256];
+    const char *expect =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Connection: Upgrade\r\n"
+        "Upgrade: openvpn\r\n"
+        "\r\n";
+    size_t n = sni_gw_http_build_101(buf, sizeof(buf), "openvpn");
+    assert_int_equal((int)n, (int)strlen(expect));
+    assert_memory_equal(buf, expect, n);
+}
+
+static void
+test_build_101_custom_token_exact_bytes(void **state)
+{
+    (void)state;
+    char buf[256];
+    const char *expect =
+        "HTTP/1.1 101 Switching Protocols\r\n"
+        "Connection: Upgrade\r\n"
+        "Upgrade: websocket\r\n"
+        "\r\n";
+    size_t n = sni_gw_http_build_101(buf, sizeof(buf), "websocket");
+    assert_int_equal((int)n, (int)strlen(expect));
+    assert_memory_equal(buf, expect, n);
+}
+
+static void
+test_build_101_bad_token(void **state)
+{
+    (void)state;
+    char buf[256];
+    assert_int_equal((int)sni_gw_http_build_101(buf, sizeof(buf), ""), 0);
+    assert_int_equal((int)sni_gw_http_build_101(buf, sizeof(buf), NULL), 0);
+}
+
+static void
+test_build_101_overflow(void **state)
+{
+    (void)state;
+    char small[8];
+    assert_int_equal((int)sni_gw_http_build_101(small, sizeof(small), "openvpn"), 0);
 }
 
 /* ==========================================================================
@@ -157,7 +237,7 @@ test_consume_valid(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
 
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, (int)strlen(valid_req));
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     assert_false(sb.error);
@@ -178,7 +258,7 @@ test_consume_valid_with_trailing_openvpn(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, combined, reqlen + (int)sizeof(trailer));
 
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, reqlen);
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     /* trailing OpenVPN bytes remain, moved to the front of sb->buf */
@@ -200,7 +280,7 @@ test_consume_partial_need_more(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, partial, (int)strlen(partial));
 
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, 0); /* need more */
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_PENDING);
     assert_false(sb.error);
@@ -214,7 +294,7 @@ test_consume_partial_get_prefix(void **state)
     /* Only "GE" so far: matches the GET prefix, need more. */
     struct stream_buf sb;
     make_http_sb(&sb, "GE", 2);
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, 0);
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_PENDING);
     free_http_sb(&sb);
@@ -229,7 +309,7 @@ test_consume_raw_openvpn(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, raw, (int)sizeof(raw));
 
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, -1);
     assert_false(sb.error); /* NOT an error: just a plain OpenVPN client */
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_DISABLED);
@@ -248,7 +328,7 @@ test_consume_wrong_method(void **state)
         "\r\n";
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)strlen(req));
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     /* "POST" fails the "GET " prefix at byte 3 -> treated as raw (not error). */
     assert_int_equal(r, -1);
     assert_false(sb.error);
@@ -267,7 +347,7 @@ test_consume_missing_upgrade(void **state)
         "\r\n";
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)strlen(req));
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error); /* rejected */
     free_http_sb(&sb);
@@ -283,7 +363,7 @@ test_consume_bad_version(void **state)
         "\r\n";
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)strlen(req));
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -300,7 +380,7 @@ test_consume_bad_path_no_slash(void **state)
         "\r\n";
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)strlen(req));
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -319,7 +399,7 @@ test_consume_oversized(void **state)
 
     struct stream_buf sb;
     make_http_sb(&sb, data, big);
-    int r = sni_gw_http_check_and_consume_request(&sb, NULL);
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -332,7 +412,7 @@ test_consume_require_path_match(void **state)
     (void)state;
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, "/vpn");
+    int r = sni_gw_http_check_and_consume_request(&sb, "/vpn", "openvpn");
     assert_int_equal(r, (int)strlen(valid_req));
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     assert_false(sb.error);
@@ -345,7 +425,7 @@ test_consume_require_path_mismatch(void **state)
     (void)state;
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, "/other");
+    int r = sni_gw_http_check_and_consume_request(&sb, "/other", "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -358,9 +438,60 @@ test_consume_require_path_prefix_mismatch(void **state)
     /* require_path is a prefix of the request path: must NOT match (exact). */
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, "/vp");
+    int r = sni_gw_http_check_and_consume_request(&sb, "/vp", "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
+    free_http_sb(&sb);
+}
+
+/* ==========================================================================
+ * sni_gw_http_check_and_consume_request -- Upgrade token matching
+ * ========================================================================== */
+
+static void
+test_consume_upgrade_token_mismatch(void **state)
+{
+    (void)state;
+    /* Request advertises "openvpn"; server configured for a different token. */
+    struct stream_buf sb;
+    make_http_sb(&sb, valid_req, (int)strlen(valid_req));
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "websocket");
+    assert_int_equal(r, -1);
+    assert_true(sb.error);
+    free_http_sb(&sb);
+}
+
+static void
+test_consume_upgrade_token_substring_no_longer_matches(void **state)
+{
+    (void)state;
+    /* Under the OLD substring-search behavior, a configured token of "vpn"
+     * would have matched the "openvpn" header value. Exact (comma-split,
+     * trimmed) matching must now reject this. */
+    struct stream_buf sb;
+    make_http_sb(&sb, valid_req, (int)strlen(valid_req));
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "vpn");
+    assert_int_equal(r, -1);
+    assert_true(sb.error);
+    free_http_sb(&sb);
+}
+
+static void
+test_consume_upgrade_token_comma_list_match(void **state)
+{
+    (void)state;
+    const char req[] =
+        "GET /vpn HTTP/1.1\r\n"
+        "Host: gw.example.com\r\n"
+        "Connection: Upgrade\r\n"
+        "Upgrade: foo, openvpn, bar\r\n"
+        "\r\n";
+    struct stream_buf sb;
+    make_http_sb(&sb, req, (int)strlen(req));
+    int r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
+    assert_int_equal(r, (int)strlen(req));
+    assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
+    assert_false(sb.error);
     free_http_sb(&sb);
 }
 
@@ -371,12 +502,28 @@ test_build_then_consume_roundtrip(void **state)
 {
     (void)state;
     char req[512];
-    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/tunnel");
+    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/tunnel", "openvpn");
     assert_true(n > 0);
 
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)n);
-    int r = sni_gw_http_check_and_consume_request(&sb, "/tunnel");
+    int r = sni_gw_http_check_and_consume_request(&sb, "/tunnel", "openvpn");
+    assert_int_equal(r, (int)n);
+    assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
+    free_http_sb(&sb);
+}
+
+static void
+test_build_then_consume_roundtrip_custom_token(void **state)
+{
+    (void)state;
+    char req[512];
+    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/tunnel", "websocket");
+    assert_true(n > 0);
+
+    struct stream_buf sb;
+    make_http_sb(&sb, req, (int)n);
+    int r = sni_gw_http_check_and_consume_request(&sb, "/tunnel", "websocket");
     assert_int_equal(r, (int)n);
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     free_http_sb(&sb);
@@ -464,11 +611,42 @@ test_client_upgrade_plain_success(void **state)
     assert_int_equal(send(fds[1], resp, strlen(resp), 0), (ssize_t)strlen(resp));
 
     volatile int sig = 0;
-    assert_true(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", &sig, 5));
+    assert_true(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", "openvpn", &sig, 5));
 
     /* The request bytes sent must match the builder's output exactly. */
     char req[512];
-    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/vpn");
+    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/vpn", "openvpn");
+    char got[512];
+    ssize_t r = recv(fds[1], got, sizeof(got), 0);
+    assert_true(r > 0);
+    assert_int_equal((size_t)r, n);
+    assert_memory_equal(got, req, n);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_client_upgrade_plain_custom_token_roundtrip(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    /* Server-side response built via sni_gw_http_build_101() with a custom
+     * token, proving the new dynamic-length response works over the wire
+     * (not just via direct byte-comparison in isolation). */
+    char resp[256];
+    size_t resplen = sni_gw_http_build_101(resp, sizeof(resp), "websocket");
+    assert_true(resplen > 0);
+    assert_int_equal(send(fds[1], resp, resplen, 0), (ssize_t)resplen);
+
+    volatile int sig = 0;
+    assert_true(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn",
+                                                  "websocket", &sig, 5));
+
+    char req[512];
+    size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/vpn", "websocket");
     char got[512];
     ssize_t r = recv(fds[1], got, sizeof(got), 0);
     assert_true(r > 0);
@@ -490,7 +668,7 @@ test_client_upgrade_plain_bad_status_line(void **state)
     assert_int_equal(send(fds[1], resp, strlen(resp), 0), (ssize_t)strlen(resp));
 
     volatile int sig = 0;
-    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", &sig, 5));
+    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", "openvpn", &sig, 5));
 
     close(fds[0]);
     close(fds[1]);
@@ -508,7 +686,7 @@ test_client_upgrade_plain_connection_closed_mid_response(void **state)
     close(fds[1]); /* peer closes before the response completes */
 
     volatile int sig = 0;
-    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", &sig, 5));
+    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", "openvpn", &sig, 5));
 
     close(fds[0]);
 }
@@ -533,7 +711,7 @@ test_client_upgrade_plain_oversized_header(void **state)
     }
 
     volatile int sig = 0;
-    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", &sig, 5));
+    assert_false(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn", "openvpn", &sig, 5));
 
     close(fds[0]);
     close(fds[1]);
@@ -547,8 +725,8 @@ test_client_upgrade_plain_bad_host_or_path(void **state)
     /* Fails building the request before ever touching the socket -- sd=-1
      * is safe here since it must never be used. */
     assert_false(sni_gw_http_client_upgrade_plain(-1, "gw.example.com", "vpn" /* no leading '/' */,
-                                                   &sig, 5));
-    assert_false(sni_gw_http_client_upgrade_plain(-1, NULL, "/vpn", &sig, 5));
+                                                   "openvpn", &sig, 5));
+    assert_false(sni_gw_http_client_upgrade_plain(-1, NULL, "/vpn", "openvpn", &sig, 5));
 }
 
 int
@@ -560,8 +738,16 @@ main(void)
         /* build_upgrade */
         cmocka_unit_test(test_build_upgrade_exact_bytes),
         cmocka_unit_test(test_build_upgrade_root_path),
+        cmocka_unit_test(test_build_upgrade_custom_token_exact_bytes),
         cmocka_unit_test(test_build_upgrade_overflow),
         cmocka_unit_test(test_build_upgrade_bad_path),
+        cmocka_unit_test(test_build_upgrade_bad_token),
+
+        /* build_101 */
+        cmocka_unit_test(test_build_101_default_token_exact_bytes),
+        cmocka_unit_test(test_build_101_custom_token_exact_bytes),
+        cmocka_unit_test(test_build_101_bad_token),
+        cmocka_unit_test(test_build_101_overflow),
 
         /* check_and_consume_request */
         cmocka_unit_test(test_consume_valid),
@@ -577,7 +763,11 @@ main(void)
         cmocka_unit_test(test_consume_require_path_match),
         cmocka_unit_test(test_consume_require_path_mismatch),
         cmocka_unit_test(test_consume_require_path_prefix_mismatch),
+        cmocka_unit_test(test_consume_upgrade_token_mismatch),
+        cmocka_unit_test(test_consume_upgrade_token_substring_no_longer_matches),
+        cmocka_unit_test(test_consume_upgrade_token_comma_list_match),
         cmocka_unit_test(test_build_then_consume_roundtrip),
+        cmocka_unit_test(test_build_then_consume_roundtrip_custom_token),
 
         /* sni_gw_http_client_read_101 (in-memory) */
         cmocka_unit_test(test_client_read_101_valid),
@@ -590,6 +780,7 @@ main(void)
         cmocka_unit_test(test_client_upgrade_plain_connection_closed_mid_response),
         cmocka_unit_test(test_client_upgrade_plain_oversized_header),
         cmocka_unit_test(test_client_upgrade_plain_bad_host_or_path),
+        cmocka_unit_test(test_client_upgrade_plain_custom_token_roundtrip),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
