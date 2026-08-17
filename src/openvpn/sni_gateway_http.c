@@ -41,19 +41,28 @@
 #define SNI_GW_HTTP_MAX_REQUEST 4096
 
 /* ------------------------------------------------------------------------- */
-/* Fixed response bytes                                                       */
+/* Response builder                                                           */
 /* ------------------------------------------------------------------------- */
 
-const char sni_gw_http_101_response[] =
-    "HTTP/1.1 101 Switching Protocols\r\n"
-    "Connection: Upgrade\r\n"
-    "Upgrade: " SNI_GW_HTTP_UPGRADE_TOKEN "\r\n"
-    "\r\n";
-
 size_t
-sni_gw_http_101_response_len(void)
+sni_gw_http_build_101(char *buf, size_t bufsz, const char *token)
 {
-    return sizeof(sni_gw_http_101_response) - 1; /* exclude the NUL */
+    if (!buf || bufsz == 0 || !token || !*token)
+    {
+        return 0;
+    }
+
+    int n = snprintf(buf, bufsz,
+                     "HTTP/1.1 101 Switching Protocols\r\n"
+                     "Connection: Upgrade\r\n"
+                     "Upgrade: %s\r\n"
+                     "\r\n",
+                     token);
+    if (n < 0 || (size_t)n >= bufsz)
+    {
+        return 0; /* encoding error or truncated -> overflow */
+    }
+    return (size_t)n;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -61,9 +70,11 @@ sni_gw_http_101_response_len(void)
 /* ------------------------------------------------------------------------- */
 
 size_t
-sni_gw_http_build_upgrade(char *buf, size_t bufsz, const char *host, const char *path)
+sni_gw_http_build_upgrade(char *buf, size_t bufsz, const char *host, const char *path,
+                          const char *token)
 {
-    if (!buf || bufsz == 0 || !host || !*host || !path || path[0] != '/')
+    if (!buf || bufsz == 0 || !host || !*host || !path || path[0] != '/'
+        || !token || !*token)
     {
         return 0;
     }
@@ -72,9 +83,9 @@ sni_gw_http_build_upgrade(char *buf, size_t bufsz, const char *host, const char 
                      "GET %s HTTP/1.1\r\n"
                      "Host: %s\r\n"
                      "Connection: Upgrade\r\n"
-                     "Upgrade: " SNI_GW_HTTP_UPGRADE_TOKEN "\r\n"
+                     "Upgrade: %s\r\n"
                      "\r\n",
-                     path, host);
+                     path, host, token);
     if (n < 0 || (size_t)n >= bufsz)
     {
         return 0; /* encoding error or truncated -> overflow */
@@ -265,13 +276,14 @@ plain_read_byte_adapter(void *ctx, uint8_t *out,
 bool
 sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
                                  const char *host, const char *path,
+                                 const char *token,
                                  volatile int *signal_received,
                                  int server_poll_timeout)
 {
     int poll_timeout = server_poll_timeout > 0 ? server_poll_timeout : 10;
 
     char req[1024];
-    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path);
+    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path, token);
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http (plain): could not build Upgrade request "
@@ -299,34 +311,19 @@ sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
 /* Server request parser                                                      */
 /* ------------------------------------------------------------------------- */
 
-/* Case-insensitive substring search over a bounded (non-NUL-terminated) span. */
-static bool
-mem_casefind(const char *hay, int haylen, const char *needle)
-{
-    int nlen = (int)strlen(needle);
-    if (nlen == 0)
-    {
-        return true;
-    }
-    for (int i = 0; i + nlen <= haylen; i++)
-    {
-        if (strncasecmp(hay + i, needle, (size_t)nlen) == 0)
-        {
-            return true;
-        }
-    }
-    return false;
-}
-
 /*
  * Scan the header block [hdrs, hdrs+hdrs_len) (which starts right after the
  * request line and ends at the final blank line) for a header line
- *   Upgrade: ... openvpn ...
- * with a case-insensitive name and a value that contains the openvpn token.
+ *   Upgrade: <name>[, <name>...]
+ * with a case-insensitive header name and, per RFC 7230 S6.7, a
+ * comma-separated list of protocol tokens as the value.  Returns true iff
+ * one list element is an EXACT case-insensitive match for token (after
+ * trimming optional whitespace around commas) -- not a substring match.
  */
 static bool
-http_has_upgrade_openvpn(const char *hdrs, int hdrs_len)
+http_has_upgrade_token(const char *hdrs, int hdrs_len, const char *token)
 {
+    size_t tok_len = strlen(token);
     const char *p = hdrs;
     const char *stop = hdrs + hdrs_len;
 
@@ -350,10 +347,27 @@ http_has_upgrade_openvpn(const char *hdrs, int hdrs_len)
             if (name_len == 7 && strncasecmp(p, "Upgrade", 7) == 0)
             {
                 const char *v = colon + 1;
-                int vlen = (int)(eol - v);
-                if (mem_casefind(v, vlen, SNI_GW_HTTP_UPGRADE_TOKEN))
+                const char *vend = eol;
+                while (v < vend)
                 {
-                    return true;
+                    const char *sep = memchr(v, ',', (size_t)(vend - v));
+                    const char *elem_end = sep ? sep : vend;
+                    const char *e_start = v;
+                    const char *e_stop = elem_end;
+                    while (e_start < e_stop && (*e_start == ' ' || *e_start == '\t'))
+                    {
+                        e_start++;
+                    }
+                    while (e_stop > e_start && (e_stop[-1] == ' ' || e_stop[-1] == '\t'))
+                    {
+                        e_stop--;
+                    }
+                    if ((size_t)(e_stop - e_start) == tok_len
+                        && strncasecmp(e_start, token, tok_len) == 0)
+                    {
+                        return true;
+                    }
+                    v = sep ? sep + 1 : vend;
                 }
             }
         }
@@ -364,7 +378,8 @@ http_has_upgrade_openvpn(const char *hdrs, int hdrs_len)
 }
 
 int
-sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require_path)
+sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require_path,
+                                      const char *token)
 {
     struct buffer *b = &sb->buf;
     const char *data = (const char *)BPTR(b);
@@ -446,12 +461,14 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         goto reject;
     }
 
-    /* Require the Upgrade: openvpn header. */
+    /* Require a matching Upgrade: header. */
     const char *hdrs = line_end + 2; /* past the request line's CRLF */
     int hdrs_len = (int)(end - hdrs);
-    if (!http_has_upgrade_openvpn(hdrs, hdrs_len))
+    if (!http_has_upgrade_token(hdrs, hdrs_len, token))
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing 'Upgrade: openvpn' header, rejecting");
+        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing or mismatched "
+                    "'Upgrade: %s' header, rejecting",
+            token);
         goto reject;
     }
 
@@ -492,10 +509,17 @@ reject:
 /* ------------------------------------------------------------------------- */
 
 bool
-sni_gw_http_send_101(socket_descriptor_t sd)
+sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
 {
-    const char *p = sni_gw_http_101_response;
-    size_t total = sni_gw_http_101_response_len();
+    char resp[256];
+    size_t total = sni_gw_http_build_101(resp, sizeof(resp), token);
+    if (total == 0)
+    {
+        msg(D_LINK_ERRORS, "--sni-gateway-server sni-http-path-upgrade: could not build "
+                           "101 response (bad --sni-gateway-server-upgrade-token?)");
+        return false;
+    }
+    const char *p = resp;
     size_t sent = 0;
     int attempts = 0;
 
@@ -534,7 +558,8 @@ sni_gw_http_send_101(socket_descriptor_t sd)
 }
 
 bool
-sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_path)
+sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_path,
+                                  const char *token)
 {
     char buf[SNI_GW_HTTP_MAX_REQUEST];
     int total = 0;
@@ -616,9 +641,11 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
 
     const char *hdrs = line_end + 2;
     int hdrs_len = (int)(data + len - hdrs);
-    if (!http_has_upgrade_openvpn(hdrs, hdrs_len))
+    if (!http_has_upgrade_token(hdrs, hdrs_len, token))
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing 'Upgrade: openvpn' header");
+        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing or mismatched "
+                    "'Upgrade: %s' header",
+            token);
         return false;
     }
 
@@ -637,5 +664,5 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
     msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
         end_pos, path_len, path_start);
 
-    return sni_gw_http_send_101(sd);
+    return sni_gw_http_send_101(sd, token);
 }

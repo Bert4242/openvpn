@@ -704,7 +704,7 @@ gw_ssl_read_byte_adapter(void *ctx, uint8_t *out,
 
 bool
 sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
-                           const char *host, const char *path,
+                           const char *host, const char *path, const char *token,
                            volatile int *signal_received, int server_poll_timeout)
 {
     int poll_timeout = server_poll_timeout > 0 ? server_poll_timeout : 10;
@@ -716,7 +716,7 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
     }
 
     char req[1024];
-    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path);
+    size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path, token);
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http: could not build Upgrade request "

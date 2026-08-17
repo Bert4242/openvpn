@@ -37,8 +37,13 @@
  *      GET <path> HTTP/1.1\r\n
  *      Host: <host>\r\n
  *      Connection: Upgrade\r\n
- *      Upgrade: openvpn\r\n
+ *      Upgrade: <token>\r\n
  *      \r\n
+ *
+ * <token> defaults to "openvpn" (SNI_GW_HTTP_UPGRADE_TOKEN below) and is
+ * overridable via --sni-gateway-upgrade-token (client) /
+ * --sni-gateway-server-upgrade-token (server) -- the two MUST match for the
+ * handshake to succeed.
  *
  * For "sni-tls-http-path-upgrade" clients, the gateway (Traefik) terminates
  * the TLS, routes by the HTTP path, and forwards the DECRYPTED, upgraded
@@ -51,7 +56,7 @@
  *
  *      HTTP/1.1 101 Switching Protocols\r\n
  *      Connection: Upgrade\r\n
- *      Upgrade: openvpn\r\n
+ *      Upgrade: <token>\r\n
  *      \r\n
  *
  * and then continues as normal OpenVPN.
@@ -75,35 +80,48 @@
 
 #include "syshead.h"
 
+#include "sni_gateway.h"
+
 #include <stddef.h>
 #include <stdbool.h>
 #include <stdint.h>
 
 struct stream_buf;
 
-/* The Upgrade protocol token advertised/required in both directions. */
+/* The compiled-in DEFAULT Upgrade protocol token, used when neither
+ * --sni-gateway-upgrade-token nor --sni-gateway-server-upgrade-token is set
+ * (options.c resolves the default there; downstream code always receives a
+ * non-NULL, already-validated token). */
 #define SNI_GW_HTTP_UPGRADE_TOKEN "openvpn"
 
 /*
  * Build the client HTTP/1.1 Upgrade request into buf.
  *
- * host : value of the Host: header (required, non-empty).
- * path : request-target (required, must be non-empty and start with '/').
+ * host  : value of the Host: header (required, non-empty).
+ * path  : request-target (required, must be non-empty and start with '/').
+ * token : value of the Upgrade: header (required, non-empty -- see
+ *         sni_gw_upgrade_token_is_valid() in sni_gateway.h for the full
+ *         charset rule; this function only checks non-empty defensively,
+ *         the real validation happens once at options-parse time).
  *
  * Returns the number of bytes written (not including a NUL terminator), or 0
- * on overflow or an invalid host/path.  The result is NOT NUL-terminated at
- * the returned length if bufsz is exactly the request length; callers that
+ * on overflow or an invalid host/path/token.  The result is NOT NUL-terminated
+ * at the returned length if bufsz is exactly the request length; callers that
  * need a C string must provide bufsz > request length.
  */
 size_t sni_gw_http_build_upgrade(char *buf, size_t bufsz,
-                                 const char *host, const char *path);
+                                 const char *host, const char *path,
+                                 const char *token);
 
 /*
- * The fixed "101 Switching Protocols" response the server sends back.  Exposed
- * so tests can assert exact bytes.
+ * Build the server "101 Switching Protocols" response into buf, using the
+ * given Upgrade token. Exposed (mirroring sni_gw_http_build_upgrade) so
+ * tests can assert exact bytes for arbitrary tokens.
+ *
+ * Returns the number of bytes written (not including a NUL terminator), or 0
+ * on overflow or an invalid token.
  */
-extern const char sni_gw_http_101_response[];
-size_t sni_gw_http_101_response_len(void);
+size_t sni_gw_http_build_101(char *buf, size_t bufsz, const char *token);
 
 /*
  * Client side: read a byte from whatever transport a client-side Upgrade
@@ -140,6 +158,7 @@ bool sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
  */
 bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
                                       const char *host, const char *path,
+                                      const char *token,
                                       volatile int *signal_received,
                                       int server_poll_timeout);
 
@@ -154,6 +173,12 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  * require_path : when non-NULL, the request-target must match it exactly
  *                (case-sensitive); a mismatch is rejected.  NULL accepts any
  *                path (the gateway is expected to gate the path).
+ * token        : the required Upgrade: header token (see
+ *                sni_gw_upgrade_token_is_valid() in sni_gateway.h). The
+ *                request's Upgrade: header value is parsed as a
+ *                comma-separated list per RFC 7230 §6.7 and matched for an
+ *                EXACT (case-insensitive) element match against token --
+ *                not a substring match.
  *
  * Return value (tri-state):
  *   > 0 : a complete, well-formed request was consumed.  The consumed bytes are
@@ -165,24 +190,28 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  *         request (a raw-OpenVPN client) -- proceed as normal OpenVPN.
  */
 int sni_gw_http_check_and_consume_request(struct stream_buf *sb,
-                                          const char *require_path);
+                                          const char *require_path,
+                                          const char *token);
 
 /*
- * Server side: send the fixed 101 response on sd.  sd may be non-blocking; the
- * (tiny) response is pushed with a short bounded retry on EAGAIN.  Returns true
- * if the whole response was sent, false on a fatal socket error / timeout.
+ * Server side: send the 101 response (built via sni_gw_http_build_101() with
+ * the given token) on sd.  sd may be non-blocking; the (tiny) response is
+ * pushed with a short bounded retry on EAGAIN.  Returns true if the whole
+ * response was sent, false on a fatal socket error / timeout / invalid token.
  */
-bool sni_gw_http_send_101(socket_descriptor_t sd);
+bool sni_gw_http_send_101(socket_descriptor_t sd, const char *token);
 
 /*
  * Server side: blocking accept of the HTTP/1.1 Upgrade handshake.  Called once
  * on the accepted fd while it is still in blocking mode (before the main event
  * loop makes it non-blocking).  Reads until CRLF CRLF, validates the request,
- * checks the path if require_path is non-NULL, and sends the 101 response.
+ * checks the path if require_path is non-NULL, checks the Upgrade token (see
+ * sni_gw_http_check_and_consume_request() above), and sends the 101 response.
  *
  * Returns true on success, false on any error (peer closed, bad request, …).
  */
 bool sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
-                                       const char *require_path);
+                                       const char *require_path,
+                                       const char *token);
 
 #endif /* SNI_GATEWAY_HTTP_H */
