@@ -25,6 +25,49 @@
 
 #include "syshead.h"
 
+/* Max length accepted for --sni-gateway-upgrade-token /
+ * --sni-gateway-server-upgrade-token, in bytes. The genuine token is a
+ * handful of bytes ("openvpn", "websocket", ...); this is just a sanity
+ * cap, not a real protocol limit. */
+#define SNI_GW_UPGRADE_TOKEN_MAXLEN 64
+
+/*
+ * Validate a user-supplied HTTP Upgrade token (--sni-gateway-upgrade-token /
+ * --sni-gateway-server-upgrade-token) before it is ever spliced verbatim
+ * into a raw "Upgrade: <token>\r\n" header line by sni_gateway_http.c (both
+ * the client's request builder and the server's 101-response builder use
+ * plain snprintf with no escaping). Requires the RFC 7230 §3.2.6 `token`
+ * charset (visible US-ASCII, excluding delimiters) -- this one rule is
+ * sufficient to rule out CR/LF/space/comma/colon header-injection bytes, so
+ * no separate CR/LF blocklist is needed. Also enforces non-empty and
+ * SNI_GW_UPGRADE_TOKEN_MAXLEN.
+ */
+static inline bool
+sni_gw_upgrade_token_is_valid(const char *tok)
+{
+    if (!tok || !tok[0])
+    {
+        return false;
+    }
+    size_t len = 0;
+    for (const char *p = tok; *p; p++, len++)
+    {
+        if (len >= SNI_GW_UPGRADE_TOKEN_MAXLEN)
+        {
+            return false;
+        }
+        unsigned char c = (unsigned char)*p;
+        bool is_tchar =
+            (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+            || strchr("!#$%&'*+-.^_`|~", (int)c) != NULL;
+        if (!is_tchar)
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
 /*
  * Shared core of the --sni-gateway feature: the mode enum and its two CLI
  * string parsers (client and server -- see below for why there are two, not

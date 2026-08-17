@@ -106,6 +106,8 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
  *
  * host / path : mirror --sni-gateway-host / --sni-gateway-path (path must be
  *               non-empty and start with '/').
+ * token : mirrors --sni-gateway-upgrade-token (must match the server's
+ *         --sni-gateway-server-upgrade-token).
  * signal_received / server_poll_timeout : as for the handshake, so the exchange
  *               is interruptible and cannot hang forever.
  *
@@ -113,6 +115,7 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
  */
 bool sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
                                 const char *host, const char *path,
+                                const char *token,
                                 volatile int *signal_received,
                                 int server_poll_timeout);
 

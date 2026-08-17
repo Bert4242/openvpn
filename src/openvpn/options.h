@@ -212,6 +212,13 @@ struct connection_entry
     /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
      *  gateway modes. */
     const char *sni_gateway_path;
+    /** HTTP Upgrade: header token (--sni-gateway-upgrade-token), used by the
+     *  sni-tls-http-path-upgrade and sni-http-path-upgrade gateway modes
+     *  only. Must match the server's --sni-gateway-server-upgrade-token.
+     *  NULL until options_postprocess_mutate_ce() resolves it to
+     *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only for the two
+     *  modes above; stays NULL (meaningless) otherwise. */
+    const char *sni_gateway_upgrade_token;
     /** Used by sni-tls/sni-tls-http-path-upgrade only -- meaningless (and
      *  rejected) in sni-http-path-upgrade, which has no TLS session to
      *  verify. */
@@ -743,6 +750,14 @@ struct options
      *  sni-http-path-upgrade or auto mode (--sni-gateway-server-path).
      *  NULL accepts any path (the gateway is expected to gate the path). */
     const char *sni_gateway_server_path;
+
+    /** HTTP Upgrade: header token to require in --sni-gateway-server
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-upgrade-token).
+     *  Must match the client's --sni-gateway-upgrade-token. NULL until
+     *  options_postprocess_mutate_invariant() resolves it to
+     *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only when the
+     *  server is enabled in one of those two modes; stays NULL otherwise. */
+    const char *sni_gateway_server_upgrade_token;
 
     /* Allow only one session */
     bool single_session;
