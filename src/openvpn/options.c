@@ -64,6 +64,7 @@
 #include "domain_helper.h"
 #include "mbuf.h"
 #include "check_file_access.h"
+#include "sni_gateway_http.h"
 
 #include <ctype.h>
 
@@ -2397,6 +2398,12 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             {
                 msg(M_USAGE, "--sni-gateway-path must start with '/'");
             }
+            if (!sni_gw_upgrade_token_is_valid(ce->sni_gateway_upgrade_token))
+            {
+                msg(M_USAGE, "--sni-gateway-upgrade-token must be 1-%d bytes of "
+                             "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+                    SNI_GW_UPGRADE_TOKEN_MAXLEN);
+            }
         }
         else /* SNI_GW_CLIENT_TLS */
         {
@@ -2404,6 +2411,12 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             {
                 msg(M_USAGE, "--sni-gateway-path is only meaningful with "
                              "--sni-gateway sni-tls-http-path-upgrade");
+            }
+            if (ce->sni_gateway_upgrade_token)
+            {
+                msg(M_USAGE, "--sni-gateway-upgrade-token is only meaningful with "
+                             "--sni-gateway sni-tls-http-path-upgrade or "
+                             "sni-http-path-upgrade");
             }
         }
     }
@@ -2441,6 +2454,12 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                          "with --sni-gateway sni-http-path-upgrade (there is no TLS "
                          "session to verify)");
         }
+        if (!sni_gw_upgrade_token_is_valid(ce->sni_gateway_upgrade_token))
+        {
+            msg(M_USAGE, "--sni-gateway-upgrade-token must be 1-%d bytes of "
+                         "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+                SNI_GW_UPGRADE_TOKEN_MAXLEN);
+        }
     }
     if (ce->sni_gateway_mode == SNI_GW_CLIENT_SNI
         && (ce->sni_gateway_path || ce->sni_gateway_ca || ce->sni_gateway_no_verify))
@@ -2448,6 +2467,12 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--sni-gateway-path, --sni-gateway-ca and --sni-gateway-no-verify "
                      "are only meaningful with --sni-gateway sni-tls or "
                      "sni-tls-http-path-upgrade");
+    }
+    if (ce->sni_gateway_mode == SNI_GW_CLIENT_SNI && ce->sni_gateway_upgrade_token)
+    {
+        msg(M_USAGE, "--sni-gateway-upgrade-token is only meaningful with "
+                     "--sni-gateway sni-tls-http-path-upgrade or "
+                     "sni-http-path-upgrade");
     }
 
     uninit_options(&defaults);
@@ -2610,6 +2635,18 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
     {
         msg(M_WARN, "NOTICE: --explicit-exit-notify ignored for --proto tcp");
         ce->explicit_exit_notification = 0;
+    }
+
+    /* --sni-gateway-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN when
+     * unset, but only for the two modes that actually perform an HTTP
+     * Upgrade -- left NULL otherwise so options_postprocess_verify_ce()'s
+     * "meaningless in this mode" checks below can still tell "never set" from
+     * "defaulted", exactly like --sni-gateway-path does today. */
+    if (!ce->sni_gateway_upgrade_token
+        && (ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+            || ce->sni_gateway_mode == SNI_GW_CLIENT_HTTP_UPGRADE))
+    {
+        ce->sni_gateway_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
     }
 }
 
@@ -2826,6 +2863,20 @@ options_postprocess_mutate_invariant(struct options *options)
         options->pkcs11_providers[0] = DEFAULT_PKCS11_MODULE;
     }
 #endif
+
+    /* --sni-gateway-server-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN
+     * when unset, but only when the server is actually enabled in one of the
+     * two modes that perform an HTTP Upgrade -- left NULL otherwise so
+     * options_postprocess_verify()'s "meaningless"/"requires" checks below can
+     * still tell "never set" from "defaulted", exactly like
+     * --sni-gateway-server-path does today. */
+    if (!options->sni_gateway_server_upgrade_token
+        && options->sni_gateway_server_enabled
+        && (options->sni_gateway_server_mode == SNI_GW_SERVER_HTTP_UPGRADE
+            || options->sni_gateway_server_mode == SNI_GW_SERVER_AUTO))
+    {
+        options->sni_gateway_server_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
+    }
 }
 
 static void
@@ -2892,6 +2943,25 @@ options_postprocess_verify(const struct options *o)
     if (o->sni_gateway_server_path && o->sni_gateway_server_path[0] != '/')
     {
         msg(M_USAGE, "--sni-gateway-server-path must start with '/'");
+    }
+    if (o->sni_gateway_server_upgrade_token && !o->sni_gateway_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway-server-upgrade-token requires "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    if (o->sni_gateway_server_upgrade_token
+        && o->sni_gateway_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
+        && o->sni_gateway_server_mode != SNI_GW_SERVER_AUTO)
+    {
+        msg(M_USAGE, "--sni-gateway-server-upgrade-token is only meaningful with "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    if (o->sni_gateway_server_upgrade_token
+        && !sni_gw_upgrade_token_is_valid(o->sni_gateway_server_upgrade_token))
+    {
+        msg(M_USAGE, "--sni-gateway-server-upgrade-token must be 1-%d bytes of "
+                     "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+            SNI_GW_UPGRADE_TOKEN_MAXLEN);
     }
     if (!o->sni_gateway_server_enabled
         && (o->sni_gateway_server_host_count > 0 || o->sni_gateway_server_ignore_alpn))
@@ -8002,6 +8072,11 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
         options->ce.sni_gateway_path = p[1];
     }
+    else if (streq(p[0], "sni-gateway-upgrade-token") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gateway_upgrade_token = p[1];
+    }
     else if (streq(p[0], "sni-gateway-ca") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
@@ -8059,6 +8134,11 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
         options->sni_gateway_server_path = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-server-upgrade-token") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_gateway_server_upgrade_token = p[1];
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
