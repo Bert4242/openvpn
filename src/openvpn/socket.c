@@ -1734,6 +1734,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     sock->stream_buf.sni_gateway_server_ignore_alpn =
         c->options.sni_gateway_server_ignore_alpn;
     sock->stream_buf.sni_gw_http_require_path = c->options.sni_gateway_server_path;
+    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gateway_server_upgrade_token;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1827,7 +1828,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             if (run_http_upgrade)
             {
                 if (!sni_gw_http_server_accept_upgrade(
-                        sock->sd, sock->stream_buf.sni_gw_http_require_path))
+                        sock->sd, sock->stream_buf.sni_gw_http_require_path,
+                        sock->stream_buf.sni_gw_http_upgrade_token))
                 {
                     register_signal(sig_info, SIGUSR1,
                                     "sni-gateway-server-http-upgrade-error");
@@ -1917,7 +1919,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout))
             || !sni_gw_http_client_upgrade(
                 sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
-                c->options.ce.sni_gateway_path, &sig_info->signal_received,
+                c->options.ce.sni_gateway_path, c->options.ce.sni_gateway_upgrade_token,
+                &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             sni_gw_tls_free(sock->gw_tls);
@@ -1943,7 +1946,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
         if (!sni_gw_http_client_upgrade_plain(
                 sock->sd, c->options.ce.sni_gateway_host, c->options.ce.sni_gateway_path,
-                &sig_info->signal_received,
+                c->options.ce.sni_gateway_upgrade_token, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             if (!sig_info->signal_received)
@@ -2369,7 +2372,8 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
      * OpenVPN length-prefix logic because the request is not length-prefixed. */
     if (sb->sni_gw_http_state == SNI_GW_HTTP_PENDING)
     {
-        int r = sni_gw_http_check_and_consume_request(sb, sb->sni_gw_http_require_path);
+        int r = sni_gw_http_check_and_consume_request(sb, sb->sni_gw_http_require_path,
+                                                      sb->sni_gw_http_upgrade_token);
         if (r > 0)
         {
             /* Request consumed; state is now SNI_GW_HTTP_SUCCESS.  Fall through
@@ -2622,7 +2626,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         && !sock->stream_buf.sni_gw_http_101_sent)
     {
         sock->stream_buf.sni_gw_http_101_sent = true;
-        if (!sni_gw_http_send_101(sock->sd))
+        if (!sni_gw_http_send_101(sock->sd, sock->stream_buf.sni_gw_http_upgrade_token))
         {
             sock->stream_reset = true;
             return buf->len = 0;
