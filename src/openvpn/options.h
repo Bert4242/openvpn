@@ -183,7 +183,7 @@ struct connection_entry
 
     /** SNI gateway mode for this connection
      *  (--sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>).
-     *  Defaults to SNI_GW_DROP, CLI value "sni" (the original
+     *  Defaults to SNI_GW_CLIENT_SNI, CLI value "sni" (the original
      *  passthrough-decoy behaviour). */
     enum sni_gateway_mode sni_gateway_mode;
 
