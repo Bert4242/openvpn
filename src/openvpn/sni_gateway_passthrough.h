@@ -27,8 +27,9 @@
 #include "socket.h"
 
 /*
- * Implementation of the --sni-gateway "sni" mode (SNI_GW_DROP): a fake
- * ClientHello is sent/consumed and then discarded, no real TLS added.
+ * Implementation of the --sni-gateway "sni" mode (SNI_GW_CLIENT_SNI /
+ * SNI_GW_SERVER_SNI): a fake ClientHello is sent/consumed and then
+ * discarded, no real TLS added.
  * The shared mode enum and CLI string parser live in sni_gateway.h, not
  * here -- this file only needs its own mode's declarations.
  */
