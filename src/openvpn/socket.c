@@ -1410,12 +1410,12 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     }
 #endif
     if (o->sni_gateway_server_enabled
-        && (o->sni_gateway_server_mode == SNI_GW_DROP || o->sni_gateway_server_mode == SNI_GW_AUTO))
+        && (o->sni_gateway_server_mode == SNI_GW_SERVER_SNI || o->sni_gateway_server_mode == SNI_GW_SERVER_AUTO))
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
     if (o->sni_gateway_server_enabled
-        && (o->sni_gateway_server_mode == SNI_GW_HTTP || o->sni_gateway_server_mode == SNI_GW_AUTO))
+        && (o->sni_gateway_server_mode == SNI_GW_SERVER_HTTP_UPGRADE || o->sni_gateway_server_mode == SNI_GW_SERVER_AUTO))
     {
         sock->sockflags |= SF_SNI_GW_HTTP;
     }
@@ -1859,7 +1859,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
-        && c->options.ce.sni_gateway_mode == SNI_GW_DROP
+        && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_SNI
         && c->options.ce.sni_gateway_host)
     {
         if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gateway_host,
@@ -1873,7 +1873,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_TLS
+             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_TLS
              && c->options.ce.sni_gateway_host)
     {
         /* --sni-gateway sni-tls: perform the genuine TLS handshake to the gateway
@@ -1900,7 +1900,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     }
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_HTTP
+             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
              && c->options.ce.sni_gateway_host)
     {
         /* --sni-gateway sni-tls-http-path-upgrade: FIRST open the genuine TLS session to the gateway
@@ -1932,7 +1932,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_HTTP_PLAIN
+             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_HTTP_UPGRADE
              && c->options.ce.sni_gateway_host)
     {
         /* --sni-gateway sni-http-path-upgrade: the same HTTP/1.1 Upgrade
@@ -1940,7 +1940,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * -- no TLS at all.  sock->gw_tls is deliberately never touched:
          * with no userspace steady-state wrapper allocated, every later
          * read/write/close path falls through to the existing raw-socket
-         * behavior automatically, exactly as SNI_GW_DROP does above. */
+         * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
         if (!sni_gw_http_client_upgrade_plain(
                 sock->sd, c->options.ce.sni_gateway_host, c->options.ce.sni_gateway_path,
                 &sig_info->signal_received,

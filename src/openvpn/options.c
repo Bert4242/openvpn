@@ -3005,13 +3005,13 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
      * are rejected there to avoid silently ignoring them.
      * --sni-gateway-path is sni-tls-http-path-upgrade-only.
      */
-    if (ce->sni_gateway_mode == SNI_GW_TLS || ce->sni_gateway_mode == SNI_GW_HTTP)
+    if (ce->sni_gateway_mode == SNI_GW_CLIENT_TLS || ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
     {
         /* Both sni-tls and sni-tls-http-path-upgrade open a genuine userspace
          * TLS session to the gateway, so they share the same backend /
          * platform requirements. */
         const char *modename =
-            (ce->sni_gateway_mode == SNI_GW_HTTP) ? "sni-tls-http-path-upgrade" : "sni-tls";
+            (ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE) ? "sni-tls-http-path-upgrade" : "sni-tls";
 #if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER))
         msg(M_USAGE, "--sni-gateway %s requires an OpenSSL build "
                      "(not available with this crypto backend)",
@@ -3037,7 +3037,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             msg(M_WARN, "--sni-gateway-no-verify makes --sni-gateway-ca have no effect");
         }
 
-        if (ce->sni_gateway_mode == SNI_GW_HTTP)
+        if (ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
         {
             /* sni-tls-http-path-upgrade mode adds the HTTP/1.1 Upgrade over
              * the tunnel and requires a request path to route on. */
@@ -3051,7 +3051,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                 msg(M_USAGE, "--sni-gateway-path must start with '/'");
             }
         }
-        else /* SNI_GW_TLS */
+        else /* SNI_GW_CLIENT_TLS */
         {
             if (ce->sni_gateway_path)
             {
@@ -3060,14 +3060,14 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             }
         }
     }
-    if (ce->sni_gateway_mode == SNI_GW_HTTP_PLAIN)
+    if (ce->sni_gateway_mode == SNI_GW_CLIENT_HTTP_UPGRADE)
     {
         /* sni-http-path-upgrade: plain-socket HTTP/1.1 Upgrade, no TLS at
-         * all -- unlike SNI_GW_TLS/SNI_GW_HTTP above, this needs no
-         * OpenSSL-build requirement and is not excluded on Windows: it's a
-         * one-shot blocking exchange before the raw OpenVPN stream begins,
-         * not a steady-state userspace wrapper (same category as plain
-         * "sni" mode). */
+         * all -- unlike SNI_GW_CLIENT_TLS/SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+         * above, this needs no OpenSSL-build requirement and is not
+         * excluded on Windows: it's a one-shot blocking exchange before
+         * the raw OpenVPN stream begins, not a steady-state userspace
+         * wrapper (same category as plain "sni" mode). */
         if (!ce->sni_gateway_host)
         {
             msg(M_USAGE, "--sni-gateway sni-http-path-upgrade requires --sni-gateway-host "
@@ -3095,7 +3095,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                          "session to verify)");
         }
     }
-    if (ce->sni_gateway_mode == SNI_GW_DROP
+    if (ce->sni_gateway_mode == SNI_GW_CLIENT_SNI
         && (ce->sni_gateway_path || ce->sni_gateway_ca || ce->sni_gateway_no_verify))
     {
         msg(M_USAGE, "--sni-gateway-path, --sni-gateway-ca and --sni-gateway-no-verify "
@@ -3508,12 +3508,12 @@ options_postprocess_verify(const struct options *o)
      * by a TLS-terminating proxy for --sni-gateway sni-tls-http-path-upgrade
      * clients, or sent directly by --sni-gateway sni-http-path-upgrade
      * clients).
-     * Deliberately NOT extended to SNI_GW_AUTO below: under "auto" both the
-     * sni-mode host/ALPN filters and the http-mode path filter are
+     * Deliberately NOT extended to SNI_GW_SERVER_AUTO below: under "auto"
+     * both the sni-mode host/ALPN filters and the http-mode path filter are
      * simultaneously meaningful (any client mode may arrive on the same
      * port), so neither "ignored" warning should fire.
      */
-    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_HTTP)
+    if (o->sni_gateway_server_enabled && o->sni_gateway_server_mode == SNI_GW_SERVER_HTTP_UPGRADE)
     {
         /* The sni-mode ALPN/SNI filters are ClientHello matchers -- meaningless
          * when the client speaks HTTP.  Warn and ignore rather than hard-error. */
@@ -3536,8 +3536,8 @@ options_postprocess_verify(const struct options *o)
                      "--sni-gateway-server sni-http-path-upgrade or auto");
     }
     if (o->sni_gateway_server_path
-        && o->sni_gateway_server_mode != SNI_GW_HTTP
-        && o->sni_gateway_server_mode != SNI_GW_AUTO)
+        && o->sni_gateway_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
+        && o->sni_gateway_server_mode != SNI_GW_SERVER_AUTO)
     {
         msg(M_USAGE, "--sni-gateway-server-path is only meaningful with "
                      "--sni-gateway-server sni-http-path-upgrade or auto");
@@ -9399,7 +9399,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
                 p[1]);
             goto err;
         }
-        if (mode == SNI_GW_AUTO)
+        if (mode == SNI_GW_SERVER_AUTO)
         {
             msg(msglevel, "--sni-gateway: mode 'auto' is only valid for "
                           "--sni-gateway-server (there is no client-side auto mode)");

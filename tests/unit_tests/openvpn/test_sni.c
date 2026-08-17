@@ -825,39 +825,41 @@ test_sni_consume_header_hostname_mismatch(void **state)
  * mode's client and server CLI string sets diverged ("sni-tls-http-path-upgrade"
  * stays client-only -- the client genuinely does TLS in that mode --  while
  * the server, which never terminates TLS in ANY mode, uses
- * "sni-http-path-upgrade" for the same SNI_GW_HTTP enum value instead;
- * "sni-http-path-upgrade" itself is client-only for a DIFFERENT enum value,
- * SNI_GW_HTTP_PLAIN, since it's also a valid no-TLS client mode name).
+ * "sni-http-path-upgrade" for the same SNI_GW_SERVER_HTTP_UPGRADE value
+ * instead (an alias of SNI_GW_CLIENT_TLS_HTTP_UPGRADE); "sni-http-path-upgrade"
+ * itself is client-only for a DIFFERENT enum value, SNI_GW_CLIENT_HTTP_UPGRADE,
+ * since it's also a valid no-TLS client mode name).
  * ========================================================================== */
 
 static void
 test_sni_gateway_client_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni"), SNI_GW_DROP);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni"), SNI_GW_CLIENT_SNI);
 }
 
 static void
 test_sni_gateway_client_mode_from_string_sni_tls(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls"), SNI_GW_TLS);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls"), SNI_GW_CLIENT_TLS);
 }
 
 static void
 test_sni_gateway_client_mode_from_string_sni_tls_http_path_upgrade(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_HTTP);
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_CLIENT_TLS_HTTP_UPGRADE);
 }
 
 static void
 test_sni_gateway_client_mode_from_string_sni_http_path_upgrade(void **state)
 {
     (void)state;
-    /* Client-side: "sni-http-path-upgrade" is the no-TLS mode, SNI_GW_HTTP_PLAIN
-     * -- NOT the same enum value the server accepts under the same string. */
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-http-path-upgrade"), SNI_GW_HTTP_PLAIN);
+    /* Client-side: "sni-http-path-upgrade" is the no-TLS mode,
+     * SNI_GW_CLIENT_HTTP_UPGRADE -- NOT the same enum value the server
+     * accepts under the same string. */
+    assert_int_equal(sni_gateway_client_mode_from_string("sni-http-path-upgrade"), SNI_GW_CLIENT_HTTP_UPGRADE);
 }
 
 static void
@@ -866,7 +868,7 @@ test_sni_gateway_client_mode_from_string_auto(void **state)
     (void)state;
     /* "auto" DOES parse client-side (so options.c can give it a dedicated
      * "server-only" error) even though it is never a valid client mode. */
-    assert_int_equal(sni_gateway_client_mode_from_string("auto"), SNI_GW_AUTO);
+    assert_int_equal(sni_gateway_client_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
 }
 
 static void
@@ -890,7 +892,7 @@ static void
 test_sni_gateway_server_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string("sni"), SNI_GW_DROP);
+    assert_int_equal(sni_gateway_server_mode_from_string("sni"), SNI_GW_SERVER_SNI);
 }
 
 static void
@@ -898,16 +900,17 @@ test_sni_gateway_server_mode_from_string_sni_http_path_upgrade(void **state)
 {
     (void)state;
     /* Server-side: "sni-http-path-upgrade" means "accept the plaintext
-     * HTTP/1.1 Upgrade" -- the same SNI_GW_HTTP enum value the client-side
-     * parser returns for "sni-tls-http-path-upgrade". */
-    assert_int_equal(sni_gateway_server_mode_from_string("sni-http-path-upgrade"), SNI_GW_HTTP);
+     * HTTP/1.1 Upgrade" -- SNI_GW_SERVER_HTTP_UPGRADE is an alias of the
+     * same value the client-side parser returns (as SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
+     * for "sni-tls-http-path-upgrade". */
+    assert_int_equal(sni_gateway_server_mode_from_string("sni-http-path-upgrade"), SNI_GW_SERVER_HTTP_UPGRADE);
 }
 
 static void
 test_sni_gateway_server_mode_from_string_auto(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string("auto"), SNI_GW_AUTO);
+    assert_int_equal(sni_gateway_server_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
 }
 
 static void
