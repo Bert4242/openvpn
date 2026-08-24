@@ -62,6 +62,7 @@
 #include <pthread.h>
 #include <sys/socket.h>
 #include <fcntl.h>
+#include <poll.h>
 #include <time.h>
 
 #include <openssl/ssl.h>
@@ -122,12 +123,24 @@ build_frame_specs(struct frame_spec *specs, int n)
         int len;
         switch (bucket)
         {
-            case 0: len = 1 + (int)(prng_next() % 40); break;          /* 1-byte edge cases */
-            case 1: len = 20 + (int)(prng_next() % 80); break;         /* tiny ACK-ish */
-            case 2: len = 100 + (int)(prng_next() % 300); break;       /* small control */
-            case 3: len = 400 + (int)(prng_next() % 900); break;       /* medium */
-            case 4: len = 1400 + (int)(prng_next() % 66); break;       /* near-MTU */
-            default: len = TEST_MAXLEN - 2; break;                    /* exactly at cap */
+            case 0:
+                len = 1 + (int)(prng_next() % 40);
+                break; /* 1-byte edge cases */
+            case 1:
+                len = 20 + (int)(prng_next() % 80);
+                break; /* tiny ACK-ish */
+            case 2:
+                len = 100 + (int)(prng_next() % 300);
+                break; /* small control */
+            case 3:
+                len = 400 + (int)(prng_next() % 900);
+                break; /* medium */
+            case 4:
+                len = 1400 + (int)(prng_next() % 66);
+                break; /* near-MTU */
+            default:
+                len = TEST_MAXLEN - 2;
+                break; /* exactly at cap */
         }
         if (len < 1)
         {
@@ -408,6 +421,167 @@ test_sni_gw_tls_burst_no_loss(void **state)
     close(fds[0]);
 }
 
+#define WRITE_CHUNK 4096
+#define WRITE_COUNT 256
+
+struct write_server_ctx
+{
+    int fd;
+    char cert_path[PATH_MAX];
+    char key_path[PATH_MAX];
+    bool start_read;
+    pthread_mutex_t lock;
+    pthread_cond_t ready;
+    volatile int result;
+};
+
+static uint8_t
+write_pattern(size_t offset)
+{
+    return (uint8_t)((offset * 29u + 17u) & 0xff);
+}
+
+static void *
+write_server_thread_main(void *arg)
+{
+    struct write_server_ctx *ctx = arg;
+    SSL_CTX *server_ctx = SSL_CTX_new(TLS_server_method());
+    SSL *ssl = NULL;
+    ctx->result = 0;
+    if (!server_ctx
+        || SSL_CTX_use_certificate_file(server_ctx, ctx->cert_path, SSL_FILETYPE_PEM) != 1
+        || SSL_CTX_use_PrivateKey_file(server_ctx, ctx->key_path, SSL_FILETYPE_PEM) != 1
+        || !(ssl = SSL_new(server_ctx)))
+    {
+        goto out;
+    }
+    SSL_set_fd(ssl, ctx->fd);
+    if (SSL_accept(ssl) != 1)
+    {
+        goto out;
+    }
+
+    /* Deliberately leave the client's small send buffer blocked. */
+    pthread_mutex_lock(&ctx->lock);
+    while (!ctx->start_read)
+    {
+        pthread_cond_wait(&ctx->ready, &ctx->lock);
+    }
+    pthread_mutex_unlock(&ctx->lock);
+
+    size_t offset = 0;
+    const size_t expected = (size_t)WRITE_CHUNK * WRITE_COUNT;
+    uint8_t data[8192];
+    while (offset < expected)
+    {
+        int n = SSL_read(ssl, data, sizeof(data));
+        if (n <= 0)
+        {
+            goto out;
+        }
+        for (int i = 0; i < n; ++i)
+        {
+            if (data[i] != write_pattern(offset + (size_t)i))
+            {
+                goto out;
+            }
+        }
+        offset += (size_t)n;
+    }
+    ctx->result = 1;
+
+out:
+    SSL_free(ssl);
+    SSL_CTX_free(server_ctx);
+    if (ctx->result == 0)
+    {
+        shutdown(ctx->fd, SHUT_RDWR);
+    }
+    return NULL;
+}
+
+static void
+test_sni_gw_tls_write_flush_after_eagain(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    int sndbuf = 4096;
+    assert_int_equal(setsockopt(fds[0], SOL_SOCKET, SO_SNDBUF, &sndbuf, sizeof(sndbuf)), 0);
+
+    struct write_server_ctx sctx = { .fd = fds[1] };
+    assert_int_equal(pthread_mutex_init(&sctx.lock, NULL), 0);
+    assert_int_equal(pthread_cond_init(&sctx.ready, NULL), 0);
+    openvpn_test_get_srcdir_dir(sctx.cert_path, sizeof(sctx.cert_path),
+                                "../../../sample/sample-keys/server.crt");
+    openvpn_test_get_srcdir_dir(sctx.key_path, sizeof(sctx.key_path),
+                                "../../../sample/sample-keys/server.key");
+    pthread_t server_thread;
+    assert_int_equal(pthread_create(&server_thread, NULL, write_server_thread_main, &sctx), 0);
+
+    struct sni_gw_tls *t = sni_gw_tls_new();
+    assert_non_null(t);
+    volatile int sig = 0;
+    assert_true(sni_gw_tls_client_handshake(t, fds[0], "localhost", NULL, 0, NULL, true, &sig, 5));
+    int flags = fcntl(fds[0], F_GETFL);
+    assert_int_not_equal(flags, -1);
+    assert_int_equal(fcntl(fds[0], F_SETFL, flags | O_NONBLOCK), 0);
+
+    uint8_t data[WRITE_CHUNK];
+    for (int write_no = 0; write_no < WRITE_COUNT; ++write_no)
+    {
+        struct buffer buf;
+        buf_set_write(&buf, data, sizeof(data));
+        size_t base = (size_t)write_no * sizeof(data);
+        for (size_t i = 0; i < sizeof(data); ++i)
+        {
+            data[i] = write_pattern(base + i);
+        }
+        buf.len = sizeof(data);
+        assert_int_equal(sni_gw_tls_write(t, fds[0], &buf), (ssize_t)sizeof(data));
+    }
+    assert_true(sni_gw_tls_write_pending(t));
+
+    /* No further plaintext write occurs: writable-style flushes alone must
+     * empty the FIFO and deliver the complete ordered stream. */
+    pthread_mutex_lock(&sctx.lock);
+    sctx.start_read = true;
+    pthread_cond_signal(&sctx.ready);
+    pthread_mutex_unlock(&sctx.lock);
+    time_t deadline = time(NULL) + 10;
+    while (sni_gw_tls_write_pending(t))
+    {
+        assert_true(time(NULL) < deadline);
+        struct pollfd pfd = { .fd = fds[0], .events = POLLOUT };
+        assert_true(poll(&pfd, 1, 1000) >= 0);
+        /* The production event loop calls this after writable readiness.  A
+         * timeout is harmless here too: flush treats EAGAIN as success. */
+        assert_true(sni_gw_tls_flush(t, fds[0]));
+    }
+    assert_false(sni_gw_tls_write_pending(t));
+    pthread_join(server_thread, NULL);
+    assert_int_equal(sctx.result, 1);
+
+    /* Re-block the socket so the fatal check exercises the flush-only API
+     * with actual pending ciphertext, rather than SSL_write(). */
+    uint8_t block[WRITE_CHUNK] = { 0 };
+    for (int i = 0; i < WRITE_COUNT && !sni_gw_tls_write_pending(t); ++i)
+    {
+        struct buffer b;
+        buf_set_write(&b, block, sizeof(block));
+        b.len = sizeof(block);
+        assert_int_equal(sni_gw_tls_write(t, fds[0], &b), (ssize_t)sizeof(block));
+    }
+    assert_true(sni_gw_tls_write_pending(t));
+    shutdown(fds[1], SHUT_RDWR);
+    close(fds[1]);
+    assert_false(sni_gw_tls_flush(t, fds[0]));
+    sni_gw_tls_free(t);
+    close(fds[0]);
+    pthread_cond_destroy(&sctx.ready);
+    pthread_mutex_destroy(&sctx.lock);
+}
+
 int
 main(void)
 {
@@ -416,6 +590,7 @@ main(void)
 
     const struct CMUnitTest tests[] = {
         cmocka_unit_test(test_sni_gw_tls_burst_no_loss),
+        cmocka_unit_test(test_sni_gw_tls_write_flush_after_eagain),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

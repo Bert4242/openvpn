@@ -137,14 +137,14 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
-#define SNI_PT_DISABLED 0 /* not active */
-#define SNI_PT_PENDING  1 /* waiting to inspect first byte */
-#define SNI_PT_SUCCESS  2 /* SNI header was consumed */
+#define SNI_PT_DISABLED 0 /* SNI gateway passthrough not active */
+#define SNI_PT_PENDING  1 /* SNI gateway waiting to inspect first byte */
+#define SNI_PT_SUCCESS  2 /* SNI gateway routing header was consumed */
     int sni_passthrough_state;
-    /* client ALPN list (sent in routing header) */
+    /* SNI gateway client ALPN list (sent in its routing header) */
     const char **sni_gateway_alpn_list;
     int sni_gateway_alpn_count;
-    /* server-side filters */
+    /* SNI gateway server-side routing filters */
     const char **sni_gateway_server_host_list;
     int sni_gateway_server_host_count;
     bool sni_gateway_server_ignore_alpn;
@@ -154,9 +154,9 @@ struct stream_buf
      * TLS-terminating gateway, or sent directly by an sni-http-path-upgrade
      * client) and triggers the 101 reply.  Parallel to sni_passthrough_state
      * above. */
-#define SNI_GW_HTTP_DISABLED 0            /* not active / done */
-#define SNI_GW_HTTP_PENDING  1            /* waiting for / parsing the Upgrade request */
-#define SNI_GW_HTTP_SUCCESS  2            /* request consumed; 101 owed / sent */
+#define SNI_GW_HTTP_DISABLED 0             /* not active / done */
+#define SNI_GW_HTTP_PENDING  1             /* waiting for / parsing the Upgrade request */
+#define SNI_GW_HTTP_SUCCESS  2             /* request consumed; 101 owed / sent */
     int sni_gw_http_state;
     bool sni_gw_http_101_sent;             /* the 101 response has been emitted */
     const char *sni_gw_http_require_path;  /* optional exact path to enforce */
@@ -302,6 +302,8 @@ struct sni_gw_tls;
 ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
 ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
 bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
+bool sni_gw_tls_write_pending(const struct sni_gw_tls *t);
+bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
 #endif
 
 #ifdef _WIN32

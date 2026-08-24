@@ -643,7 +643,7 @@ test_client_upgrade_plain_custom_token_roundtrip(void **state)
 
     volatile int sig = 0;
     assert_true(sni_gw_http_client_upgrade_plain(fds[0], "gw.example.com", "/vpn",
-                                                  "websocket", &sig, 5));
+                                                 "websocket", &sig, 5));
 
     char req[512];
     size_t n = sni_gw_http_build_upgrade(req, sizeof(req), "gw.example.com", "/vpn", "websocket");
@@ -725,7 +725,7 @@ test_client_upgrade_plain_bad_host_or_path(void **state)
     /* Fails building the request before ever touching the socket -- sd=-1
      * is safe here since it must never be used. */
     assert_false(sni_gw_http_client_upgrade_plain(-1, "gw.example.com", "vpn" /* no leading '/' */,
-                                                   "openvpn", &sig, 5));
+                                                  "openvpn", &sig, 5));
     assert_false(sni_gw_http_client_upgrade_plain(-1, NULL, "/vpn", "openvpn", &sig, 5));
 }
 
