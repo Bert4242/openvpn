@@ -272,9 +272,9 @@ dco_check_option_ce(const struct connection_entry *ce, msglvl_t msglevel, int mo
 
     if (ce->sni_gateway_mode == SNI_GW_CLIENT_TLS || ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
     {
-        /* sni-tls and sni-tls-http-path-upgrade modes wrap the socket in a
-         * userspace TLS session; DCO does the socket I/O in the kernel and
-         * would bypass that wrapper. */
+        /* The --sni-gateway sni-tls and sni-tls-http-path-upgrade modes wrap
+         * the socket in a userspace TLS session; DCO does the socket I/O in
+         * the kernel and would bypass that SNI gateway wrapper. */
         msg(msglevel, "Note: --sni-gateway %s disables data channel offload.",
             ce->sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE ? "sni-tls-http-path-upgrade" : "sni-tls");
         return false;

@@ -154,6 +154,14 @@ ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd,
                          struct buffer *buf);
 
 /*
+ * Returns true while encrypted bytes are waiting for the socket to become
+ * writable.  sni_gw_tls_flush() retries those bytes without accepting any new
+ * plaintext; EAGAIN is a successful (non-fatal) result and leaves them pending.
+ */
+bool sni_gw_tls_write_pending(const struct sni_gw_tls *t);
+bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
+
+/*
  * Free all resources.  Safe to call with t == NULL.
  */
 /*
