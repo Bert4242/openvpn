@@ -157,6 +157,14 @@ multi_tcp_process_outgoing_link_ready(struct multi_context *m, struct multi_inst
         ret = multi_process_outgoing_link_dowork(m, mi, mpp_flags);
         mbuf_free_buf(item.buffer);
     }
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+    else if (mi->context.c2.link_sockets[0]->gw_tls)
+    {
+        /* SNI gateway EVENT_WRITE can be requested solely by its TLS
+         * ciphertext FIFO. */
+        ret = multi_process_outgoing_link_dowork(m, mi, mpp_flags);
+    }
+#endif
     return ret;
 }
 

@@ -132,8 +132,8 @@ size_t sni_gw_http_build_101(char *buf, size_t bufsz, const char *token);
  * reason).
  */
 typedef bool (*sni_gw_http_read_byte_fn)(void *ctx, uint8_t *out,
-                                          volatile int *signal_received,
-                                          int poll_timeout);
+                                         volatile int *signal_received,
+                                         int poll_timeout);
 
 /*
  * Client side: shared "read the 101 response" loop used by both the
