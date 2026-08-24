@@ -51,6 +51,18 @@
 #endif
 
 #include "syshead.h"
+#include "sig.h"
+
+/* sni_gateway_http.c is linked into this test driver for every crypto backend
+ * and its polling helpers reference the process-wide signal state. */
+struct signal_info siginfo_static;
+
+/* LibreSSL exposes LIBRESSL_VERSION_NUMBER through the OpenSSL compatibility
+ * headers, so include the version header before selecting the SNI gateway's
+ * OpenSSL-only test body below. */
+#if defined(ENABLE_CRYPTO_OPENSSL)
+#include <openssl/opensslv.h>
+#endif
 
 /* sni_gateway_tls.c (the code under test) only exists on an OpenSSL,
  * non-LibreSSL build -- mirror its own build guard here. */
@@ -69,14 +81,9 @@
 #include <openssl/err.h>
 
 #include "buffer.h"
-#include "sig.h"
 #include "sni_gateway_tls.h"
 #include "mock_msg.h"
 #include "test_common.h"
-
-/* get_signal() (sig.h, static inline) reads this global; satisfy the link
- * without pulling in all of sig.c's signal-handling machinery. */
-struct signal_info siginfo_static;
 
 /* Matches the real-world failure's own tun-mtu-derived cap (the field log's
  * WARNING said "...which must be > 0 and <= 1768"). */
