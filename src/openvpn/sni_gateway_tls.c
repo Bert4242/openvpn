@@ -211,6 +211,20 @@ gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
     return true;
 }
 
+bool
+sni_gw_tls_write_pending(const struct sni_gw_tls *t)
+{
+    return t && t->out_ciphertext.len > 0;
+}
+
+bool
+sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd)
+{
+    bool fatal = false;
+    gw_out_flush(t, sd, &fatal);
+    return !fatal;
+}
+
 /* -------------------------------------------------------------------------- */
 /* Lifecycle                                                                  */
 /* -------------------------------------------------------------------------- */
@@ -932,11 +946,9 @@ ssize_t
 sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf)
 {
     const int plaintext_len = BLEN(buf);
-    bool fatal = false;
 
     /* 1. Drain previously-pending ciphertext first (preserves ordering). */
-    gw_out_flush(t, sd, &fatal);
-    if (fatal)
+    if (!sni_gw_tls_flush(t, sd))
     {
         return -1;
     }
@@ -977,8 +989,7 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
     }
 
     /* 4. Try to push the FIFO out; remainder stays buffered for next time. */
-    gw_out_flush(t, sd, &fatal);
-    if (fatal)
+    if (!sni_gw_tls_flush(t, sd))
     {
         return -1;
     }

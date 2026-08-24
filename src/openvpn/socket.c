@@ -3273,6 +3273,14 @@ socket_set(struct link_socket *s, struct event_set *es, unsigned int rwflags, vo
 {
     if (s)
     {
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+        /* Ciphertext accepted by the SNI gateway TLS wrapper is transport
+         * output even after OpenVPN's plaintext buffer has been consumed. */
+        if (s->gw_tls && sni_gw_tls_write_pending(s->gw_tls))
+        {
+            rwflags |= EVENT_WRITE;
+        }
+#endif
         if ((rwflags & EVENT_READ) && !stream_buf_read_setup(s))
         {
             ASSERT(!persistent);

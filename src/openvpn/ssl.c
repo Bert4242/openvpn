@@ -3915,11 +3915,11 @@ tls_pre_decrypt(struct tls_multi *multi, const struct link_socket_actual *from, 
             {
                 /* HARD_RESET packets with pid > 0 are pure ACK vehicles sent by
                  * a client whose own pid=0 was already acknowledged before it
-                 * could retransmit (e.g. through a TLS-terminating gateway that
-                 * pre-connects to the backend).  They carry no TLS ciphertext
-                 * data and must not occupy a recv-reliable slot that the
-                 * immediately following P_CONTROL_V1 stream also uses.  Only
-                 * the initial HARD_RESET (pid==0) belongs in the recv buffer. */
+                 * could retransmit (e.g. through an SNI TLS-terminating gateway
+                 * that pre-connects to the backend).  They carry no TLS
+                 * ciphertext data and must not occupy a recv-reliable slot that
+                 * the immediately following P_CONTROL_V1 stream also uses.
+                 * Only the initial HARD_RESET (pid==0) belongs in the recv buffer. */
                 bool add_to_recv = !is_hard_reset_method2(op) || id == 0;
                 if (add_to_recv && reliable_not_replay(ks->rec_reliable, id))
                 {
