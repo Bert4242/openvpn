@@ -30,6 +30,8 @@
 
 #include "socket.h"
 #include "error.h"
+#include "sig.h"
+#include "fdmisc.h"
 
 /* Bounded number of MSG_PEEK attempts before giving up on classification. */
 #define SNI_GW_ACCEPT_MAX_ATTEMPTS 50
@@ -87,18 +89,55 @@ sni_gw_accept_classify_bytes(const uint8_t *peek, int peek_len)
 }
 
 enum sni_gw_accept_class
-sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error)
+sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error,
+                          volatile int *signal_received, int poll_timeout)
 {
     *error = false;
     ssize_t prev_n = -1;
 
     for (int attempt = 0; attempt < SNI_GW_ACCEPT_MAX_ATTEMPTS; attempt++)
     {
+        /* recv(MSG_PEEK) on a still-blocking socket blocks just like a plain
+         * recv() when zero bytes are queued -- it only skips waiting for the
+         * full requested length once at least one byte has arrived.  Gate it
+         * behind a bounded select() so a peer that opens the connection and
+         * sends nothing can't hang this call (and, with it, the whole
+         * single-threaded server) forever. */
+        fd_set reads;
+        struct timeval tv;
+        FD_ZERO(&reads);
+        openvpn_fd_set(sd, &reads);
+        tv.tv_sec = poll_timeout;
+        tv.tv_usec = 0;
+
+        int status = openvpn_select(sd + 1, &reads, NULL, NULL, &tv);
+        get_signal(signal_received);
+        if (*signal_received)
+        {
+            *error = true;
+            return SNI_GW_ACCEPT_OTHER;
+        }
+        if (status == 0)
+        {
+            msg(D_LINK_ERRORS,
+                "--sni-gateway-server auto: timed out waiting for bytes to classify connection");
+            *error = true;
+            return SNI_GW_ACCEPT_OTHER;
+        }
+        if (status < 0)
+        {
+            msg(D_LINK_ERRORS | M_ERRNO,
+                "--sni-gateway-server auto: select() failed while classifying connection");
+            *error = true;
+            return SNI_GW_ACCEPT_OTHER;
+        }
+
         uint8_t buf[4];
         ssize_t n = recv(sd, (void *)buf, sizeof(buf), MSG_PEEK);
         if (n < 0)
         {
-            if (openvpn_errno() == EINTR)
+            int e = openvpn_errno();
+            if (e == EINTR || e == EAGAIN || e == EWOULDBLOCK)
             {
                 continue;
             }
