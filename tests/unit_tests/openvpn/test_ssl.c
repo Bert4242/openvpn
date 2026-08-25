@@ -771,6 +771,24 @@ free_certificate(openvpn_x509_cert_t *cert)
     mbedtls_x509_crt_free(cert);
     free(cert);
 }
+
+/* Regression test for an all-zero DER serial number: the leading-zero-skip
+ * loop in backend_x509_get_username() must not skip every byte, or the
+ * result silently truncates to "0x" instead of "0x00". */
+static void
+test_x509_get_username_serial_all_zero(void **state)
+{
+    mbedtls_x509_crt cert = { 0 };
+    uint8_t serial_bytes[3] = { 0x00, 0x00, 0x00 };
+    cert.serial.p = serial_bytes;
+    cert.serial.len = sizeof(serial_bytes);
+
+    char username[TLS_USERNAME_LEN + 1] = { 0 };
+    int ret = backend_x509_get_username(username, sizeof(username), "serialNumber", &cert);
+
+    assert_int_equal(ret, SUCCESS);
+    assert_string_equal(username, "0x00");
+}
 #else
 static openvpn_x509_cert_t *
 get_certificate(const char *cert_str)
@@ -908,8 +926,11 @@ main(void)
         cmocka_unit_test(test_data_channel_roundtrip_bf_cbc),
         cmocka_unit_test(test_data_channel_known_vectors_epoch),
         cmocka_unit_test(test_data_channel_known_vectors_shortpktid),
-        cmocka_unit_test(crypto_test_print_cert_details)
+        cmocka_unit_test(crypto_test_print_cert_details),
 
+#if defined(ENABLE_CRYPTO_MBEDTLS)
+        cmocka_unit_test(test_x509_get_username_serial_all_zero),
+#endif
     };
 
 #if defined(ENABLE_CRYPTO_OPENSSL)

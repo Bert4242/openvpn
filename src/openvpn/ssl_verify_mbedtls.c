@@ -237,7 +237,9 @@ backend_x509_get_username(char *cn, size_t cn_len, char *x509_username_field, mb
         for (size_t i = 0; i < cert->serial.len; i++)
         {
             uint8_t serial_byte = cert->serial.p[i];
-            if (leading_zeros && serial_byte == 0)
+            /* Keep the last zero byte if the whole value is zero, mirroring
+             * how a literal 0 is written as "0" not "" in decimal. */
+            if (leading_zeros && (serial_byte == 0) && ((i + 1) < cert->serial.len))
             {
                 continue;
             }
