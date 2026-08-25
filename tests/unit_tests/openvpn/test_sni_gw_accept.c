@@ -34,6 +34,10 @@
 #include <setjmp.h>
 #include <cmocka.h>
 
+#include <sys/socket.h>
+#include <time.h>
+#include <unistd.h>
+
 #include "socket.h"
 #include "sig.h"
 #include "sni_gateway_accept.h"
@@ -123,6 +127,43 @@ test_classify_need_more_zero_bytes(void **state)
     assert_int_equal(sni_gw_accept_classify_bytes(NULL, 0), SNI_GW_ACCEPT_NEED_MORE);
 }
 
+/* ==========================================================================
+ * sni_gw_accept_classify_fd -- I/O wrapper, over a real socketpair
+ * ========================================================================== */
+
+static void
+test_classify_fd_peer_sends_nothing_bounded(void **state)
+{
+    (void)state;
+    /* Guards against the blocking-recv(MSG_PEEK) DoS: a peer that opens the
+     * connection and sends nothing must not hang this call.  Use a short
+     * poll_timeout so the select()-timeout path is exercised, and assert
+     * the call returns well within a small bound instead of hanging the
+     * test process. */
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    volatile int sig = 0;
+    bool error = false;
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    enum sni_gw_accept_class cls = sni_gw_accept_classify_fd(fds[0], &error, &sig, 1);
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed = (double)(end.tv_sec - start.tv_sec)
+                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+
+    assert_true(error);
+    assert_int_equal(cls, SNI_GW_ACCEPT_OTHER);
+    assert_true(elapsed < 5.0);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
 int
 main(void)
 {
@@ -137,6 +178,7 @@ main(void)
         cmocka_unit_test(test_classify_diverges_early),
         cmocka_unit_test(test_classify_g_prefix_length_byte_edge_case),
         cmocka_unit_test(test_classify_need_more_zero_bytes),
+        cmocka_unit_test(test_classify_fd_peer_sends_nothing_bounded),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
