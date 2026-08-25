@@ -82,11 +82,22 @@ enum sni_gw_accept_class sni_gw_accept_classify_bytes(const uint8_t *peek, int p
  * consumes them.
  *
  * On success returns SNI_GW_ACCEPT_SNI / _HTTP / _OTHER and leaves *error
- * false.  On a hard I/O failure or peer-closed-before-enough-bytes, sets
- * *error = true and returns SNI_GW_ACCEPT_OTHER (callers must check *error
- * before trusting the return value, so a failure is never silently treated
- * as "plain OpenVPN, proceed normally").
+ * false.  On a hard I/O failure, a select() timeout, or
+ * peer-closed-before-enough-bytes, sets *error = true and returns
+ * SNI_GW_ACCEPT_OTHER (callers must check *error before trusting the return
+ * value, so a failure is never silently treated as "plain OpenVPN, proceed
+ * normally").
+ *
+ * signal_received / poll_timeout : each MSG_PEEK is gated behind a bounded
+ * select() (timeout poll_timeout seconds) so a peer that opens the
+ * connection and then sends nothing can't hang this call -- and with it,
+ * the whole single-threaded server -- forever.  Mirrors the
+ * signal_received/server_poll_timeout convention used by the client-side
+ * sni_gw_http_client_upgrade()/sni_gw_tls_client_handshake() calls in
+ * socket.c.
  */
-enum sni_gw_accept_class sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error);
+enum sni_gw_accept_class sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error,
+                                                    volatile int *signal_received,
+                                                    int poll_timeout);
 
 #endif /* SNI_GATEWAY_ACCEPT_H */

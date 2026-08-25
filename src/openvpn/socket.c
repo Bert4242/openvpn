@@ -1796,7 +1796,9 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                  * that will never arrive. */
                 bool classify_error = false;
                 enum sni_gw_accept_class cls =
-                    sni_gw_accept_classify_fd(sock->sd, &classify_error);
+                    sni_gw_accept_classify_fd(sock->sd, &classify_error,
+                                              &sig_info->signal_received,
+                                              (int)get_server_poll_remaining_time(sock->server_poll_timeout));
                 if (classify_error)
                 {
                     register_signal(sig_info, SIGUSR1,
@@ -1815,7 +1817,9 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             {
                 if (!sni_gw_http_server_accept_upgrade(
                         sock->sd, sock->stream_buf.sni_gw_http_require_path,
-                        sock->stream_buf.sni_gw_http_upgrade_token))
+                        sock->stream_buf.sni_gw_http_upgrade_token,
+                        &sig_info->signal_received,
+                        (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
                 {
                     register_signal(sig_info, SIGUSR1,
                                     "sni-gateway-server-http-upgrade-error");
