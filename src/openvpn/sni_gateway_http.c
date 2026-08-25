@@ -559,19 +559,51 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
 
 bool
 sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_path,
-                                  const char *token)
+                                  const char *token,
+                                  volatile int *signal_received, int poll_timeout)
 {
     char buf[SNI_GW_HTTP_MAX_REQUEST];
     int total = 0;
     int end_pos = -1; /* byte offset just past the CRLFCRLF terminator */
 
-    /* Blocking read: accumulate until CRLFCRLF or cap. */
+    /* Read: accumulate until CRLFCRLF or cap.  sd is still blocking here, so
+     * each recv() is gated behind a bounded select() -- a peer that opens
+     * the connection and sends nothing (or trickles bytes in past the first
+     * segment) must not be able to hang this call, and with it the whole
+     * single-threaded server, forever. */
     while (total < (int)sizeof(buf))
     {
+        fd_set reads;
+        struct timeval tv;
+        FD_ZERO(&reads);
+        openvpn_fd_set(sd, &reads);
+        tv.tv_sec = poll_timeout;
+        tv.tv_usec = 0;
+
+        int status = openvpn_select(sd + 1, &reads, NULL, NULL, &tv);
+        get_signal(signal_received);
+        if (*signal_received)
+        {
+            return false;
+        }
+        if (status == 0)
+        {
+            msg(D_LINK_ERRORS,
+                "--sni-gateway-server sni-http-path-upgrade: timed out reading Upgrade request");
+            return false;
+        }
+        if (status < 0)
+        {
+            msg(D_LINK_ERRORS | M_ERRNO,
+                "--sni-gateway-server sni-http-path-upgrade: select() failed reading Upgrade request");
+            return false;
+        }
+
         ssize_t n = recv(sd, buf + total, (int)(sizeof(buf) - total), 0);
         if (n < 0)
         {
-            if (openvpn_errno() == EINTR)
+            int e = openvpn_errno();
+            if (e == EINTR || e == EAGAIN || e == EWOULDBLOCK)
             {
                 continue;
             }

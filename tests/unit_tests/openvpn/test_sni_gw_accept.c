@@ -34,9 +34,15 @@
 #include <setjmp.h>
 #include <cmocka.h>
 
+#include "socket.h"
+#include "sig.h"
 #include "sni_gateway_accept.h"
 #include "mock_msg.h"
 #include "test_common.h"
+
+/* stub for get_signal()'s dependency instead of pulling in all of sig.c --
+ * same pattern as test_sni_gw_http.c/test_socket.c/test_ssl.c. */
+struct signal_info siginfo_static; /* GLOBAL */
 
 static void
 test_classify_sni_decoy_one_byte(void **state)
