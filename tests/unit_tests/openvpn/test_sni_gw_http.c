@@ -41,6 +41,7 @@
 #include <cmocka.h>
 
 #include <sys/socket.h>
+#include <time.h>
 #include <unistd.h>
 
 #include "buffer.h"
@@ -729,6 +730,71 @@ test_client_upgrade_plain_bad_host_or_path(void **state)
     assert_false(sni_gw_http_client_upgrade_plain(-1, NULL, "/vpn", "openvpn", &sig, 5));
 }
 
+/* ==========================================================================
+ * sni_gw_http_server_accept_upgrade -- I/O wrapper, over a real socketpair
+ * ========================================================================== */
+
+static void
+test_server_accept_upgrade_peer_sends_nothing_bounded(void **state)
+{
+    (void)state;
+    /* Guards against the blocking-recv() DoS this function used to have: a
+     * peer that opens the connection and sends nothing must not hang this
+     * call. Use a short poll_timeout so the select()-timeout path is
+     * exercised, and assert the call returns well within a small bound
+     * instead of hanging the test process. */
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+
+    volatile int sig = 0;
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    bool ok = sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 1);
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed = (double)(end.tv_sec - start.tv_sec)
+                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+
+    assert_false(ok);
+    assert_true(elapsed < 5.0);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_peer_trickles_bytes_bounded(void **state)
+{
+    (void)state;
+    /* A peer that sends a byte, then stalls, must not extend the wait past
+     * a single poll_timeout window either -- the fix bounds each recv(),
+     * not just the initial one. */
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], "G", 1, 0), 1);
+
+    volatile int sig = 0;
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    bool ok = sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 1);
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed = (double)(end.tv_sec - start.tv_sec)
+                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+
+    assert_false(ok);
+    assert_true(elapsed < 5.0);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
 int
 main(void)
 {
@@ -781,6 +847,10 @@ main(void)
         cmocka_unit_test(test_client_upgrade_plain_oversized_header),
         cmocka_unit_test(test_client_upgrade_plain_bad_host_or_path),
         cmocka_unit_test(test_client_upgrade_plain_custom_token_roundtrip),
+
+        /* server_accept_upgrade (I/O wrapper) */
+        cmocka_unit_test(test_server_accept_upgrade_peer_sends_nothing_bounded),
+        cmocka_unit_test(test_server_accept_upgrade_peer_trickles_bytes_bounded),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
