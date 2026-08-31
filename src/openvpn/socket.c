@@ -1394,13 +1394,13 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
         sock->sockflags |= SF_PORT_SHARE;
     }
 #endif
-    if (o->sni_gateway_server_enabled
-        && (o->sni_gateway_server_mode == SNI_GW_SERVER_SNI || o->sni_gateway_server_mode == SNI_GW_SERVER_AUTO))
+    if (o->sni_gw_server_enabled
+        && (o->sni_gw_server_mode == SNI_GW_SERVER_SNI || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
     {
         sock->sockflags |= SF_SNI_PASSTHROUGH;
     }
-    if (o->sni_gateway_server_enabled
-        && (o->sni_gateway_server_mode == SNI_GW_SERVER_HTTP_UPGRADE || o->sni_gateway_server_mode == SNI_GW_SERVER_AUTO))
+    if (o->sni_gw_server_enabled
+        && (o->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
     {
         sock->sockflags |= SF_SNI_GW_HTTP;
     }
@@ -1711,16 +1711,16 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     /* initialize buffers */
     socket_frame_init(frame, sock);
 
-    sock->stream_buf.sni_gateway_alpn_list = (const char **)c->options.ce.sni_gateway_alpn_list;
-    sock->stream_buf.sni_gateway_alpn_count = c->options.ce.sni_gateway_alpn_count;
-    sock->stream_buf.sni_gateway_server_host_list =
-        (const char **)c->options.sni_gateway_server_host_list;
-    sock->stream_buf.sni_gateway_server_host_count =
-        c->options.sni_gateway_server_host_count;
-    sock->stream_buf.sni_gateway_server_ignore_alpn =
-        c->options.sni_gateway_server_ignore_alpn;
-    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gateway_server_path;
-    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gateway_server_upgrade_token;
+    sock->stream_buf.sni_gw_alpn_list = (const char **)c->options.ce.sni_gw_alpn_list;
+    sock->stream_buf.sni_gw_alpn_count = c->options.ce.sni_gw_alpn_count;
+    sock->stream_buf.sni_gw_server_host_list =
+        (const char **)c->options.sni_gw_server_host_list;
+    sock->stream_buf.sni_gw_server_host_count =
+        c->options.sni_gw_server_host_count;
+    sock->stream_buf.sni_gw_server_ignore_alpn =
+        c->options.sni_gw_server_ignore_alpn;
+    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gw_server_path;
+    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gw_server_upgrade_token;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1851,12 +1851,12 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
-        && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_SNI
-        && c->options.ce.sni_gateway_host)
+        && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_SNI
+        && c->options.ce.sni_gw_host)
     {
-        if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gateway_host,
-                                               (const char *const *)c->options.ce.sni_gateway_alpn_list,
-                                               c->options.ce.sni_gateway_alpn_count))
+        if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_host,
+                                               (const char *const *)c->options.ce.sni_gw_alpn_list,
+                                               c->options.ce.sni_gw_alpn_count))
         {
             register_signal(sig_info, SIGUSR1, "sni-gateway-send-error");
             goto done;
@@ -1865,8 +1865,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_TLS
-             && c->options.ce.sni_gateway_host)
+             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_TLS
+             && c->options.ce.sni_gw_host)
     {
         /* --sni-gateway sni-tls: perform the genuine TLS handshake to the gateway
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
@@ -1875,10 +1875,10 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
-                (const char *const *)c->options.ce.sni_gateway_alpn_list,
-                c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
-                c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
+                (const char *const *)c->options.ce.sni_gw_alpn_list,
+                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_ca,
+                c->options.ce.sni_gw_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             sni_gw_tls_free(sock->sni_gw_tls);
@@ -1892,8 +1892,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     }
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
-             && c->options.ce.sni_gateway_host)
+             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+             && c->options.ce.sni_gw_host)
     {
         /* --sni-gateway sni-tls-http-path-upgrade: FIRST open the genuine TLS session to the gateway
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
@@ -1902,14 +1902,14 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
-                (const char *const *)c->options.ce.sni_gateway_alpn_list,
-                c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
-                c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
+                (const char *const *)c->options.ce.sni_gw_alpn_list,
+                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_ca,
+                c->options.ce.sni_gw_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout))
             || !sni_gw_http_client_upgrade(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
-                c->options.ce.sni_gateway_path, c->options.ce.sni_gateway_upgrade_token,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
+                c->options.ce.sni_gw_path, c->options.ce.sni_gw_upgrade_token,
                 &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -1925,8 +1925,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gateway_mode == SNI_GW_CLIENT_HTTP_UPGRADE
-             && c->options.ce.sni_gateway_host)
+             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_HTTP_UPGRADE
+             && c->options.ce.sni_gw_host)
     {
         /* --sni-gateway sni-http-path-upgrade: the same HTTP/1.1 Upgrade
          * handshake as sni-tls-http-path-upgrade, but over the PLAIN socket
@@ -1935,8 +1935,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
         if (!sni_gw_http_client_upgrade_plain(
-                sock->sd, c->options.ce.sni_gateway_host, c->options.ce.sni_gateway_path,
-                c->options.ce.sni_gateway_upgrade_token, &sig_info->signal_received,
+                sock->sd, c->options.ce.sni_gw_host, c->options.ce.sni_gw_path,
+                c->options.ce.sni_gw_upgrade_token, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             if (!sig_info->signal_received)
@@ -2257,9 +2257,9 @@ stream_buf_init(struct stream_buf *sb, struct buffer *buf, const unsigned int so
     sb->port_share_state =
         ((sockflags & SF_PORT_SHARE) && (proto == PROTO_TCP_SERVER)) ? PS_ENABLED : PS_DISABLED;
 #endif
-    sb->sni_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
-                                    ? SNI_PT_PENDING
-                                    : SNI_PT_DISABLED;
+    sb->sni_gw_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
+                                       ? SNI_GW_PT_PENDING
+                                       : SNI_GW_PT_DISABLED;
     sb->sni_gw_http_state = ((sockflags & SF_SNI_GW_HTTP) && (proto == PROTO_TCP_SERVER))
                                 ? SNI_GW_HTTP_PENDING
                                 : SNI_GW_HTTP_DISABLED;
@@ -2391,24 +2391,24 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         packet_size_type net_size;
 
 #if PORT_SHARE
-        if (sb->port_share_state == PS_ENABLED || sb->sni_passthrough_state == SNI_PT_PENDING)
+        if (sb->port_share_state == PS_ENABLED || sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
 #else
-        if (sb->sni_passthrough_state == SNI_PT_PENDING)
+        if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
 #endif
         {
             if (!is_openvpn_protocol(&sb->buf))
             {
                 msg(D_PS_PROXY, "Non-OpenVPN client protocol detected");
 
-                if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
                 {
                     struct sni_pt_server_check_ctx sni_ctx = {
-                        .alpn_list = (const char *const *)sb->sni_gateway_alpn_list,
-                        .alpn_count = sb->sni_gateway_alpn_count,
-                        .ignore_alpn = sb->sni_gateway_server_ignore_alpn,
+                        .alpn_list = (const char *const *)sb->sni_gw_alpn_list,
+                        .alpn_count = sb->sni_gw_alpn_count,
+                        .ignore_alpn = sb->sni_gw_server_ignore_alpn,
                         .hostname_list =
-                            (const char *const *)sb->sni_gateway_server_host_list,
-                        .hostname_count = sb->sni_gateway_server_host_count,
+                            (const char *const *)sb->sni_gw_server_host_list,
+                        .hostname_count = sb->sni_gw_server_host_count,
                     };
                     if (sni_passthrough_check_and_consume_header(sb, &sni_ctx))
                     {
@@ -2428,7 +2428,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                     else
                     {
                         /* SNI header not found or rejected */
-                        if (sb->error || sb->sni_passthrough_state == SNI_PT_PENDING)
+                        if (sb->error || sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
                         {
                             /* error: rejected; or wait for more data */
                             return false;
@@ -2450,9 +2450,9 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                 sb->port_share_state = PS_DISABLED;
 #endif
 
-                if (sb->sni_passthrough_state == SNI_PT_PENDING)
+                if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
                 {
-                    sb->sni_passthrough_state = SNI_PT_DISABLED;
+                    sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
                 }
             }
         }
