@@ -114,23 +114,6 @@ struct sni_gw_tls
 /* -------------------------------------------------------------------------- */
 
 /*
- * struct buffer_list has no O(1) total-length count (only a chunk/entry
- * count); these FIFOs stay short in practice (a handful of chunks between
- * flushes at most), so a linear walk is cheap.  Used by
- * sni_gw_tls_write_pending().
- */
-static int
-gw_buffer_list_len(const struct buffer_list *list)
-{
-    int total = 0;
-    for (const struct buffer_entry *e = list ? list->head : NULL; e; e = e->next)
-    {
-        total += BLEN(&e->buf);
-    }
-    return total;
-}
-
-/*
  * Try to send as much of the pending ciphertext FIFO as the non-blocking
  * socket will accept.  Consumed bytes are removed from the head, one chunk
  * at a time (buffer_list_advance() only consumes within the current head
@@ -175,7 +158,7 @@ gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
 bool
 sni_gw_tls_write_pending(const struct sni_gw_tls *t)
 {
-    return t && (gw_buffer_list_len(t->out_ciphertext) > 0);
+    return t && buffer_list_defined(t->out_ciphertext);
 }
 
 bool
