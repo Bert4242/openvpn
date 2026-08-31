@@ -795,6 +795,165 @@ test_server_accept_upgrade_peer_trickles_bytes_bounded(void **state)
     close(fds[1]);
 }
 
+/*
+ * The tests below exercise sni_gw_http_server_accept_upgrade() end to end
+ * over a real socketpair -- this is the shared-parser dedup's actual point:
+ * these cases were previously only ever exercised (indirectly) through
+ * sni_gw_http_check_and_consume_request() above, so the accept-time reader's
+ * own request-line/version/path/Upgrade-header validation had no direct
+ * regression coverage at all.
+ */
+
+static void
+test_server_accept_upgrade_valid_sends_101(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
+
+    volatile int sig = 0;
+    assert_true(sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 5));
+
+    char resp[256];
+    ssize_t r = recv(fds[1], resp, sizeof(resp), 0);
+    assert_true(r > 0);
+    char expect[256];
+    size_t n = sni_gw_http_build_101(expect, sizeof(expect), "openvpn");
+    assert_int_equal((size_t)r, n);
+    assert_memory_equal(resp, expect, n);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_valid_with_require_path(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
+
+    volatile int sig = 0;
+    assert_true(sni_gw_http_server_accept_upgrade(fds[0], "/vpn", "openvpn", &sig, 5));
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_require_path_mismatch_rejected(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
+
+    volatile int sig = 0;
+    assert_false(sni_gw_http_server_accept_upgrade(fds[0], "/other", "openvpn", &sig, 5));
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_upgrade_token_mismatch_rejected(void **state)
+{
+    (void)state;
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
+
+    volatile int sig = 0;
+    assert_false(sni_gw_http_server_accept_upgrade(fds[0], NULL, "websocket", &sig, 5));
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_bad_version_rejected(void **state)
+{
+    (void)state;
+    const char req[] =
+        "GET /vpn HTTP/1.0\r\n"
+        "Upgrade: openvpn\r\n"
+        "\r\n";
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], req, strlen(req), 0), (int)strlen(req));
+
+    volatile int sig = 0;
+    assert_false(sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 5));
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_bad_path_no_slash_rejected(void **state)
+{
+    (void)state;
+    const char req[] =
+        "GET vpn HTTP/1.1\r\n"
+        "Upgrade: openvpn\r\n"
+        "\r\n";
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    assert_int_equal((int)send(fds[1], req, strlen(req), 0), (int)strlen(req));
+
+    volatile int sig = 0;
+    assert_false(sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 5));
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
+static void
+test_server_accept_upgrade_not_http_rejected_promptly(void **state)
+{
+    (void)state;
+    /*
+     * Regression coverage for a behavior difference the dedup fixed: before
+     * sharing the parser, this blocking accept-time reader only checked the
+     * "GET " prefix AFTER finding a full CRLFCRLF terminator, so a peer
+     * sending non-HTTP bytes that never included a blank line would be held
+     * until the SNI_GW_HTTP_MAX_REQUEST cap (4096 bytes) or a select()
+     * timeout, rather than being recognized as non-HTTP immediately -- unlike
+     * the streaming parser, which has always rejected a bad prefix as soon as
+     * the first mismatching byte arrives (see test_consume_raw_openvpn /
+     * test_consume_wrong_method above). Send a handful of clearly-non-HTTP
+     * bytes with no terminator and confirm the call returns quickly rather
+     * than waiting for the poll_timeout.
+     */
+    int fds[2];
+    assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
+    const uint8_t raw[] = { 0x00, 0x2a, 0x38, 0x01, 0x02, 0x03 };
+    assert_int_equal((int)send(fds[1], raw, sizeof(raw), 0), (int)sizeof(raw));
+
+    volatile int sig = 0;
+
+    struct timespec start;
+    clock_gettime(CLOCK_MONOTONIC, &start);
+
+    bool ok = sni_gw_http_server_accept_upgrade(fds[0], NULL, "openvpn", &sig, 30);
+
+    struct timespec end;
+    clock_gettime(CLOCK_MONOTONIC, &end);
+    double elapsed = (double)(end.tv_sec - start.tv_sec)
+                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+
+    assert_false(ok);
+    /* With a 30s poll_timeout, only prompt (prefix-driven) rejection keeps
+     * this well under that bound; the pre-dedup implementation would have
+     * blocked for the full 30s waiting on more bytes. */
+    assert_true(elapsed < 5.0);
+
+    close(fds[0]);
+    close(fds[1]);
+}
+
 int
 main(void)
 {
@@ -851,6 +1010,13 @@ main(void)
         /* server_accept_upgrade (I/O wrapper) */
         cmocka_unit_test(test_server_accept_upgrade_peer_sends_nothing_bounded),
         cmocka_unit_test(test_server_accept_upgrade_peer_trickles_bytes_bounded),
+        cmocka_unit_test(test_server_accept_upgrade_valid_sends_101),
+        cmocka_unit_test(test_server_accept_upgrade_valid_with_require_path),
+        cmocka_unit_test(test_server_accept_upgrade_require_path_mismatch_rejected),
+        cmocka_unit_test(test_server_accept_upgrade_upgrade_token_mismatch_rejected),
+        cmocka_unit_test(test_server_accept_upgrade_bad_version_rejected),
+        cmocka_unit_test(test_server_accept_upgrade_bad_path_no_slash_rejected),
+        cmocka_unit_test(test_server_accept_upgrade_not_http_rejected_promptly),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);

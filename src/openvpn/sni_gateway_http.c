@@ -377,41 +377,71 @@ http_has_upgrade_token(const char *hdrs, int hdrs_len, const char *token)
     return false;
 }
 
-int
-sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require_path,
-                                      const char *token)
+/*
+ * Verdict from sni_gw_http_parse_request() below -- shared between the two
+ * server-side call sites so a hardening fix to the wire-format rules can
+ * never land in one and be missed in the other.
+ */
+typedef enum
 {
-    struct buffer *b = &sb->buf;
-    const char *data = (const char *)BPTR(b);
-    int len = b->len;
+    SNI_GW_HTTP_PARSE_NEED_MORE, /* not enough bytes yet; caller should read more (bounded by SNI_GW_HTTP_MAX_REQUEST) */
+    SNI_GW_HTTP_PARSE_NOT_HTTP,  /* first bytes are not "GET " -- not an HTTP request at all (e.g. raw OpenVPN) */
+    SNI_GW_HTTP_PARSE_TOO_LARGE, /* no CRLFCRLF found within SNI_GW_HTTP_MAX_REQUEST bytes */
+    SNI_GW_HTTP_PARSE_INVALID,   /* CRLFCRLF found, but the request line/version/path/Upgrade header failed to validate */
+    SNI_GW_HTTP_PARSE_VALID,     /* a complete, well-formed, matching GET .. Upgrade request was found */
+} sni_gw_http_parse_result_t;
 
+/*
+ * Parse (data, len) -- the bytes of a candidate HTTP/1.1 GET Upgrade request
+ * accumulated so far, not necessarily complete yet -- against the wire
+ * format shared by both server-side call sites:
+ *
+ *      GET <path> HTTP/1.1\r\n
+ *      ... header lines, including "Upgrade: <token>" ...
+ *      \r\n
+ *
+ * Never reads past data[len-1].  require_path/token as for
+ * sni_gw_http_check_and_consume_request().  On SNI_GW_HTTP_PARSE_VALID,
+ * *end_pos_out is set to the offset just past the terminating CRLFCRLF (the
+ * length of the whole request including its blank line) and *path_len_out to
+ * the length of the request-target starting at data+4; both are left
+ * untouched for any other verdict.
+ *
+ * Logs the specific reason for SNI_GW_HTTP_PARSE_INVALID and
+ * SNI_GW_HTTP_PARSE_TOO_LARGE (those diagnostics are identical regardless of
+ * caller).  SNI_GW_HTTP_PARSE_NOT_HTTP and SNI_GW_HTTP_PARSE_VALID are left
+ * unlogged here since what each means to the caller -- "fall back to plain
+ * OpenVPN" vs. "hard reject", "consumed" vs. "accepted" -- is caller-specific.
+ */
+static sni_gw_http_parse_result_t
+sni_gw_http_parse_request(const char *data, int len, const char *require_path,
+                          const char *token, int *end_pos_out, int *path_len_out)
+{
     /*
      * Match against the "GET " prefix byte by byte so a raw-OpenVPN client
      * (whose first bytes are a binary length prefix, never "GET ") is detected
      * as soon as the first non-matching byte arrives.
      */
     static const char get_prefix[4] = { 'G', 'E', 'T', ' ' };
-    int probe = len < 4 ? len : 4;
+    int probe = (len < 4) ? len : 4;
     for (int i = 0; i < probe; i++)
     {
         if (data[i] != get_prefix[i])
         {
-            msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: non-HTTP client, proceeding as OpenVPN");
-            sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
-            return -1; /* sb->error left false -> proceed as normal OpenVPN */
+            return SNI_GW_HTTP_PARSE_NOT_HTTP;
         }
     }
     if (len < 4)
     {
-        return 0; /* "GET " not fully seen yet */
+        return SNI_GW_HTTP_PARSE_NEED_MORE; /* "GET " not fully seen yet */
     }
 
     /* Locate the terminating blank line (CRLF CRLF). */
     const char *end = NULL;
-    for (int i = 0; i + 4 <= len; i++)
+    for (int i = 0; (i + 4) <= len; i++)
     {
-        if (data[i] == '\r' && data[i + 1] == '\n'
-            && data[i + 2] == '\r' && data[i + 3] == '\n')
+        if ((data[i] == '\r') && (data[i + 1] == '\n')
+            && (data[i + 2] == '\r') && (data[i + 3] == '\n'))
         {
             end = data + i + 4;
             break;
@@ -423,11 +453,9 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         {
             msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request header exceeds %d bytes, rejecting",
                 SNI_GW_HTTP_MAX_REQUEST);
-            sb->error = true;
-            sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
-            return -1;
+            return SNI_GW_HTTP_PARSE_TOO_LARGE;
         }
-        return 0; /* need more */
+        return SNI_GW_HTTP_PARSE_NEED_MORE;
     }
 
     int request_len = (int)(end - data);
@@ -436,29 +464,32 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     const char *line_end = memchr(data, '\r', (size_t)request_len);
     if (!line_end)
     {
-        goto reject;                   /* cannot happen (CRLFCRLF found) but be defensive */
+        /* Cannot happen (CRLFCRLF found above implies a '\r' in
+         * [data, request_len)), but stay defensive. */
+        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
+        return SNI_GW_HTTP_PARSE_INVALID;
     }
     const char *path_start = data + 4; /* just past "GET " */
     const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
-    if (!sp || sp == path_start)
+    if (!sp || (sp == path_start))
     {
         msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
-        goto reject;
+        return SNI_GW_HTTP_PARSE_INVALID;
     }
     int path_len = (int)(sp - path_start);
     if (path_start[0] != '/')
     {
         msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not start with '/', rejecting");
-        goto reject;
+        return SNI_GW_HTTP_PARSE_INVALID;
     }
 
     /* Version token must be exactly "HTTP/1.1". */
     const char *ver = sp + 1;
     int ver_len = (int)(line_end - ver);
-    if (ver_len != 8 || memcmp(ver, "HTTP/1.1", 8) != 0)
+    if ((ver_len != 8) || (memcmp(ver, "HTTP/1.1", 8) != 0))
     {
         msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: unsupported HTTP version, rejecting");
-        goto reject;
+        return SNI_GW_HTTP_PARSE_INVALID;
     }
 
     /* Require a matching Upgrade: header. */
@@ -469,24 +500,70 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing or mismatched "
                     "'Upgrade: %s' header, rejecting",
             token);
-        goto reject;
+        return SNI_GW_HTTP_PARSE_INVALID;
     }
 
     /* Optional exact path enforcement. */
     if (require_path)
     {
         int rp_len = (int)strlen(require_path);
-        if (rp_len != path_len || memcmp(path_start, require_path, (size_t)path_len) != 0)
+        if ((rp_len != path_len) || (memcmp(path_start, require_path, (size_t)path_len) != 0))
         {
             msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not match "
                         "--sni-gateway-server-path, rejecting");
-            goto reject;
+            return SNI_GW_HTTP_PARSE_INVALID;
         }
+    }
+
+    if (end_pos_out)
+    {
+        *end_pos_out = request_len;
+    }
+    if (path_len_out)
+    {
+        *path_len_out = path_len;
+    }
+    return SNI_GW_HTTP_PARSE_VALID;
+}
+
+int
+sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require_path,
+                                      const char *token)
+{
+    struct buffer *b = &sb->buf;
+    const char *data = (const char *)BPTR(b);
+    int len = b->len;
+
+    int request_len = -1;
+    int path_len = 0;
+    sni_gw_http_parse_result_t result =
+        sni_gw_http_parse_request(data, len, require_path, token, &request_len, &path_len);
+
+    switch (result)
+    {
+        case SNI_GW_HTTP_PARSE_NEED_MORE:
+            return 0;
+
+        case SNI_GW_HTTP_PARSE_NOT_HTTP:
+            msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: non-HTTP client, proceeding as OpenVPN");
+            sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
+            return -1; /* sb->error left false -> proceed as normal OpenVPN */
+
+        case SNI_GW_HTTP_PARSE_TOO_LARGE:
+        case SNI_GW_HTTP_PARSE_INVALID:
+        default:
+            sb->error = true;
+            sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
+            return -1;
+
+        case SNI_GW_HTTP_PARSE_VALID:
+            break;
     }
 
     /* Success: strip the consumed request, leaving any trailing OpenVPN bytes. */
     {
         int remaining = len - request_len;
+        const char *path_start = data + 4;
         msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: consumed %d-byte Upgrade request (path '%.*s')",
             request_len, path_len, path_start);
         if (remaining > 0)
@@ -497,11 +574,6 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         sb->sni_gw_http_state = SNI_GW_HTTP_SUCCESS;
         return request_len;
     }
-
-reject:
-    sb->error = true;
-    sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
-    return -1;
 }
 
 /* ------------------------------------------------------------------------- */
@@ -564,15 +636,46 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
 {
     char buf[SNI_GW_HTTP_MAX_REQUEST];
     int total = 0;
-    int end_pos = -1; /* byte offset just past the CRLFCRLF terminator */
 
-    /* Read: accumulate until CRLFCRLF or cap.  sd is still blocking here, so
-     * each recv() is gated behind a bounded select() -- a peer that opens
-     * the connection and sends nothing (or trickles bytes in past the first
+    /* Read: accumulate until the shared parser reports something other than
+     * "need more", or the buffer fills.  sd is still blocking here, so each
+     * recv() is gated behind a bounded select() -- a peer that opens the
+     * connection and sends nothing (or trickles bytes in past the first
      * segment) must not be able to hang this call, and with it the whole
      * single-threaded server, forever. */
-    while (total < (int)sizeof(buf))
+    for (;;)
     {
+        int end_pos = -1;
+        int path_len = 0;
+        sni_gw_http_parse_result_t result =
+            sni_gw_http_parse_request(buf, total, require_path, token, &end_pos, &path_len);
+
+        if (result == SNI_GW_HTTP_PARSE_VALID)
+        {
+            msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
+                end_pos, path_len, buf + 4);
+            return sni_gw_http_send_101(sd, token);
+        }
+        if (result == SNI_GW_HTTP_PARSE_NOT_HTTP)
+        {
+            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: not a GET request");
+            return false;
+        }
+        if ((result == SNI_GW_HTTP_PARSE_INVALID) || (result == SNI_GW_HTTP_PARSE_TOO_LARGE))
+        {
+            /* Reason already logged by sni_gw_http_parse_request(). */
+            return false;
+        }
+        /* SNI_GW_HTTP_PARSE_NEED_MORE: read more, unless we are already out
+         * of buffer room (the parser only returns TOO_LARGE once len exceeds
+         * SNI_GW_HTTP_MAX_REQUEST, which -- since buf is exactly that size --
+         * this blocking reader can never actually reach; guard here instead). */
+        if (total >= (int)sizeof(buf))
+        {
+            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: Upgrade request too large or truncated");
+            return false;
+        }
+
         fd_set reads;
         struct timeval tv;
         FD_ZERO(&reads);
@@ -603,7 +706,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
         if (n < 0)
         {
             int e = openvpn_errno();
-            if (e == EINTR || e == EAGAIN || e == EWOULDBLOCK)
+            if ((e == EINTR) || (e == EAGAIN) || (e == EWOULDBLOCK))
             {
                 continue;
             }
@@ -618,83 +721,5 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
             return false;
         }
         total += (int)n;
-        for (int i = 0; i + 4 <= total; i++)
-        {
-            if (buf[i] == '\r' && buf[i + 1] == '\n'
-                && buf[i + 2] == '\r' && buf[i + 3] == '\n')
-            {
-                end_pos = i + 4;
-                break;
-            }
-        }
-        if (end_pos >= 0)
-        {
-            break;
-        }
     }
-
-    if (end_pos < 0)
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: Upgrade request too large or truncated");
-        return false;
-    }
-
-    const char *data = buf;
-    int len = end_pos;
-
-    if (len < 4 || memcmp(data, "GET ", 4) != 0)
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: not a GET request");
-        return false;
-    }
-
-    const char *line_end = memchr(data, '\r', (size_t)len);
-    if (!line_end)
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request line");
-        return false;
-    }
-
-    const char *path_start = data + 4;
-    const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
-    if (!sp || sp == path_start || path_start[0] != '/')
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request path");
-        return false;
-    }
-    int path_len = (int)(sp - path_start);
-
-    const char *ver = sp + 1;
-    if ((int)(line_end - ver) != 8 || memcmp(ver, "HTTP/1.1", 8) != 0)
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: unsupported HTTP version");
-        return false;
-    }
-
-    const char *hdrs = line_end + 2;
-    int hdrs_len = (int)(data + len - hdrs);
-    if (!http_has_upgrade_token(hdrs, hdrs_len, token))
-    {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing or mismatched "
-                    "'Upgrade: %s' header",
-            token);
-        return false;
-    }
-
-    if (require_path)
-    {
-        int rp_len = (int)strlen(require_path);
-        if (rp_len != path_len || memcmp(path_start, require_path, (size_t)path_len) != 0)
-        {
-            msg(M_WARN,
-                "--sni-gateway-server sni-http-path-upgrade: path mismatch (expected '%s', got '%.*s')",
-                require_path, path_len, path_start);
-            return false;
-        }
-    }
-
-    msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
-        end_pos, path_len, path_start);
-
-    return sni_gw_http_send_101(sd, token);
 }
