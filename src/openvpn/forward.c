@@ -1751,8 +1751,8 @@ process_outgoing_link(struct context *c, struct link_socket *sock)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     /* An SNI gateway writable event may exist solely for ciphertext retained
      * after an earlier EAGAIN.  Flush it without another OpenVPN packet. */
-    if (c->c2.to_link.len <= 0 && sock->gw_tls
-        && !sni_gw_tls_flush(sock->gw_tls, sock->sd))
+    if (c->c2.to_link.len <= 0 && sock->sni_gw_tls
+        && !sni_gw_tls_flush(sock->sni_gw_tls, sock->sd))
     {
         register_signal(c->sig, SIGUSR1, "connection-reset");
         msg(D_STREAM_ERRORS, "Connection reset while flushing SNI TLS output, restarting");
