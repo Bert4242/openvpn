@@ -23,29 +23,37 @@
 /*
  * Cross-path compatibility test for the SNI passthrough builder and checker.
  *
+ * sni_passthrough_check_packet() (the checker) has a single, backend-
+ * independent implementation, so "normal" and "alt" checker symbols below
+ * always resolve to the same code.  The builder still has two flavours
+ * (a real-OpenSSL-handshake-driven builder on OpenSSL builds vs. the
+ * generic template-based builder used everywhere else), so this matrix
+ * mainly confirms the one checker accepts ClientHellos produced by either
+ * builder.
+ *
  * sni_compat_testdriver links two separately-compiled translations of
  * sni_gateway_passthrough.c into the same binary:
  *
- *   sni_gateway_passthrough.c – compiled normally (OpenSSL path on OpenSSL
- *                     builds, generic path on LibreSSL / mbedTLS / …).
+ *   sni_gateway_passthrough.c – compiled normally (OpenSSL builder on
+ *                     OpenSSL builds, generic template builder otherwise).
  *   sni_alt_impl.c  – compiled with SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH
  *                     forced, all public symbols renamed with an "_alt"
  *                     suffix to avoid linker conflicts.
  *
  * The four builder × checker combinations tested here:
  *
- *   normal  builder  × normal  checker   (1)
- *   normal  builder  × alt     checker   (2)  ← key: LibreSSL parses OpenSSL hello
- *   alt     builder  × normal  checker   (3)  ← key: OpenSSL parses template hello
- *   alt     builder  × alt     checker   (4)
+ *   normal  builder  × normal  checker   (1)  ← real OpenSSL handshake's hello, "normal" checker symbol
+ *   normal  builder  × alt     checker   (2)  ← real OpenSSL handshake's hello, "alt" checker symbol
+ *   alt     builder  × normal  checker   (3)  ← generic template builder's hello, "normal" checker symbol
+ *   alt     builder  × alt     checker   (4)  ← generic template builder's hello, "alt" checker symbol
  *
  * Each combination is run with a short SNI (shorter than the 21-byte
  * template reference) and a long SNI (longer, exercising the length-patch
  * logic in the alt builder).
  *
  * On non-OpenSSL builds (LibreSSL, mbedTLS, …) the "normal" and "alt"
- * symbols both resolve to the generic byte-scan code; all eight tests
- * still pass and confirm that the generic path is self-consistent.
+ * builder symbols both resolve to the generic template builder; all eight
+ * tests still pass and confirm that the generic path is self-consistent.
  */
 
 #ifdef HAVE_CONFIG_H

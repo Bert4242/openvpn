@@ -679,282 +679,21 @@ error:
 }
 
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-
 /*
- * State passed through the client_hello_cb arg pointer so we avoid globals.
- */
-struct sni_pt_cb_ctx
-{
-    /* resolved ALPN list (never NULL after init) */
-    const char *const *alpn_list;
-    int alpn_count;
-    bool ignore_alpn;
-
-    /* server hostname filter (NULL / 0 → any hostname accepted) */
-    const char *const *hostname_list;
-    int hostname_count;
-
-    /* results set by the callback */
-    int alpn_matched;
-    int hostname_matched; /* 1 = matched or no filter; 0 = filter present and failed */
-    bool callback_fired;  /* true if client_hello_cb was invoked (complete ClientHello) */
-};
-
-/*
- * client_hello_cb fires on the raw ClientHello before any certificate is
- * needed, in both TLS 1.2 and TLS 1.3.  We inspect the SNI and ALPN
- * extensions to apply the configured filters.
- */
-static int
-sni_passthrough_client_hello_cb(SSL *ssl, int *alert, void *arg)
-{
-    struct sni_pt_cb_ctx *cb = (struct sni_pt_cb_ctx *)arg;
-    cb->callback_fired = true;
-
-    /* ---- Hostname check ---- */
-    if (cb->hostname_count > 0)
-    {
-        const unsigned char *sni_data = NULL;
-        size_t sni_len = 0;
-        cb->hostname_matched = 0;
-
-        if (SSL_client_hello_get0_ext(ssl, TLSEXT_TYPE_server_name,
-                                      &sni_data, &sni_len)
-            && sni_data && sni_len >= 5)
-        {
-            /*
-             * SNI ext_data wire format:
-             *   server_name_list_len (2) + name_type (1) + name_len (2) + name
-             */
-            const unsigned char *p = sni_data + 2; /* skip list_len */
-            const unsigned char *end = sni_data + sni_len;
-            while (p + 3 <= end && !cb->hostname_matched)
-            {
-                /* name_type must be 0 (host_name) */
-                unsigned int ntype = p[0];
-                unsigned int nlen = ((unsigned int)p[1] << 8) | p[2];
-                p += 3;
-                if (p + nlen > end)
-                {
-                    break;
-                }
-                if (ntype == 0)
-                {
-                    for (int i = 0; i < cb->hostname_count; i++)
-                    {
-                        if (nlen == strlen(cb->hostname_list[i])
-                            && strncasecmp((const char *)p, cb->hostname_list[i], nlen) == 0)
-                        {
-                            cb->hostname_matched = 1;
-                            msg(M_INFO,
-                                "--sni-gateway-server sni: client_hello_cb: %s hostname matched",
-                                cb->hostname_list[i]);
-                            break;
-                        }
-                    }
-                }
-                p += nlen;
-            }
-        }
-        if (!cb->hostname_matched)
-        {
-            msg(M_WARN,
-                "--sni-gateway-server sni: client_hello_cb: hostname not in allowed list, rejecting");
-        }
-    }
-    else
-    {
-        cb->hostname_matched = 1; /* no filter → always pass */
-    }
-
-    /* ---- ALPN check ---- */
-    if (cb->ignore_alpn)
-    {
-        cb->alpn_matched = 1;
-    }
-    else
-    {
-        const unsigned char *alpn_data = NULL;
-        size_t alpn_len = 0;
-
-        if (SSL_client_hello_get0_ext(ssl,
-                                      TLSEXT_TYPE_application_layer_protocol_negotiation,
-                                      &alpn_data, &alpn_len)
-            && alpn_data && alpn_len > 4)
-        {
-            /* ALPN wire format: protocol_list_len(2) + proto_len(1) + proto … */
-            const unsigned char *p = alpn_data + 2;
-            const unsigned char *end = alpn_data + alpn_len;
-
-            while (p < end && !cb->alpn_matched)
-            {
-                unsigned int plen = *p++;
-                if (p + plen > end)
-                {
-                    break;
-                }
-                for (int i = 0; i < cb->alpn_count; i++)
-                {
-                    const char *name = cb->alpn_list[i];
-                    size_t name_len = strlen(name);
-                    if (plen == name_len && memcmp(p, name, plen) == 0)
-                    {
-                        cb->alpn_matched = 1;
-                        msg(M_INFO,
-                            "--sni-gateway-server sni: client_hello_cb: %s ALPN matched",
-                            name);
-                        break;
-                    }
-                }
-                p += plen;
-            }
-        }
-    }
-
-    /* Always return success — we are only inspecting, not blocking. */
-    return SSL_CLIENT_HELLO_SUCCESS;
-}
-
-int
-sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                             const struct sni_pt_server_check_ctx *ctx)
-{
-    struct sni_pt_cb_ctx cb_ctx;
-    int consumed = 0;
-    BIO *rbio = NULL;
-    BIO *wbio = NULL;
-    SSL *ssl = NULL;
-    SSL_CTX *ssl_ctx = NULL;
-
-    cb_ctx.ignore_alpn = ctx->ignore_alpn;
-    cb_ctx.hostname_list = ctx->hostname_list;
-    cb_ctx.hostname_count = ctx->hostname_count;
-    cb_ctx.alpn_matched = 0;
-    cb_ctx.hostname_matched = 0;
-    cb_ctx.callback_fired = false;
-
-    if (ctx->ignore_alpn)
-    {
-        cb_ctx.alpn_list = NULL;
-        cb_ctx.alpn_count = 0;
-    }
-    else
-    {
-        sni_pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
-                            &cb_ctx.alpn_list, &cb_ctx.alpn_count);
-    }
-
-    /*
-     * Mirror the generic path's early guards so both paths agree on obviously
-     * non-SNI-header packets without spinning up the SSL machinery.
-     */
-    if (pkt_len < 5 || pkt[0] != 0x16)
-    {
-        return 0;
-    }
-    {
-        int hs_record_len = ((int)pkt[3] << 8) | (int)pkt[4];
-        if (hs_record_len > 0x4000)
-        {
-            return -1; /* garbage or deliberate oversized record */
-        }
-        if (5 + hs_record_len > pkt_len)
-        {
-            return 0; /* record is incomplete; wait for more data */
-        }
-    }
-
-    ssl_ctx = SSL_CTX_new(TLS_server_method());
-    if (!ssl_ctx)
-    {
-        goto cleanup;
-    }
-    /* client_hello_cb fires on the raw ClientHello before any certificate
-     * is required, unlike the ALPN select callback which needs a cert. */
-    SSL_CTX_set_client_hello_cb(ssl_ctx, sni_passthrough_client_hello_cb, &cb_ctx);
-
-    ssl = SSL_new(ssl_ctx);
-    if (!ssl)
-    {
-        goto cleanup;
-    }
-
-    rbio = BIO_new(BIO_s_mem());
-    wbio = BIO_new(BIO_s_mem());
-    if (!rbio || !wbio)
-    {
-        goto cleanup;
-    }
-
-    SSL_set_bio(ssl, rbio, wbio);
-    rbio = NULL;
-    wbio = NULL;
-
-    /* Feed the raw ClientHello into the read BIO and drive the state machine.
-     * SSL_accept will "fail" (no cert, no full handshake) but the callback
-     * fires before that and is all we need. */
-    BIO_write(SSL_get_rbio(ssl), pkt, pkt_len);
-    SSL_accept(ssl);
-
-    size_t remaining = BIO_ctrl_pending(SSL_get_rbio(ssl));
-    if (remaining <= (size_t)pkt_len)
-    {
-        consumed = pkt_len - (int)remaining;
-    }
-    else
-    {
-        msg(M_WARN, "--sni-gateway-server sni: BIO_ctrl_pending returned %zu > pkt_len %d",
-            remaining, pkt_len);
-    }
-
-cleanup:
-    if (ssl)
-    {
-        SSL_free(ssl);
-    }
-    if (rbio)
-    {
-        BIO_free(rbio);
-    }
-    if (wbio)
-    {
-        BIO_free(wbio);
-    }
-    if (ssl_ctx)
-    {
-        SSL_CTX_free(ssl_ctx);
-    }
-
-    if (cb_ctx.alpn_matched && cb_ctx.hostname_matched)
-    {
-        if (consumed)
-        {
-            msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_packet consumed");
-            return consumed;
-        }
-        else
-        {
-            msg(M_WARN, "--sni-gateway-server sni: routing header found but not consumed");
-            return 0;
-        }
-    }
-    /*
-     * The early guards above guarantee the record is complete.  If we reach
-     * here, either the callback didn't fire (not a valid ClientHello) or at
-     * least one filter was not satisfied.  Either way, reject.
-     */
-    return -1;
-}
-
-#else /* generic byte-scan path: LibreSSL, mbedTLS, wolfSSL, … */
-
-/*
- * OpenSSL's SSL_CTX_set_client_hello_cb / SSL_client_hello_get0_ext are not
- * available on LibreSSL, mbedTLS, wolfSSL, or other non-OpenSSL backends.
- * Instead we manually parse the raw ClientHello to find the ALPN extension
- * (type 0x0010) and verify the configured ALPN token appears in the
- * ProtocolNameList.
+ * sni_passthrough_check_packet() is the single implementation of SNI/ALPN
+ * ClientHello extraction, used for every TLS backend (OpenSSL, LibreSSL,
+ * mbedTLS, wolfSSL, …).  It manually parses the raw ClientHello bytes to
+ * locate the server_name extension (type 0x0000) and the ALPN extension
+ * (type 0x0010) and verifies them against the configured filters.
+ *
+ * Earlier revisions of this file drove OpenSSL's own
+ * SSL_CTX_set_client_hello_cb() through a real (if incomplete) SSL_accept()
+ * over mem-BIOs on OpenSSL builds, duplicating this logic in a second,
+ * independently-maintained implementation, and allocating a fresh
+ * SSL_CTX/SSL/two BIOs per connection just to reach the callback.  That path
+ * was removed in favour of this one so that a correctness fix only needs to
+ * land once and all backends see it, and so no per-connection OpenSSL
+ * object allocation is needed just to classify a TCP connection.
  *
  * ClientHello layout (all lengths big-endian):
  *   TLS record header  : type(1) + version(2) + record_len(2)        = 5 bytes
@@ -973,9 +712,6 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 {
     const char *const *eff_alpn_list = NULL;
     int eff_alpn_count = 0;
-#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_packet SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
-#endif
 
     if (!ctx->ignore_alpn)
     {
@@ -1148,7 +884,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                         {
                             hostname_ok = 1;
                             msg(M_INFO,
-                                "--sni-gateway-server sni: %s hostname matched (generic path)",
+                                "--sni-gateway-server sni: %s hostname matched",
                                 ctx->hostname_list[i]);
                             break;
                         }
@@ -1191,7 +927,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                     {
                         alpn_ok = 1;
                         msg(M_INFO,
-                            "--sni-gateway-server sni: %s ALPN matched (generic path)",
+                            "--sni-gateway-server sni: %s ALPN matched",
                             exp);
                         break;
                     }
@@ -1223,12 +959,10 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     if (!hostname_ok && ctx->hostname_count > 0)
     {
         msg(M_WARN,
-            "--sni-gateway-server sni: hostname not in allowed list, rejecting (generic path)");
+            "--sni-gateway-server sni: hostname not in allowed list, rejecting");
     }
     return -1;
 }
-
-#endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
 
 /*
@@ -1245,7 +979,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
 #endif
     if (sb->buf.len >= 5)
     {
-        if (BPTR(&sb->buf)[0] != 0x16) /* quick test before firing openssl on the packet */
+        if (BPTR(&sb->buf)[0] != 0x16) /* quick test before parsing the packet */
         {
             /* client without --sni-gateway sni. */
             msg(M_INFO, "--sni-gateway-server sni: client without routing header");
