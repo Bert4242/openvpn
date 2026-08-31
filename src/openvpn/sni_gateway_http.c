@@ -407,6 +407,21 @@ typedef enum
  * the length of the request-target starting at data+4; both are left
  * untouched for any other verdict.
  *
+ * scan_cursor_inout: optional (may be NULL).  If non-NULL, *scan_cursor_inout
+ * is the number of leading bytes of data[] that a previous call already
+ * scanned for the CRLFCRLF terminator without finding it -- the terminator
+ * scan resumes from max(0, *scan_cursor_inout - 3) instead of 0 (the 3-byte
+ * backoff catches a terminator split across the two calls' data), and
+ * *scan_cursor_inout is updated to len before returning
+ * SNI_GW_HTTP_PARSE_NEED_MORE/TOO_LARGE.  This lets a caller that re-invokes
+ * this function repeatedly as more bytes of the same candidate request
+ * arrive (either across separate calls with a growing buffer, or in a loop
+ * around recv()) do so in amortized O(n) instead of O(n^2) total scan work.
+ * Callers that always pass the same NULL either don't loop this way, or the
+ * loop is short enough (bounded by SNI_GW_HTTP_MAX_REQUEST and a connect
+ * timeout) that it doesn't matter; passing a cursor never changes the
+ * verdict, only how much re-scanning it takes to reach it.
+ *
  * Logs the specific reason for SNI_GW_HTTP_PARSE_INVALID and
  * SNI_GW_HTTP_PARSE_TOO_LARGE (those diagnostics are identical regardless of
  * caller).  SNI_GW_HTTP_PARSE_NOT_HTTP and SNI_GW_HTTP_PARSE_VALID are left
@@ -415,7 +430,8 @@ typedef enum
  */
 static sni_gw_http_parse_result_t
 sni_gw_http_parse_request(const char *data, int len, const char *require_path,
-                          const char *token, int *end_pos_out, int *path_len_out)
+                          const char *token, int *end_pos_out, int *path_len_out,
+                          int *scan_cursor_inout)
 {
     /*
      * Match against the "GET " prefix byte by byte so a raw-OpenVPN client
@@ -436,9 +452,16 @@ sni_gw_http_parse_request(const char *data, int len, const char *require_path,
         return SNI_GW_HTTP_PARSE_NEED_MORE; /* "GET " not fully seen yet */
     }
 
-    /* Locate the terminating blank line (CRLF CRLF). */
+    /* Locate the terminating blank line (CRLF CRLF).  Resume from where the
+     * previous call (if any) left off rather than rescanning bytes already
+     * known not to contain it -- see scan_cursor_inout doc above. */
+    int scan_start = 0;
+    if (scan_cursor_inout && (*scan_cursor_inout > 3))
+    {
+        scan_start = *scan_cursor_inout - 3;
+    }
     const char *end = NULL;
-    for (int i = 0; (i + 4) <= len; i++)
+    for (int i = scan_start; (i + 4) <= len; i++)
     {
         if ((data[i] == '\r') && (data[i + 1] == '\n')
             && (data[i + 2] == '\r') && (data[i + 3] == '\n'))
@@ -449,6 +472,10 @@ sni_gw_http_parse_request(const char *data, int len, const char *require_path,
     }
     if (!end)
     {
+        if (scan_cursor_inout)
+        {
+            *scan_cursor_inout = len;
+        }
         if (len > SNI_GW_HTTP_MAX_REQUEST)
         {
             msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request header exceeds %d bytes, rejecting",
@@ -537,7 +564,8 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     int request_len = -1;
     int path_len = 0;
     sni_gw_http_parse_result_t result =
-        sni_gw_http_parse_request(data, len, require_path, token, &request_len, &path_len);
+        sni_gw_http_parse_request(data, len, require_path, token, &request_len, &path_len,
+                                  &sb->sni_gw_http_scan_cursor);
 
     switch (result)
     {
@@ -572,6 +600,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
         }
         b->len = remaining;
         sb->sni_gw_http_state = SNI_GW_HTTP_SUCCESS;
+        sb->sni_gw_http_scan_cursor = 0; /* not read again once state has moved on */
         return request_len;
     }
 }
@@ -636,6 +665,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
 {
     char buf[SNI_GW_HTTP_MAX_REQUEST];
     int total = 0;
+    int scan_cursor = 0; /* see sni_gw_http_parse_request()'s scan_cursor_inout doc */
 
     /* Read: accumulate until the shared parser reports something other than
      * "need more", or the buffer fills.  sd is still blocking here, so each
@@ -648,7 +678,8 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
         int end_pos = -1;
         int path_len = 0;
         sni_gw_http_parse_result_t result =
-            sni_gw_http_parse_request(buf, total, require_path, token, &end_pos, &path_len);
+            sni_gw_http_parse_request(buf, total, require_path, token, &end_pos, &path_len,
+                                      &scan_cursor);
 
         if (result == SNI_GW_HTTP_PARSE_VALID)
         {

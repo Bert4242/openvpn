@@ -301,6 +301,122 @@ test_consume_partial_get_prefix(void **state)
     free_http_sb(&sb);
 }
 
+/*
+ * Resumable CRLFCRLF-terminator scan: feed the request across many small
+ * calls (one byte at a time, then a few bytes at a time) instead of in one
+ * shot, so that at some point during the feed the terminator is split
+ * across the "already scanned" / "newly appended" boundary in every
+ * possible way (0, 1, 2, or 3 of its 4 bytes seen so far). Regression test
+ * for sb->sni_gw_http_scan_cursor in sni_gw_http_parse_request(): before
+ * the resumable cursor, the scan always restarted at offset 0, so this
+ * would still have passed -- what this guards against is a future change
+ * to the cursor bookkeeping that skips past bytes it shouldn't (missing a
+ * terminator that starts within the 3-byte overlap window) or re-reports
+ * NEED_MORE forever.
+ */
+static void
+test_consume_fragmented_byte_at_a_time(void **state)
+{
+    (void)state;
+    size_t total_len = strlen(valid_req);
+
+    struct stream_buf sb;
+    memset(&sb, 0, sizeof(sb));
+    sb.buf = alloc_buf(total_len + 64);
+    sb.maxlen = (int)BCAP(&sb.buf);
+    sb.sni_gw_http_state = SNI_GW_HTTP_PENDING;
+
+    int r = -12345;
+    for (size_t i = 0; i < total_len; i++)
+    {
+        assert_true(buf_write(&sb.buf, valid_req + i, 1));
+        r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
+        if ((i + 1) < total_len)
+        {
+            assert_int_equal(r, 0); /* need more */
+            assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_PENDING);
+            assert_false(sb.error);
+        }
+    }
+
+    assert_int_equal(r, (int)total_len);
+    assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
+    assert_false(sb.error);
+    assert_int_equal(sb.buf.len, 0); /* whole request consumed */
+    free_http_sb(&sb);
+}
+
+/*
+ * Same idea, but fed in irregular multi-byte chunks (sizes 1..5, cycling)
+ * rather than strictly one byte at a time, and with trailing OpenVPN bytes
+ * appended after the request -- covers the "a few bytes at a time" case and
+ * confirms the cursor doesn't interfere with the post-terminator remaining-
+ * bytes handling.
+ */
+static void
+test_consume_fragmented_variable_chunks_with_trailing_data(void **state)
+{
+    (void)state;
+    const uint8_t trailer[] = { 0x00, 0x2a, 0x38, 0x01, 0x02, 0x03, 0x04 };
+    size_t reqlen = strlen(valid_req);
+    size_t total_len = reqlen + sizeof(trailer);
+    uint8_t *combined = malloc(total_len);
+    assert_non_null(combined);
+    memcpy(combined, valid_req, reqlen);
+    memcpy(combined + reqlen, trailer, sizeof(trailer));
+
+    struct stream_buf sb;
+    memset(&sb, 0, sizeof(sb));
+    sb.buf = alloc_buf(total_len + 64);
+    sb.maxlen = (int)BCAP(&sb.buf);
+    sb.sni_gw_http_state = SNI_GW_HTTP_PENDING;
+
+    static const size_t chunk_sizes[] = { 1, 2, 3, 4, 5 };
+    size_t fed = 0;
+    size_t chunk_idx = 0;
+    int r = -12345;
+    while (fed < total_len)
+    {
+        size_t chunk = chunk_sizes[chunk_idx % (sizeof(chunk_sizes) / sizeof(chunk_sizes[0]))];
+        chunk_idx++;
+        if (chunk > (total_len - fed))
+        {
+            chunk = total_len - fed;
+        }
+        assert_true(buf_write(&sb.buf, combined + fed, chunk));
+        fed += chunk;
+
+        r = sni_gw_http_check_and_consume_request(&sb, NULL, "openvpn");
+        if (r == 0)
+        {
+            assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_PENDING);
+            assert_false(sb.error);
+            continue;
+        }
+        break; /* got a verdict other than "need more" */
+    }
+
+    assert_int_equal(r, (int)reqlen);
+    assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
+    assert_false(sb.error);
+    /* Any trailer bytes fed alongside the terminator (in the same chunk that
+     * pushed the request past completion) remain in sb->buf -- they are the
+     * leading bytes of trailer, in order. */
+    assert_true(sb.buf.len <= (int)sizeof(trailer));
+    assert_memory_equal(BPTR(&sb.buf), trailer, (size_t)sb.buf.len);
+
+    /* Drain any not-yet-fed trailer bytes the same way real code would
+     * (more recv()s appending to sb->buf); state is SUCCESS so the HTTP
+     * parser is not consulted again -- just confirm the remaining trailer
+     * bytes are exactly what's left to feed. */
+    size_t already_have = (size_t)sb.buf.len;
+    size_t remaining_to_feed = total_len - fed;
+    assert_int_equal((int)(sizeof(trailer) - already_have), (int)remaining_to_feed);
+
+    free_http_sb(&sb);
+    free(combined);
+}
+
 static void
 test_consume_raw_openvpn(void **state)
 {
@@ -979,6 +1095,8 @@ main(void)
         cmocka_unit_test(test_consume_valid_with_trailing_openvpn),
         cmocka_unit_test(test_consume_partial_need_more),
         cmocka_unit_test(test_consume_partial_get_prefix),
+        cmocka_unit_test(test_consume_fragmented_byte_at_a_time),
+        cmocka_unit_test(test_consume_fragmented_variable_chunks_with_trailing_data),
         cmocka_unit_test(test_consume_raw_openvpn),
         cmocka_unit_test(test_consume_wrong_method),
         cmocka_unit_test(test_consume_missing_upgrade),
