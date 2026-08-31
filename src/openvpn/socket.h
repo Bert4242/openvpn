@@ -137,9 +137,9 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
-#define SNI_GW_PT_DISABLED 0 /* SNI gateway passthrough not active */
-#define SNI_GW_PT_PENDING  1 /* SNI gateway waiting to inspect first byte */
-#define SNI_GW_PT_SUCCESS  2 /* SNI gateway routing header was consumed */
+#define SNI_GW_PASSTHROUGH_DISABLED 0 /* SNI gateway passthrough not active */
+#define SNI_GW_PASSTHROUGH_PENDING  1 /* SNI gateway waiting to inspect first byte */
+#define SNI_GW_PASSTHROUGH_SUCCESS  2 /* SNI gateway routing header was consumed */
     int sni_gw_passthrough_state;
     /* SNI gateway client ALPN list (sent in its routing header) */
     const char **sni_gw_alpn_list;
