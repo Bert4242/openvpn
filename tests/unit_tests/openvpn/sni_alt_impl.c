@@ -49,7 +49,7 @@
 
 /*
  * Rename all public (non-static) symbols so this translation unit can
- * coexist with the normal sni_gw_passthrough.o in the same link step.
+ * coexist with the normal sni_gateway_passthrough.o in the same link step.
  *
  * The static builder sni_gw_passthrough_build_client_hello is also renamed
  * (to sni_gw_passthrough_build_client_hello_alt_test_path) so we can wrap it below.
