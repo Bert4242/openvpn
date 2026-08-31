@@ -97,7 +97,7 @@ enum sni_gw_accept_class sni_gw_accept_classify_bytes(const uint8_t *peek, int p
  * socket.c.
  */
 enum sni_gw_accept_class sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error,
-                                                    volatile int *signal_received,
-                                                    int poll_timeout);
+                                                   volatile int *signal_received,
+                                                   int poll_timeout);
 
 #endif /* SNI_GATEWAY_ACCEPT_H */

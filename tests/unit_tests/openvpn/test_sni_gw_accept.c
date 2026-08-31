@@ -154,7 +154,7 @@ test_classify_fd_peer_sends_nothing_bounded(void **state)
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (double)(end.tv_sec - start.tv_sec)
-                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+                     + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
 
     assert_true(error);
     assert_int_equal(cls, SNI_GW_ACCEPT_OTHER);

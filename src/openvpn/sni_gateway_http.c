@@ -165,8 +165,8 @@ sni_gw_wait_socket(socket_descriptor_t sd, bool for_write,
     tv.tv_usec = 0;
 
     int status = for_write
-                  ? openvpn_select(sd + 1, NULL, &fds, NULL, &tv)
-                  : openvpn_select(sd + 1, &fds, NULL, NULL, &tv);
+                     ? openvpn_select(sd + 1, NULL, &fds, NULL, &tv)
+                     : openvpn_select(sd + 1, &fds, NULL, NULL, &tv);
     get_signal(signal_received);
     if (*signal_received)
     {
