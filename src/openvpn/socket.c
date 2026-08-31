@@ -60,7 +60,7 @@ sockets_read_residual(const struct context *c)
          * outlast the socket's readable state (the fd is drained but bytes remain
          * buffered in the tunnel).  Force a non-blocking re-entry so the read path
          * drains it frame by frame instead of stalling in event_wait(). */
-        if (sni_gw_tls_read_pending(c->c2.link_sockets[i]->gw_tls))
+        if (sni_gw_tls_read_pending(c->c2.link_sockets[i]->sni_gw_tls))
         {
             /* This shortcut bypasses the event_wait() prep that normally
              * calls socket_set() -> stream_buf_read_setup() ->
@@ -1872,17 +1872,17 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
          * All subsequent OpenVPN bytes on this socket flow through the TLS
          * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
-        sock->gw_tls = sni_gw_tls_new();
-        if (!sock->gw_tls
+        sock->sni_gw_tls = sni_gw_tls_new();
+        if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
                 (const char *const *)c->options.ce.sni_gateway_alpn_list,
                 c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
                 c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
-            sni_gw_tls_free(sock->gw_tls);
-            sock->gw_tls = NULL;
+            sni_gw_tls_free(sock->sni_gw_tls);
+            sock->sni_gw_tls = NULL;
             if (!sig_info->signal_received)
             {
                 register_signal(sig_info, SIGUSR1, "sni-gateway-tls-handshake-error");
@@ -1899,22 +1899,22 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
          * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
          * steady-state gw_tls read/write seams carry the OpenVPN stream. */
-        sock->gw_tls = sni_gw_tls_new();
-        if (!sock->gw_tls
+        sock->sni_gw_tls = sni_gw_tls_new();
+        if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
                 (const char *const *)c->options.ce.sni_gateway_alpn_list,
                 c->options.ce.sni_gateway_alpn_count, c->options.ce.sni_gateway_ca,
                 c->options.ce.sni_gateway_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout))
             || !sni_gw_http_client_upgrade(
-                sock->gw_tls, sock->sd, c->options.ce.sni_gateway_host,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gateway_host,
                 c->options.ce.sni_gateway_path, c->options.ce.sni_gateway_upgrade_token,
                 &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
-            sni_gw_tls_free(sock->gw_tls);
-            sock->gw_tls = NULL;
+            sni_gw_tls_free(sock->sni_gw_tls);
+            sock->sni_gw_tls = NULL;
             if (!sig_info->signal_received)
             {
                 register_signal(sig_info, SIGUSR1, "sni-gateway-http-upgrade-error");
@@ -1930,7 +1930,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     {
         /* --sni-gateway sni-http-path-upgrade: the same HTTP/1.1 Upgrade
          * handshake as sni-tls-http-path-upgrade, but over the PLAIN socket
-         * -- no TLS at all.  sock->gw_tls is deliberately never touched:
+         * -- no TLS at all.  sock->sni_gw_tls is deliberately never touched:
          * with no userspace steady-state wrapper allocated, every later
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
@@ -2011,8 +2011,8 @@ link_socket_close(struct link_socket *sock)
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-        sni_gw_tls_free(sock->gw_tls);
-        sock->gw_tls = NULL;
+        sni_gw_tls_free(sock->sni_gw_tls);
+        sock->sni_gw_tls = NULL;
 #endif
         if (!gremlin)
         {
@@ -2558,12 +2558,12 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
 #else
         struct buffer frag = stream_buf_get_next(&sock->stream_buf);
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-        if (sock->gw_tls)
+        if (sock->sni_gw_tls)
         {
             /* --sni-gateway sni-tls: decrypt ciphertext off the socket into frag.
              * Returns >0 plaintext len, 0 = incomplete, <0 = fatal -- fed into
              * the stream_buf logic exactly like a raw recv() result. */
-            len = (int)sni_gw_tls_read(sock->gw_tls, sock->sd, &frag);
+            len = (int)sni_gw_tls_read(sock->sni_gw_tls, sock->sd, &frag);
         }
         else
 #endif
@@ -2573,7 +2573,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
 #endif
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-        if (sock->gw_tls)
+        if (sock->sni_gw_tls)
         {
             /* gw_tls semantics differ from raw recv(): 0 means "plaintext not
              * complete yet" (no reset), while <0 means the TLS session is gone
@@ -3263,7 +3263,7 @@ socket_set(struct link_socket *s, struct event_set *es, unsigned int rwflags, vo
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
         /* Ciphertext accepted by the SNI gateway TLS wrapper is transport
          * output even after OpenVPN's plaintext buffer has been consumed. */
-        if (s->gw_tls && sni_gw_tls_write_pending(s->gw_tls))
+        if (s->sni_gw_tls && sni_gw_tls_write_pending(s->sni_gw_tls))
         {
             rwflags |= EVENT_WRITE;
         }
