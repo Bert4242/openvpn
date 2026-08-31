@@ -150,6 +150,42 @@ sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
 /* ------------------------------------------------------------------------- */
 
 /*
+ * See the doc comment on the declaration in sni_gateway_http.h.
+ */
+bool
+sni_gw_wait_socket(socket_descriptor_t sd, bool for_write,
+                   volatile int *signal_received, int poll_timeout,
+                   const char *log_prefix)
+{
+    fd_set fds;
+    struct timeval tv;
+    FD_ZERO(&fds);
+    openvpn_fd_set(sd, &fds);
+    tv.tv_sec = poll_timeout;
+    tv.tv_usec = 0;
+
+    int status = for_write
+                  ? openvpn_select(sd + 1, NULL, &fds, NULL, &tv)
+                  : openvpn_select(sd + 1, &fds, NULL, NULL, &tv);
+    get_signal(signal_received);
+    if (*signal_received)
+    {
+        return false;
+    }
+    if (status == 0)
+    {
+        msg(D_LINK_ERRORS, "%s %s timeout", log_prefix, for_write ? "write" : "read");
+        return false;
+    }
+    if (status < 0)
+    {
+        msg(D_LINK_ERRORS | M_ERRNO, "%s select() failed", log_prefix);
+        return false;
+    }
+    return true;
+}
+
+/*
  * Blocking write of the whole buffer over a plain (still-blocking) TCP
  * socket, honoring poll_timeout/signal_received.  Mirrors gw_ssl_write_all()
  * in sni_gateway_tls.c but shuttles plaintext bytes directly with send(),
@@ -162,27 +198,9 @@ gw_plain_write_all(socket_descriptor_t sd, const void *data, int len,
     int off = 0;
     while (off < len)
     {
-        fd_set writes;
-        struct timeval tv;
-        FD_ZERO(&writes);
-        openvpn_fd_set(sd, &writes);
-        tv.tv_sec = poll_timeout;
-        tv.tv_usec = 0;
-
-        int status = openvpn_select(sd + 1, NULL, &writes, NULL, &tv);
-        get_signal(signal_received);
-        if (*signal_received)
+        if (!sni_gw_wait_socket(sd, true, signal_received, poll_timeout,
+                                "sni-gateway http (plain):"))
         {
-            return false;
-        }
-        if (status == 0)
-        {
-            msg(D_LINK_ERRORS, "sni-gateway http (plain): write timeout");
-            return false;
-        }
-        if (status < 0)
-        {
-            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): select() failed");
             return false;
         }
 
@@ -219,27 +237,9 @@ gw_plain_read_byte(socket_descriptor_t sd, uint8_t *out,
 {
     for (;;)
     {
-        fd_set reads;
-        struct timeval tv;
-        FD_ZERO(&reads);
-        openvpn_fd_set(sd, &reads);
-        tv.tv_sec = poll_timeout;
-        tv.tv_usec = 0;
-
-        int status = openvpn_select(sd + 1, &reads, NULL, NULL, &tv);
-        get_signal(signal_received);
-        if (*signal_received)
+        if (!sni_gw_wait_socket(sd, false, signal_received, poll_timeout,
+                                "sni-gateway http (plain):"))
         {
-            return false;
-        }
-        if (status == 0)
-        {
-            msg(D_LINK_ERRORS, "sni-gateway http (plain): read timeout");
-            return false;
-        }
-        if (status < 0)
-        {
-            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): select() failed");
             return false;
         }
 
