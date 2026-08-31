@@ -267,27 +267,9 @@ gw_handshake_flush_out(struct sni_gw_tls *t, socket_descriptor_t sd,
         int sent = 0;
         while (sent < n)
         {
-            fd_set writes;
-            struct timeval tv;
-            FD_ZERO(&writes);
-            openvpn_fd_set(sd, &writes);
-            tv.tv_sec = poll_timeout;
-            tv.tv_usec = 0;
-
-            int status = openvpn_select(sd + 1, NULL, &writes, NULL, &tv);
-            get_signal(signal_received);
-            if (*signal_received)
+            if (!sni_gw_wait_socket(sd, true, signal_received, poll_timeout,
+                                    "sni-gateway tls: handshake"))
             {
-                return false;
-            }
-            if (status == 0)
-            {
-                msg(D_LINK_ERRORS, "sni-gateway tls: handshake write timeout");
-                return false;
-            }
-            if (status < 0)
-            {
-                msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: handshake select() failed");
                 return false;
             }
 
@@ -322,27 +304,9 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
 {
     uint8_t scratch[SNI_GW_TLS_SCRATCH];
 
-    fd_set reads;
-    struct timeval tv;
-    FD_ZERO(&reads);
-    openvpn_fd_set(sd, &reads);
-    tv.tv_sec = poll_timeout;
-    tv.tv_usec = 0;
-
-    int status = openvpn_select(sd + 1, &reads, NULL, NULL, &tv);
-    get_signal(signal_received);
-    if (*signal_received)
+    if (!sni_gw_wait_socket(sd, false, signal_received, poll_timeout,
+                            "sni-gateway tls: handshake"))
     {
-        return false;
-    }
-    if (status == 0)
-    {
-        msg(D_LINK_ERRORS, "sni-gateway tls: handshake read timeout");
-        return false;
-    }
-    if (status < 0)
-    {
-        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: handshake select() failed");
         return false;
     }
 

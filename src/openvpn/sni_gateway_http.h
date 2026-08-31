@@ -124,6 +124,34 @@ size_t sni_gw_http_build_upgrade(char *buf, size_t bufsz,
 size_t sni_gw_http_build_101(char *buf, size_t bufsz, const char *token);
 
 /*
+ * Shared bounded-wait helper used by every blocking-time call site in this
+ * pair of modules: gw_plain_write_all()/gw_plain_read_byte() below, and
+ * gw_handshake_flush_out()/gw_handshake_fill_in() in sni_gateway_tls.c.
+ * Waits up to poll_timeout seconds for sd to become ready for read (
+ * for_write == false) or write (for_write == true), the same fd_set/
+ * openvpn_select()/get_signal() pattern used throughout this branch's
+ * blocking-time gateway I/O.  Declared here (rather than in
+ * sni_gateway_tls.h) because this header is already a shared dependency of
+ * both sni_gateway_tls.c and sni_gateway_http.c, while sni_gateway_tls.h is
+ * only reachable when ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER;
+ * defined (non-static) in sni_gateway_http.c, which already carries the
+ * socket.h/fdmisc.h/sig.h/error.h includes it needs.
+ *
+ * log_prefix is used verbatim to build the two possible diagnostics, so
+ * each call site keeps its own existing wording:
+ *     msg(D_LINK_ERRORS, "%s %s timeout", log_prefix, for_write ? "write" : "read");
+ *     msg(D_LINK_ERRORS | M_ERRNO, "%s select() failed", log_prefix);
+ *
+ * Returns true once sd is ready.  Returns false, with a diagnostic already
+ * logged, on timeout or a select() error; also returns false (silently --
+ * the caller is expected to unwind without logging, matching get_signal()'s
+ * existing contract) when *signal_received becomes set.
+ */
+bool sni_gw_wait_socket(socket_descriptor_t sd, bool for_write,
+                        volatile int *signal_received, int poll_timeout,
+                        const char *log_prefix);
+
+/*
  * Client side: read a byte from whatever transport a client-side Upgrade
  * caller is using (TLS tunnel or plain socket), honoring poll_timeout and
  * signal_received the same way the two transports already do individually.
