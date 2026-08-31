@@ -249,8 +249,6 @@ jobs:
       CFLAGS: ${{ matrix.cflags }}
       LDFLAGS: ${{ matrix.ldflags }}
       UBSAN_OPTIONS: print_stacktrace=1
-      # Probe for a macOS nano-malloc-zone/ASan interaction in forked children; see doc/known-issue-libressl-asan-macos-ci.md
-      MallocNanoZone: "0"
     steps:
       - name: Install dependencies
         run: brew install ${{matrix.ssllib}} lzo lz4 man2html cmocka libtool automake autoconf
