@@ -189,7 +189,7 @@ enum sni_gw_mode
  * is compiled a second time (with public symbols renamed via macros) by
  * tests/unit_tests/openvpn/sni_alt_impl.c, and any additional non-static,
  * non-renamed symbol pulled in there would collide at link time with the
- * ordinary sni_gw_passthrough.o in sni_compat_testdriver.
+ * ordinary sni_gateway_passthrough.o in sni_compat_testdriver.
  */
 static inline int
 sni_gw_client_mode_from_string(const char *s)
