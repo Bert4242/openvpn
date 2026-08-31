@@ -1397,7 +1397,7 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     if (o->sni_gw_server_enabled
         && (o->sni_gw_server_mode == SNI_GW_SERVER_SNI || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
     {
-        sock->sockflags |= SF_SNI_PASSTHROUGH;
+        sock->sockflags |= SF_SNI_GW_PASSTHROUGH;
     }
     if (o->sni_gw_server_enabled
         && (o->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
@@ -1787,7 +1787,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         {
             bool run_http_upgrade = true;
 
-            if (sock->sockflags & SF_SNI_PASSTHROUGH)
+            if (sock->sockflags & SF_SNI_GW_PASSTHROUGH)
             {
                 /* auto mode: both flags are set on this socket -- classify
                  * the connection's first bytes before deciding whether to
@@ -1807,7 +1807,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                 }
                 run_http_upgrade = (cls == SNI_GW_ACCEPT_HTTP);
                 /* cls == SNI_GW_ACCEPT_SNI or _OTHER: do nothing eager here;
-                 * the lazy SF_SNI_PASSTHROUGH peek in stream_buf_added() and
+                 * the lazy SF_SNI_GW_PASSTHROUGH peek in stream_buf_added() and
                  * sni_gw_http_check_and_consume_request()'s own "not HTTP"
                  * self-disable take it from here, exactly as they do outside
                  * of auto mode. */
@@ -2257,7 +2257,7 @@ stream_buf_init(struct stream_buf *sb, struct buffer *buf, const unsigned int so
     sb->port_share_state =
         ((sockflags & SF_PORT_SHARE) && (proto == PROTO_TCP_SERVER)) ? PS_ENABLED : PS_DISABLED;
 #endif
-    sb->sni_gw_passthrough_state = ((sockflags & SF_SNI_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
+    sb->sni_gw_passthrough_state = ((sockflags & SF_SNI_GW_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
                                        ? SNI_GW_PT_PENDING
                                        : SNI_GW_PT_DISABLED;
     sb->sni_gw_http_state = ((sockflags & SF_SNI_GW_HTTP) && (proto == PROTO_TCP_SERVER))
