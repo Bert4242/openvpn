@@ -272,6 +272,22 @@ jobs:
         run: echo 'RUN_SUDO="sudo -E"' >tests/t_server_null.rc
       - name: make check
         run: make -j4 check VERBOSE=1
+      # t_server_null_server.sh redirects each server's stdout+stderr (i.e. exactly
+      # where an ASan/UBSan report would land) to tests/t_server_null-<host>-<ts>/
+      # <name>.log, but only ever tail's it when a server needed SIGKILL to die --
+      # if the server already crashed on its own, the log is silently never shown.
+      # See doc/known-issue-libressl-asan-macos-ci.md.
+      - name: Show t_server_null server/client logs (on failure)
+        if: failure()
+        run: |
+          shopt -s nullglob
+          for d in tests/t_server_null-*/; do
+            for f in "$d"*.log; do
+              echo "===== $f ====="
+              cat "$f"
+              echo
+            done
+          done
 
   msvc:
       strategy:
