@@ -137,22 +137,22 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
-#define SNI_PT_DISABLED 0 /* SNI gateway passthrough not active */
-#define SNI_PT_PENDING  1 /* SNI gateway waiting to inspect first byte */
-#define SNI_PT_SUCCESS  2 /* SNI gateway routing header was consumed */
-    int sni_passthrough_state;
+#define SNI_GW_PT_DISABLED 0 /* SNI gateway passthrough not active */
+#define SNI_GW_PT_PENDING  1 /* SNI gateway waiting to inspect first byte */
+#define SNI_GW_PT_SUCCESS  2 /* SNI gateway routing header was consumed */
+    int sni_gw_passthrough_state;
     /* SNI gateway client ALPN list (sent in its routing header) */
-    const char **sni_gateway_alpn_list;
-    int sni_gateway_alpn_count;
+    const char **sni_gw_alpn_list;
+    int sni_gw_alpn_count;
     /* SNI gateway server-side routing filters */
-    const char **sni_gateway_server_host_list;
-    int sni_gateway_server_host_count;
-    bool sni_gateway_server_ignore_alpn;
+    const char **sni_gw_server_host_list;
+    int sni_gw_server_host_count;
+    bool sni_gw_server_ignore_alpn;
 
     /* --sni-gateway-server sni-http-path-upgrade: state machine that consumes the inbound
      * HTTP/1.1 Upgrade request (plaintext -- either forwarded by a
      * TLS-terminating gateway, or sent directly by an sni-http-path-upgrade
-     * client) and triggers the 101 reply.  Parallel to sni_passthrough_state
+     * client) and triggers the 101 reply.  Parallel to sni_gw_passthrough_state
      * above. */
 #define SNI_GW_HTTP_DISABLED 0             /* not active / done */
 #define SNI_GW_HTTP_PENDING  1             /* waiting for / parsing the Upgrade request */

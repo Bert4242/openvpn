@@ -111,7 +111,7 @@ make_stream_buf(struct stream_buf *sb, const uint8_t *data, int len)
     memset(sb, 0, sizeof(*sb));
     sb->buf = alloc_buf((size_t)len + 16);
     assert_true(buf_write(&sb->buf, data, (size_t)len));
-    sb->sni_passthrough_state = SNI_PT_PENDING;
+    sb->sni_gw_passthrough_state = SNI_GW_PT_PENDING;
 }
 
 static void
@@ -123,7 +123,7 @@ free_stream_buf(struct stream_buf *sb)
 /*
  * run_compat_test – build a ClientHello with <build>, feed it to <check>,
  * and assert that the header is consumed and the state transitions to
- * SNI_PT_SUCCESS.
+ * SNI_GW_PT_SUCCESS.
  * Uses the built-in default ALPN token and no hostname filter.
  */
 static void
@@ -141,7 +141,7 @@ run_compat_test(builder_fn build, checker_fn check, const char *sni)
     bool result = check(&sb, &ctx);
 
     assert_true(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PT_SUCCESS);
     assert_int_equal(sb.buf.len, 0); /* entire header consumed, nothing trailing */
 
     free_stream_buf(&sb);
