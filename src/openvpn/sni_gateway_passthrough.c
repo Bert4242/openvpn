@@ -983,7 +983,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
         {
             /* client without --sni-gateway sni. */
             msg(M_INFO, "--sni-gateway-server sni: client without routing header");
-            sb->sni_passthrough_state = SNI_PT_DISABLED;
+            sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
             return false;
         }
         else
@@ -995,7 +995,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
             {
                 /* Complete ClientHello parsed but criteria not met — reject. */
                 sb->error = true;
-                sb->sni_passthrough_state = SNI_PT_DISABLED;
+                sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
                 return false;
             }
             if (sni_total == 0)
@@ -1016,7 +1016,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                             "--sni-gateway-server sni: oversized TLS record (%d bytes), rejecting",
                             5 + rlen);
                         sb->error = true;
-                        sb->sni_passthrough_state = SNI_PT_DISABLED;
+                        sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
                     }
                 }
                 return false;
@@ -1040,7 +1040,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                 {
                     memmove(BPTR(&sb->buf), src, remaining);
                 }
-                sb->sni_passthrough_state = SNI_PT_SUCCESS;
+                sb->sni_gw_passthrough_state = SNI_GW_PT_SUCCESS;
                 /* Fall through to normal OpenVPN stream parsing. */
                 return true;
             }

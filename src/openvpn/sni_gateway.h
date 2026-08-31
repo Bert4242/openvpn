@@ -81,14 +81,14 @@ sni_gw_upgrade_token_is_valid(const char *tok)
  * --sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>
  * (client) and --sni-gateway-server <sni|sni-http-path-upgrade|auto>
  * (server).  Both fields are still typed as this one shared
- * `enum sni_gateway_mode` (C enum constants aren't scoped to their
+ * `enum sni_gw_mode` (C enum constants aren't scoped to their
  * declaring enum, so a real client-only/server-only *type* split isn't
  * free -- not attempted here); instead every constant name carries an
  * explicit SNI_GW_CLIENT_ or SNI_GW_SERVER_ marker so it's always clear
  * at the call site which side a check is about.
  *
- * The client field (ce->sni_gateway_mode) and the server field
- * (o->sni_gateway_server_mode) are NEVER compared against each other
+ * The client field (ce->sni_gw_mode) and the server field
+ * (o->sni_gw_server_mode) are NEVER compared against each other
  * anywhere in the codebase -- each is only ever tested against constants
  * meant for its own side.  Because of that, SNI_GW_CLIENT_* and
  * SNI_GW_SERVER_* values are deliberately kept numerically INDEPENDENT
@@ -117,7 +117,7 @@ sni_gw_upgrade_token_is_valid(const char *tok)
  *             TLS-terminating gateway (client-side only; the server never
  *             terminates TLS itself.  options.c intercepts "sni-tls" as a
  *             --sni-gateway-server argument directly, before it ever
- *             reaches sni_gateway_server_mode_from_string() below, giving
+ *             reaches sni_gw_server_mode_from_string() below, giving
  *             it the same unified "no TLS on the server" error as the old
  *             "sni-tls-http-path-upgrade" server spelling -- neither
  *             string is a real server enum value).  Implemented in
@@ -156,15 +156,15 @@ sni_gw_upgrade_token_is_valid(const char *tok)
  *                    sni_gateway_http.c (sni_gw_http_client_upgrade_plain())
  *                    -- no SSL object needed, unlike the TLS-wrapped mode.
  */
-enum sni_gateway_mode
+enum sni_gw_mode
 {
-    /* Client-side values (ce->sni_gateway_mode). */
+    /* Client-side values (ce->sni_gw_mode). */
     SNI_GW_CLIENT_SNI = 0,
     SNI_GW_CLIENT_TLS = 1,
     SNI_GW_CLIENT_TLS_HTTP_UPGRADE = 2,
     SNI_GW_CLIENT_HTTP_UPGRADE = 3,
 
-    /* Server-side values (o->sni_gateway_server_mode).  Numbered
+    /* Server-side values (o->sni_gw_server_mode).  Numbered
      * independently of the client values above on purpose -- see the
      * "NEVER compared against each other" note earlier in this comment. */
     SNI_GW_SERVER_SNI = 4,
@@ -180,7 +180,7 @@ enum sni_gateway_mode
  * dedicated "auto is server-only" error instead of a generic "unknown
  * mode" one -- it is still rejected, just with a clearer message; "auto"
  * is never a valid client selection.
- * Returns the corresponding enum sni_gateway_mode value, or -1 if
+ * Returns the corresponding enum sni_gw_mode value, or -1 if
  * the string does not match any known client mode.
  *
  * Defined as a header-only static inline (rather than in a .c file) so
@@ -189,10 +189,10 @@ enum sni_gateway_mode
  * is compiled a second time (with public symbols renamed via macros) by
  * tests/unit_tests/openvpn/sni_alt_impl.c, and any additional non-static,
  * non-renamed symbol pulled in there would collide at link time with the
- * ordinary sni_gateway_passthrough.o in sni_compat_testdriver.
+ * ordinary sni_gw_passthrough.o in sni_compat_testdriver.
  */
 static inline int
-sni_gateway_client_mode_from_string(const char *s)
+sni_gw_client_mode_from_string(const char *s)
 {
     if (!s)
     {
@@ -236,11 +236,11 @@ sni_gateway_client_mode_from_string(const char *s)
  * than this function special-casing one of them for a nicer error while
  * the other falls through to a generic "unknown mode" one.
  *
- * Returns the corresponding enum sni_gateway_mode value, or -1 if
+ * Returns the corresponding enum sni_gw_mode value, or -1 if
  * the string does not match any known server mode.
  */
 static inline int
-sni_gateway_server_mode_from_string(const char *s)
+sni_gw_server_mode_from_string(const char *s)
 {
     if (!s)
     {
