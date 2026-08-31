@@ -24,14 +24,19 @@
  * Unit tests for sni_gateway_passthrough.c: SNI passthrough header parsing
  * and consumption; plus sni_gateway.h's mode-string parser.
  *
- * This file is compiled twice:
+ * sni_passthrough_check_packet() (the SNI/ALPN extractor) has a single,
+ * backend-independent implementation, so both test drivers exercise the
+ * same checker code.  They still differ in which ClientHello builder they
+ * use to synthesize input packets:
  *   sni_testdriver          - SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH defined,
- *                             exercises the generic byte-scan path (no OpenSSL).
- *   sni_openssl_testdriver  - no override, exercises the OpenSSL client_hello_cb
- *                             path on OpenSSL builds, generic path otherwise.
+ *                             builds ClientHellos with the generic
+ *                             template-based builder (no OpenSSL).
+ *   sni_openssl_testdriver  - no override, builds ClientHellos by driving a
+ *                             real OpenSSL handshake on OpenSSL builds, the
+ *                             generic template builder otherwise.
  *
- * The hand-crafted test packets are valid on both paths, so all assertions
- * apply equally to both test drivers.
+ * The hand-crafted test packets are valid regardless of which builder
+ * produced them, so all assertions apply equally to both test drivers.
  */
 
 #ifdef HAVE_CONFIG_H
