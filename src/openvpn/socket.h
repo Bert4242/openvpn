@@ -161,6 +161,14 @@ struct stream_buf
     bool sni_gw_http_101_sent;             /* the 101 response has been emitted */
     const char *sni_gw_http_require_path;  /* optional exact path to enforce */
     const char *sni_gw_http_upgrade_token; /* required Upgrade: header token */
+    /* Resumable CRLFCRLF-terminator scan cursor for
+     * sni_gw_http_check_and_consume_request(): how many bytes of sb->buf
+     * have already been scanned (with no terminator found) as of the last
+     * call, so the next call can resume the scan there (minus a 3-byte
+     * overlap) instead of rescanning from offset 0 every time bytes
+     * trickle in.  Only meaningful while sni_gw_http_state ==
+     * SNI_GW_HTTP_PENDING; unused/stale otherwise. */
+    int sni_gw_http_scan_cursor;
 };
 
 /*
