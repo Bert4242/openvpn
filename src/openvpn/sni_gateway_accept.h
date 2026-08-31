@@ -27,7 +27,7 @@
  * --sni-gateway-server auto
  *
  * Accept-time classification for a just-accepted TCP connection, used only
- * when --sni-gateway-server auto is active (both SF_SNI_PASSTHROUGH and
+ * when --sni-gateway-server auto is active (both SF_SNI_GW_PASSTHROUGH and
  * SF_SNI_GW_HTTP are set on the same socket).  Decides, from the first
  * bytes of the still-blocking accepted fd, whether the connection looks
  * like:
@@ -48,7 +48,7 @@
  * confirmed necessary via live testing (a lazy/non-blocking equivalent
  * causes the gateway to return an error to the client).  The sni and
  * plain/sni-tls cases need no eager action at all: they fall through to
- * the existing lazy SF_SNI_PASSTHROUGH peek in stream_buf_added() and to
+ * the existing lazy SF_SNI_GW_PASSTHROUGH peek in stream_buf_added() and to
  * sni_gw_http_check_and_consume_request()'s own "not HTTP -> proceed as
  * OpenVPN" self-disable, exactly as they do outside of auto mode.
  */
