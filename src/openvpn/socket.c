@@ -1854,9 +1854,9 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_SNI
         && c->options.ce.sni_gw_host)
     {
-        if (!sni_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_host,
-                                               (const char *const *)c->options.ce.sni_gw_alpn_list,
-                                               c->options.ce.sni_gw_alpn_count))
+        if (!sni_gw_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_host,
+                                                  (const char *const *)c->options.ce.sni_gw_alpn_list,
+                                                  c->options.ce.sni_gw_alpn_count))
         {
             register_signal(sig_info, SIGUSR1, "sni-gateway-send-error");
             goto done;
@@ -2258,8 +2258,8 @@ stream_buf_init(struct stream_buf *sb, struct buffer *buf, const unsigned int so
         ((sockflags & SF_PORT_SHARE) && (proto == PROTO_TCP_SERVER)) ? PS_ENABLED : PS_DISABLED;
 #endif
     sb->sni_gw_passthrough_state = ((sockflags & SF_SNI_GW_PASSTHROUGH) && (proto == PROTO_TCP_SERVER))
-                                       ? SNI_GW_PT_PENDING
-                                       : SNI_GW_PT_DISABLED;
+                                       ? SNI_GW_PASSTHROUGH_PENDING
+                                       : SNI_GW_PASSTHROUGH_DISABLED;
     sb->sni_gw_http_state = ((sockflags & SF_SNI_GW_HTTP) && (proto == PROTO_TCP_SERVER))
                                 ? SNI_GW_HTTP_PENDING
                                 : SNI_GW_HTTP_DISABLED;
@@ -2391,18 +2391,18 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         packet_size_type net_size;
 
 #if PORT_SHARE
-        if (sb->port_share_state == PS_ENABLED || sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
+        if (sb->port_share_state == PS_ENABLED || sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
 #else
-        if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
+        if (sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
 #endif
         {
             if (!is_openvpn_protocol(&sb->buf))
             {
                 msg(D_PS_PROXY, "Non-OpenVPN client protocol detected");
 
-                if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
+                if (sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
                 {
-                    struct sni_pt_server_check_ctx sni_ctx = {
+                    struct sni_gw_passthrough_server_check_ctx sni_ctx = {
                         .alpn_list = (const char *const *)sb->sni_gw_alpn_list,
                         .alpn_count = sb->sni_gw_alpn_count,
                         .ignore_alpn = sb->sni_gw_server_ignore_alpn,
@@ -2410,7 +2410,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                             (const char *const *)sb->sni_gw_server_host_list,
                         .hostname_count = sb->sni_gw_server_host_count,
                     };
-                    if (sni_passthrough_check_and_consume_header(sb, &sni_ctx))
+                    if (sni_gw_passthrough_check_and_consume_header(sb, &sni_ctx))
                     {
 #if PORT_SHARE
                         if (sb->port_share_state == PS_ENABLED)
@@ -2428,7 +2428,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                     else
                     {
                         /* SNI header not found or rejected */
-                        if (sb->error || sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
+                        if (sb->error || sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
                         {
                             /* error: rejected; or wait for more data */
                             return false;
@@ -2450,9 +2450,9 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
                 sb->port_share_state = PS_DISABLED;
 #endif
 
-                if (sb->sni_gw_passthrough_state == SNI_GW_PT_PENDING)
+                if (sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
                 {
-                    sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
+                    sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
                 }
             }
         }

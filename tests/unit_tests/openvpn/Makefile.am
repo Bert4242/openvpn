@@ -418,7 +418,7 @@ push_update_msg_testdriver_SOURCES = test_push_update_msg.c \
 # SNI passthrough – generic byte-scan path (no OpenSSL dependency)
 sni_testdriver_CFLAGS = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
-	-DSNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH \
+	-DSNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH \
 	@TEST_CFLAGS@
 
 sni_testdriver_LDFLAGS = @TEST_LDFLAGS@
