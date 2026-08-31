@@ -74,13 +74,14 @@ struct sni_gw_tls
 
     /*
      * FIFO of ciphertext produced by SSL_write() that has not yet been
-     * accepted by the kernel socket buffer (send() returned EAGAIN).  Bytes
-     * between [offset, offset+len) are pending; they MUST be sent, in order,
-     * before any newly produced ciphertext, or the TLS record stream corrupts.
-     * data is a plain malloc()/realloc() block (not alloc_buf()) so we can grow
-     * it on demand.
+     * accepted by the kernel socket buffer (send() returned EAGAIN).  Chunks
+     * are queued tail-first (one chunk per BIO_read() drain) and sent
+     * head-first, in order, before any newly produced ciphertext is queued,
+     * or the TLS record stream corrupts.  Backed by struct buffer_list
+     * (buffer.h) -- the tree's existing tested append/consume FIFO -- rather
+     * than a hand-rolled realloc'able block.
      */
-    struct buffer out_ciphertext;
+    struct buffer_list *out_ciphertext;
 
     /*
      * FIFO of decrypted plaintext waiting to be served to the OpenVPN read
@@ -92,9 +93,14 @@ struct sni_gw_tls
      * We therefore drain ALL available plaintext out of SSL into this FIFO on
      * each read and serve it head-first; sni_gw_tls_read_pending() lets
      * sockets_read_residual() re-enter the loop without blocking while bytes
-     * remain here.  Same growable malloc()/realloc() layout as out_ciphertext.
+     * remain here.  Serving may return fewer than the requested cap bytes
+     * when the head chunk is smaller than cap and more chunks are queued
+     * behind it (buffer_list only consumes within one chunk per call) -- that
+     * is a harmless short read exactly like a raw stream socket already
+     * produces, and sni_gw_tls_read_pending() drives the caller to re-enter
+     * until the FIFO is empty.
      */
-    struct buffer in_plaintext;
+    struct buffer_list *in_plaintext;
 
     bool handshake_done;
 };
@@ -103,76 +109,35 @@ struct sni_gw_tls
 #define SNI_GW_TLS_SCRATCH 16384
 
 /* -------------------------------------------------------------------------- */
-/* Growable byte-FIFO helpers (shared by out_ciphertext and in_plaintext)     */
+/* Byte-FIFO helpers (shared by out_ciphertext and in_plaintext, backed by    */
+/* struct buffer_list -- buffer.h's tested chunked append/consume FIFO)      */
 /* -------------------------------------------------------------------------- */
 
-/* Append n bytes to the tail of FIFO b, growing it as needed.  Bytes between
- * [offset, offset+len) are the unconsumed contents.  Returns false only on
- * allocation failure. */
-static bool
-gw_fifo_append(struct buffer *b, const uint8_t *data, int n)
-{
-    if (n <= 0)
-    {
-        return true;
-    }
-
-    /* Reclaim already-consumed head space by shifting unread data to the
-     * front; only grow the allocation if that is still not enough. */
-    if (b->offset + b->len + n > b->capacity)
-    {
-        if (b->len > 0 && b->offset > 0)
-        {
-            memmove(b->data, b->data + b->offset, (size_t)b->len);
-        }
-        b->offset = 0;
-
-        if (b->len + n > b->capacity)
-        {
-            int newcap = b->capacity > 0 ? b->capacity : SNI_GW_TLS_SCRATCH;
-            while (newcap < b->len + n)
-            {
-                newcap *= 2;
-            }
-            uint8_t *nd = realloc(b->data, (size_t)newcap);
-            if (!nd)
-            {
-                return false;
-            }
-            b->data = nd;
-            b->capacity = newcap;
-        }
-    }
-
-    memcpy(b->data + b->offset + b->len, data, (size_t)n);
-    b->len += n;
-    return true;
-}
-
-/* Consume up to n bytes from the head of FIFO b into dst; returns the number
- * of bytes actually copied (<= n, <= b->len). */
+/*
+ * struct buffer_list has no O(1) total-length count (only a chunk/entry
+ * count); these FIFOs stay short in practice (a handful of chunks between
+ * flushes at most), so a linear walk is cheap.  Used by
+ * sni_gw_tls_write_pending().
+ */
 static int
-gw_fifo_consume(struct buffer *b, uint8_t *dst, int n)
+gw_buffer_list_len(const struct buffer_list *list)
 {
-    int take = b->len < n ? b->len : n;
-    if (take <= 0)
+    int total = 0;
+    for (const struct buffer_entry *e = list ? list->head : NULL; e; e = e->next)
     {
-        return 0;
+        total += BLEN(&e->buf);
     }
-    memcpy(dst, b->data + b->offset, (size_t)take);
-    b->offset += take;
-    b->len -= take;
-    if (b->len == 0)
-    {
-        /* Fully drained -- reset so it stays compact. */
-        b->offset = 0;
-    }
-    return take;
+    return total;
 }
 
 /*
  * Try to send as much of the pending ciphertext FIFO as the non-blocking
- * socket will accept.  Consumed bytes are removed from the head.
+ * socket will accept.  Consumed bytes are removed from the head, one chunk
+ * at a time (buffer_list_advance() only consumes within the current head
+ * chunk; when a chunk fully drains it is popped and the next one becomes
+ * head).  This is behaviourally identical to draining one contiguous
+ * buffer: send() has no notion of chunk boundaries, so looping per-chunk
+ * until EAGAIN sends exactly the same bytes in the same order.
  * Returns:
  *   true  -- FIFO fully drained (nothing pending).
  *   false -- bytes still pending (EAGAIN) OR a fatal send error occurred;
@@ -181,21 +146,20 @@ gw_fifo_consume(struct buffer *b, uint8_t *dst, int n)
 static bool
 gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
 {
-    struct buffer *b = &t->out_ciphertext;
+    struct buffer *head;
     *fatal = false;
 
-    while (b->len > 0)
+    while ((head = buffer_list_peek(t->out_ciphertext)) != NULL)
     {
-        ssize_t s = send(sd, (const char *)(b->data + b->offset), (int)b->len, MSG_NOSIGNAL);
+        ssize_t s = send(sd, (const char *)BPTR(head), BLEN(head), MSG_NOSIGNAL);
         if (s > 0)
         {
-            b->offset += (int)s;
-            b->len -= (int)s;
+            buffer_list_advance(t->out_ciphertext, s);
         }
         else
         {
             int e = openvpn_errno();
-            if (e == EAGAIN || e == EWOULDBLOCK || e == EINTR)
+            if ((e == EAGAIN) || (e == EWOULDBLOCK) || (e == EINTR))
             {
                 return false; /* not fatal, retry later */
             }
@@ -205,16 +169,13 @@ gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
         }
     }
 
-    /* Fully drained -- reset the FIFO so it stays compact. */
-    b->offset = 0;
-    b->len = 0;
     return true;
 }
 
 bool
 sni_gw_tls_write_pending(const struct sni_gw_tls *t)
 {
-    return t && t->out_ciphertext.len > 0;
+    return t && (gw_buffer_list_len(t->out_ciphertext) > 0);
 }
 
 bool
@@ -233,6 +194,11 @@ struct sni_gw_tls *
 sni_gw_tls_new(void)
 {
     struct sni_gw_tls *t = calloc(1, sizeof(*t));
+    if (t)
+    {
+        t->out_ciphertext = buffer_list_new();
+        t->in_plaintext = buffer_list_new();
+    }
     return t;
 }
 
@@ -255,8 +221,8 @@ sni_gw_tls_free(struct sni_gw_tls *t)
     {
         SSL_CTX_free(t->ctx);
     }
-    free(t->out_ciphertext.data);
-    free(t->in_plaintext.data);
+    buffer_list_free(t->out_ciphertext);
+    buffer_list_free(t->in_plaintext);
     free(t);
 }
 
@@ -776,12 +742,12 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
         int n = SSL_read(t->ssl, scratch, (int)sizeof(scratch));
         if (n > 0)
         {
-            if (!gw_fifo_append(&t->in_plaintext, scratch, n))
-            {
-                msg(D_LINK_ERRORS, "sni-gateway tls: out of memory buffering plaintext");
-                *fatal = true;
-                return produced;
-            }
+            /* buffer_list_push_data() aborts the process on OOM (via
+             * alloc_buf()'s check_malloc_return()), matching every other
+             * network-fed buffer_list user in the tree (e.g. ssl.c's
+             * ks->paybuf) rather than the graceful per-connection teardown
+             * the old hand-rolled FIFO attempted on realloc() failure. */
+            buffer_list_push_data(t->in_plaintext, scratch, (size_t)n);
             produced = true;
             continue;
         }
@@ -885,11 +851,21 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
      * so cap == BLEN(buf).  Serving one fragment per call (with re-entry driven
      * by sni_gw_tls_read_pending via sockets_read_residual) lets stream_buf
      * frame the coalesced packets exactly as it does for a raw socket.
+     *
+     * buffer_list_advance() only consumes within the current head chunk, so
+     * if cap spans past it we serve just that chunk's worth here and rely on
+     * sni_gw_tls_read_pending() to pull the caller back in for the rest --
+     * an ordinary short read, no different from what a raw stream socket
+     * already produces at arbitrary boundaries.
      */
     int cap = BLEN(buf);
-    if (cap > 0 && t->in_plaintext.len > 0)
+    struct buffer *head = buffer_list_peek(t->in_plaintext);
+    if ((cap > 0) && (head != NULL))
     {
-        return gw_fifo_consume(&t->in_plaintext, BPTR(buf), cap);
+        int take = BLEN(head) < cap ? BLEN(head) : cap;
+        memcpy(BPTR(buf), BPTR(head), (size_t)take);
+        buffer_list_advance(t->in_plaintext, take);
+        return take;
     }
 
     /* Nothing left to serve: report fatal only once the FIFO is empty, so any
@@ -906,7 +882,7 @@ sni_gw_tls_read_pending(const struct sni_gw_tls *t)
 {
     /* gw_drain_ssl() empties SSL into the FIFO on every read, so unserved
      * plaintext lives entirely in in_plaintext -- checking it is sufficient. */
-    return t && t->in_plaintext.len > 0;
+    return t && buffer_list_defined(t->in_plaintext);
 }
 
 /* -------------------------------------------------------------------------- */
@@ -980,11 +956,9 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
         int c;
         while ((c = BIO_read(t->net_bio, scratch, (int)sizeof(scratch))) > 0)
         {
-            if (!gw_fifo_append(&t->out_ciphertext, scratch, c))
-            {
-                msg(D_LINK_ERRORS, "sni-gateway tls: out of memory buffering ciphertext");
-                return -1;
-            }
+            /* Fatal-on-OOM, matching every other network-fed buffer_list
+             * user in the tree; see the comment in gw_drain_ssl(). */
+            buffer_list_push_data(t->out_ciphertext, scratch, (size_t)c);
         }
     }
 
