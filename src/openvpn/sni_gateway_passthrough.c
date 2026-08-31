@@ -27,7 +27,7 @@
 #include "syshead.h"
 
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 #include "openssl_compat.h"
 #endif
 #include "socket.h"
@@ -63,10 +63,10 @@
  */
 
 /* Default ALPN protocol name when --sni-gateway-alpn is not set. */
-#define SNI_PT_DEFAULT_ALPN     "hacky-sni-passthrough/1"
-#define SNI_PT_DEFAULT_ALPN_LEN 23u /* strlen("hacky-sni-passthrough/1") */
+#define PT_DEFAULT_ALPN     "hacky-sni-passthrough/1"
+#define PT_DEFAULT_ALPN_LEN 23u /* strlen("hacky-sni-passthrough/1") */
 
-static const char *sni_pt_default_alpn_list[] = { SNI_PT_DEFAULT_ALPN };
+static const char *pt_default_alpn_list[] = { PT_DEFAULT_ALPN };
 
 /*
  * Resolve alpn_list / alpn_count to an effective list.
@@ -74,8 +74,8 @@ static const char *sni_pt_default_alpn_list[] = { SNI_PT_DEFAULT_ALPN };
  * Writes the resolved pointer and count through the out-params.
  */
 static void
-sni_pt_resolve_alpn(const char *const *alpn_list, int alpn_count,
-                    const char *const **out_list, int *out_count)
+pt_resolve_alpn(const char *const *alpn_list, int alpn_count,
+                const char *const **out_list, int *out_count)
 {
     if (alpn_count > 0 && alpn_list)
     {
@@ -84,7 +84,7 @@ sni_pt_resolve_alpn(const char *const *alpn_list, int alpn_count,
     }
     else
     {
-        *out_list = (const char *const *)sni_pt_default_alpn_list;
+        *out_list = (const char *const *)pt_default_alpn_list;
         *out_count = 1;
     }
 }
@@ -94,8 +94,8 @@ sni_pt_resolve_alpn(const char *const *alpn_list, int alpn_count,
  * Returns false on overflow or a token longer than 255 bytes.
  */
 static bool
-sni_pt_build_alpn_proto_list(struct buffer *buf,
-                             const char *const *alpn_list, int alpn_count)
+pt_build_alpn_proto_list(struct buffer *buf,
+                         const char *const *alpn_list, int alpn_count)
 {
     for (int i = 0; i < alpn_count; i++)
     {
@@ -119,11 +119,11 @@ sni_pt_build_alpn_proto_list(struct buffer *buf,
 }
 
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static size_t
-sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
-                                   const char *const *alpn_list, int alpn_count)
+sni_gw_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
+                                      const char *const *alpn_list, int alpn_count)
 {
     size_t ret = 0;
     BIO *rbio = NULL;
@@ -140,9 +140,9 @@ sni_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,
         return 0;
     }
 
-    sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
+    pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
     buf_set_write(&alpn_wire, alpn_wire_raw, sizeof(alpn_wire_raw));
-    if (!sni_pt_build_alpn_proto_list(&alpn_wire, eff_list, eff_count)
+    if (!pt_build_alpn_proto_list(&alpn_wire, eff_list, eff_count)
         || !BLEN(&alpn_wire))
     {
         return 0;
@@ -260,19 +260,19 @@ cleanup:
 /* clang-format off */
 
 /* TLS record: content_type=Handshake(0x16) + legacy_version=TLS1.0 */
-static const uint8_t sni_pt_tls_hdr[3] = { 0x16, 0x03, 0x01 };
+static const uint8_t pt_tls_hdr[3] = { 0x16, 0x03, 0x01 };
 
 /* Handshake: msg_type=ClientHello(0x01) */
-static const uint8_t sni_pt_hs_type[1] = { 0x01 };
+static const uint8_t pt_hs_type[1] = { 0x01 };
 
 /* ClientHello: client_version=TLS1.2 */
-static const uint8_t sni_pt_client_version[2] = { 0x03, 0x03 };
+static const uint8_t pt_client_version[2] = { 0x03, 0x03 };
 
 /* session_id_len=32 */
-static const uint8_t sni_pt_session_id_len[1] = { 0x20 };
+static const uint8_t pt_session_id_len[1] = { 0x20 };
 
 /* cipher_suites_len=60 (30 suites) + null compression */
-static const uint8_t sni_pt_cipher_and_comp[64] = {
+static const uint8_t pt_cipher_and_comp[64] = {
     0x00,0x3c,
     0x13,0x02,0x13,0x03,0x13,0x01,0xc0,0x2c,
     0xc0,0x30,0x00,0x9f,0xcc,0xa9,0xcc,0xa8,
@@ -286,21 +286,21 @@ static const uint8_t sni_pt_cipher_and_comp[64] = {
 };
 
 /* renegotiation_info ext: type(0xff01) + ext_data_len(1) + data(0x00) */
-static const uint8_t sni_pt_renegotiation_info[5] = { 0xff, 0x01, 0x00, 0x01, 0x00 };
+static const uint8_t pt_renegotiation_info[5] = { 0xff, 0x01, 0x00, 0x01, 0x00 };
 
 /*
  * The suffix is split into two halves around the ALPN extension, which is
  * now built dynamically so that --sni-gateway-alpn can override it.
  *
- * sni_pt_suffix_pre_alpn  – extensions before the ALPN extension (34 bytes)
- * sni_pt_suffix_post_alpn – extensions after the ALPN extension (1352 bytes)
+ * pt_suffix_pre_alpn  – extensions before the ALPN extension (34 bytes)
+ * pt_suffix_post_alpn – extensions after the ALPN extension (1352 bytes)
  *
  * The default ALPN ("hacky-sni-passthrough/1") is 30 bytes on the wire:
  *   ext_type(2) + ext_data_len(2) + list_len(2) + proto_len(1) + name(23)
  * So the default total suffix = 34 + 30 + 1352 = 1416 bytes, matching the
- * original SNI_PT_SUFFIX_LEN.
+ * original PT_SUFFIX_LEN.
  */
-static const uint8_t sni_pt_suffix_pre_alpn[34] = {
+static const uint8_t pt_suffix_pre_alpn[34] = {
     /* ec_point_formats */
     0x00,0x0b,0x00,0x04,0x03,0x00,0x01,0x02,
     /* supported_groups */
@@ -311,7 +311,7 @@ static const uint8_t sni_pt_suffix_pre_alpn[34] = {
     0x00,0x23,0x00,0x00,
 };
 
-static const uint8_t sni_pt_suffix_post_alpn[1352] = {
+static const uint8_t pt_suffix_post_alpn[1352] = {
     /* encrypt_then_mac */
     0x00,0x16,0x00,0x00,
     /* extended_master_secret */
@@ -496,14 +496,14 @@ static const uint8_t sni_pt_suffix_post_alpn[1352] = {
 };
 /* clang-format on */
 
-#define SNI_PT_SUFFIX_PRE_ALPN_LEN  34u
-#define SNI_PT_SUFFIX_POST_ALPN_LEN 1352u
+#define PT_SUFFIX_PRE_ALPN_LEN  34u
+#define PT_SUFFIX_POST_ALPN_LEN 1352u
 
-/* Offsets of ephemeral key fields within sni_pt_suffix_post_alpn[] */
-#define SNI_PT_POST_ALPN_MLKEM_OFF  91u   /* ML-KEM key data (1216 bytes) */
-#define SNI_PT_POST_ALPN_MLKEM_LEN  1216u
-#define SNI_PT_POST_ALPN_X25519_OFF 1311u /* x25519 key data (32 bytes) */
-#define SNI_PT_POST_ALPN_X25519_LEN 32u
+/* Offsets of ephemeral key fields within pt_suffix_post_alpn[] */
+#define PT_POST_ALPN_MLKEM_OFF  91u   /* ML-KEM key data (1216 bytes) */
+#define PT_POST_ALPN_MLKEM_LEN  1216u
+#define PT_POST_ALPN_X25519_OFF 1311u /* x25519 key data (32 bytes) */
+#define PT_POST_ALPN_X25519_LEN 32u
 
 /*
  * Write a TLS SNI extension into buf.
@@ -544,16 +544,16 @@ buf_write_alpn_ext(struct buffer *buf, const struct buffer *proto_list)
 }
 
 static size_t
-sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *sni,
-                                   const char *const *alpn_list, int alpn_count)
+sni_gw_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *sni,
+                                      const char *const *alpn_list, int alpn_count)
 {
     unsigned char alpn_proto_raw[4096];
     struct buffer alpn_buf;
     const char *const *eff_list;
     int eff_count;
 
-#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-gateway sni: sni_passthrough_build_client_hello SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+#if defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+    msg(M_INFO, "--sni-gateway sni: sni_gw_passthrough_build_client_hello SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
 
     if (!sni || !*sni)
@@ -561,9 +561,9 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
         return 0;
     }
 
-    sni_pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
+    pt_resolve_alpn(alpn_list, alpn_count, &eff_list, &eff_count);
     buf_set_write(&alpn_buf, alpn_proto_raw, sizeof(alpn_proto_raw));
-    if (!sni_pt_build_alpn_proto_list(&alpn_buf, eff_list, eff_count)
+    if (!pt_build_alpn_proto_list(&alpn_buf, eff_list, eff_count)
         || !BLEN(&alpn_buf))
     {
         msg(M_NONFATAL, "--sni-gateway-alpn: ALPN token list too long or empty");
@@ -576,16 +576,16 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     /* ALPN ext total: type(2)+ext_data_len(2)+list_len(2)+proto_list */
     size_t alpn_ext_size = 6 + BLENZ(&alpn_buf);
     /* All extensions: renego(5) + SNI + pre_alpn + ALPN + post_alpn */
-    size_t exts_size = sizeof(sni_pt_renegotiation_info) + sni_ext_size
-                       + SNI_PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_size
-                       + SNI_PT_SUFFIX_POST_ALPN_LEN;
+    size_t exts_size = sizeof(pt_renegotiation_info) + sni_ext_size
+                       + PT_SUFFIX_PRE_ALPN_LEN + alpn_ext_size
+                       + PT_SUFFIX_POST_ALPN_LEN;
     /* Handshake body: version(2)+random(32)+sid_len(1)+sid(32)+cs_and_comp(64)+exts_len(2)+exts */
-    size_t hs_body_size = sizeof(sni_pt_client_version) + 32
-                          + sizeof(sni_pt_session_id_len) + 32
-                          + sizeof(sni_pt_cipher_and_comp) + 2 + exts_size;
+    size_t hs_body_size = sizeof(pt_client_version) + 32
+                          + sizeof(pt_session_id_len) + 32
+                          + sizeof(pt_cipher_and_comp) + 2 + exts_size;
     /* Total packet: TLS hdr(3)+rec_len(2) + HS type(1)+HS len(3) + HS body */
-    size_t total = sizeof(sni_pt_tls_hdr) + 2
-                   + sizeof(sni_pt_hs_type) + 3
+    size_t total = sizeof(pt_tls_hdr) + 2
+                   + sizeof(pt_hs_type) + 3
                    + hs_body_size;
 
     if (total > bufsz || total > 0xffffU + 5)
@@ -603,35 +603,35 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
     buf_set_write(&buf, raw_buf, (int)bufsz);
 
     /* TLS record header */
-    buf_write(&buf, sni_pt_tls_hdr, sizeof(sni_pt_tls_hdr));
+    buf_write(&buf, pt_tls_hdr, sizeof(pt_tls_hdr));
     buf_write_u16(&buf, (uint16_t)(total - 5)); /* record length */
 
     /* Handshake header */
-    buf_write(&buf, sni_pt_hs_type, sizeof(sni_pt_hs_type));
+    buf_write(&buf, pt_hs_type, sizeof(pt_hs_type));
     buf_write_u8(&buf, (uint8_t)((hs_body_size >> 16) & 0xff)); /* handshake length: */
     buf_write_u16(&buf, (uint16_t)(hs_body_size & 0xffff));     /*   3-byte big-endian */
 
     /* ClientHello body */
-    buf_write(&buf, sni_pt_client_version, sizeof(sni_pt_client_version));
+    buf_write(&buf, pt_client_version, sizeof(pt_client_version));
     buf_write(&buf, random_bytes, sizeof(random_bytes));
-    buf_write(&buf, sni_pt_session_id_len, sizeof(sni_pt_session_id_len));
+    buf_write(&buf, pt_session_id_len, sizeof(pt_session_id_len));
     buf_write(&buf, session_id, sizeof(session_id));
-    buf_write(&buf, sni_pt_cipher_and_comp, sizeof(sni_pt_cipher_and_comp));
+    buf_write(&buf, pt_cipher_and_comp, sizeof(pt_cipher_and_comp));
     buf_write_u16(&buf, (uint16_t)exts_size); /* extensions_len */
 
     /* Extensions */
-    buf_write(&buf, sni_pt_renegotiation_info, sizeof(sni_pt_renegotiation_info));
+    buf_write(&buf, pt_renegotiation_info, sizeof(pt_renegotiation_info));
     buf_write_sni_ext(&buf, sni, sni_len);
-    buf_write(&buf, sni_pt_suffix_pre_alpn, SNI_PT_SUFFIX_PRE_ALPN_LEN);
+    buf_write(&buf, pt_suffix_pre_alpn, PT_SUFFIX_PRE_ALPN_LEN);
     buf_write_alpn_ext(&buf, &alpn_buf);
-    buf_write(&buf, sni_pt_suffix_post_alpn, SNI_PT_SUFFIX_POST_ALPN_LEN);
+    buf_write(&buf, pt_suffix_post_alpn, PT_SUFFIX_POST_ALPN_LEN);
 
     ASSERT(BLEN(&buf) == (int)total);
 
-    /* Randomise ephemeral key shares inside sni_pt_suffix_post_alpn */
-    uint8_t *post_alpn = BPTR(&buf) + (total - SNI_PT_SUFFIX_POST_ALPN_LEN);
-    prng_bytes(post_alpn + SNI_PT_POST_ALPN_MLKEM_OFF, SNI_PT_POST_ALPN_MLKEM_LEN);
-    prng_bytes(post_alpn + SNI_PT_POST_ALPN_X25519_OFF, SNI_PT_POST_ALPN_X25519_LEN);
+    /* Randomise ephemeral key shares inside pt_suffix_post_alpn */
+    uint8_t *post_alpn = BPTR(&buf) + (total - PT_SUFFIX_POST_ALPN_LEN);
+    prng_bytes(post_alpn + PT_POST_ALPN_MLKEM_OFF, PT_POST_ALPN_MLKEM_LEN);
+    prng_bytes(post_alpn + PT_POST_ALPN_X25519_OFF, PT_POST_ALPN_X25519_LEN);
 
     return total;
 }
@@ -643,15 +643,15 @@ sni_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char *s
  * then return. The OpenVPN protocol will follow immediately after.
  */
 bool
-sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
-                                  const char *const *alpn_list, int alpn_count)
+sni_gw_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
+                                     const char *const *alpn_list, int alpn_count)
 {
     uint8_t buf[4096];
     size_t len;
     ssize_t sent;
 
-    len = sni_passthrough_build_client_hello(buf, sizeof(buf), sni,
-                                             alpn_list, alpn_count);
+    len = sni_gw_passthrough_build_client_hello(buf, sizeof(buf), sni,
+                                                alpn_list, alpn_count);
 
     if (!len)
     {
@@ -680,7 +680,7 @@ error:
 
 
 /*
- * sni_passthrough_check_packet() is the single implementation of SNI/ALPN
+ * sni_gw_passthrough_check_packet() is the single implementation of SNI/ALPN
  * ClientHello extraction, used for every TLS backend (OpenSSL, LibreSSL,
  * mbedTLS, wolfSSL, …).  It manually parses the raw ClientHello bytes to
  * locate the server_name extension (type 0x0000) and the ALPN extension
@@ -707,16 +707,16 @@ error:
  *   ALPN ext_data      : proto_list_len(2) + proto_name_len(1) + name(var) ...
  */
 int
-sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                             const struct sni_pt_server_check_ctx *ctx)
+sni_gw_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
+                                const struct sni_gw_passthrough_server_check_ctx *ctx)
 {
     const char *const *eff_alpn_list = NULL;
     int eff_alpn_count = 0;
 
     if (!ctx->ignore_alpn)
     {
-        sni_pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
-                            &eff_alpn_list, &eff_alpn_count);
+        pt_resolve_alpn(ctx->alpn_list, ctx->alpn_count,
+                        &eff_alpn_list, &eff_alpn_count);
     }
 
 /*
@@ -724,18 +724,18 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
  * Returns -1 (reject) on overrun: we only reach this macro after confirming
  * the record is fully received, so any internal overrun means malformed data.
  */
-#define SNI_PT_ADVANCE(p, n, end) \
-    do                            \
-    {                             \
-        if ((p) + (n) > (end))    \
-        {                         \
-            return -1;            \
-        }                         \
-        (p) += (n);               \
+#define PT_ADVANCE(p, n, end)  \
+    do                         \
+    {                          \
+        if ((p) + (n) > (end)) \
+        {                      \
+            return -1;         \
+        }                      \
+        (p) += (n);            \
     } while (0)
 
 /* Macro: read 2-byte big-endian uint16 at p (without advancing) */
-#define SNI_PT_READ16(p) ((unsigned int)((p)[0]) << 8 | (unsigned int)((p)[1]))
+#define PT_READ16(p) ((unsigned int)((p)[0]) << 8 | (unsigned int)((p)[1]))
 
     /* Need at least TLS record header (5 bytes) */
     if (pkt_len < 5)
@@ -750,7 +750,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     }
 
     /* TLS record length is at bytes [3..4] (big-endian) */
-    int record_len = (int)SNI_PT_READ16(pkt + 3);
+    int record_len = (int)PT_READ16(pkt + 3);
     /* Reject records exceeding the TLS maximum plaintext size (RFC 5246 §6.2.1).
      * A larger value is either garbage or a deliberate attempt to exhaust our buffer. */
     if (record_len > 0x4000)
@@ -779,7 +779,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     p += 4;
 
     /* ClientHello body: client_version(2) + random(32) = 34 bytes */
-    SNI_PT_ADVANCE(p, 34, end);
+    PT_ADVANCE(p, 34, end);
 
     /* session_id: length(1) + data */
     if (p + 1 > end)
@@ -787,15 +787,15 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
         return -1;
     }
     unsigned int sid_len = *p;
-    SNI_PT_ADVANCE(p, 1 + sid_len, end);
+    PT_ADVANCE(p, 1 + sid_len, end);
 
     /* cipher_suites: length(2) + data */
     if (p + 2 > end)
     {
         return -1;
     }
-    unsigned int cs_len = SNI_PT_READ16(p);
-    SNI_PT_ADVANCE(p, 2 + cs_len, end);
+    unsigned int cs_len = PT_READ16(p);
+    PT_ADVANCE(p, 2 + cs_len, end);
 
     /* compression_methods: length(1) + data */
     if (p + 1 > end)
@@ -803,7 +803,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
         return -1;
     }
     unsigned int cm_len = *p;
-    SNI_PT_ADVANCE(p, 1 + cm_len, end);
+    PT_ADVANCE(p, 1 + cm_len, end);
 
     /*
      * Single pass over all extensions, collecting:
@@ -824,7 +824,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     {
         return -1;
     }
-    unsigned int exts_len = SNI_PT_READ16(p);
+    unsigned int exts_len = PT_READ16(p);
     p += 2;
 
     const unsigned char *exts_end = p + exts_len;
@@ -836,8 +836,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
     const unsigned char *ep = p;
     while (ep + 4 <= exts_end)
     {
-        unsigned int ext_type = SNI_PT_READ16(ep);
-        unsigned int ext_len = SNI_PT_READ16(ep + 2);
+        unsigned int ext_type = PT_READ16(ep);
+        unsigned int ext_len = PT_READ16(ep + 2);
         ep += 4;
 
         if (ep + ext_len > exts_end)
@@ -858,7 +858,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                 ep += ext_len;
                 continue;
             }
-            unsigned int list_len = SNI_PT_READ16(sp);
+            unsigned int list_len = PT_READ16(sp);
             sp += 2;
             const unsigned char *list_end = sp + list_len;
             if (list_end > sp_end)
@@ -869,7 +869,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
             while (sp + 3 <= list_end && !hostname_ok)
             {
                 unsigned int ntype = sp[0];
-                unsigned int nlen = SNI_PT_READ16(sp + 1);
+                unsigned int nlen = PT_READ16(sp + 1);
                 sp += 3;
                 if (sp + nlen > list_end)
                 {
@@ -902,7 +902,7 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
                 continue;
             }
             const unsigned char *ap = ep;
-            unsigned int list_len = SNI_PT_READ16(ap);
+            unsigned int list_len = PT_READ16(ap);
             ap += 2;
             const unsigned char *ap_end = ap + list_len;
             if (ap_end > ep + ext_len)
@@ -945,8 +945,8 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
         ep += ext_len;
     }
 
-#undef SNI_PT_ADVANCE
-#undef SNI_PT_READ16
+#undef PT_ADVANCE
+#undef PT_READ16
 
     if (hostname_ok && alpn_ok)
     {
@@ -971,11 +971,11 @@ sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
  * stream begins.
  */
 bool
-sni_passthrough_check_and_consume_header(struct stream_buf *sb,
-                                         const struct sni_pt_server_check_ctx *ctx)
+sni_gw_passthrough_check_and_consume_header(struct stream_buf *sb,
+                                            const struct sni_gw_passthrough_server_check_ctx *ctx)
 {
-#if defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-gateway-server sni: sni_passthrough_check_and_consume_header SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+#if defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+    msg(M_INFO, "--sni-gateway-server sni: sni_gw_passthrough_check_and_consume_header SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
     if (sb->buf.len >= 5)
     {
@@ -983,19 +983,19 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
         {
             /* client without --sni-gateway sni. */
             msg(M_INFO, "--sni-gateway-server sni: client without routing header");
-            sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
+            sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
             return false;
         }
         else
         {
             const uint8_t *hdr = BPTR(&sb->buf);
 
-            int sni_total = sni_passthrough_check_packet(hdr, sb->buf.len, ctx);
+            int sni_total = sni_gw_passthrough_check_packet(hdr, sb->buf.len, ctx);
             if (sni_total < 0)
             {
                 /* Complete ClientHello parsed but criteria not met — reject. */
                 sb->error = true;
-                sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
+                sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
                 return false;
             }
             if (sni_total == 0)
@@ -1016,7 +1016,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                             "--sni-gateway-server sni: oversized TLS record (%d bytes), rejecting",
                             5 + rlen);
                         sb->error = true;
-                        sb->sni_gw_passthrough_state = SNI_GW_PT_DISABLED;
+                        sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
                     }
                 }
                 return false;
@@ -1040,7 +1040,7 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
                 {
                     memmove(BPTR(&sb->buf), src, remaining);
                 }
-                sb->sni_gw_passthrough_state = SNI_GW_PT_SUCCESS;
+                sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_SUCCESS;
                 /* Fall through to normal OpenVPN stream parsing. */
                 return true;
             }
@@ -1051,20 +1051,20 @@ sni_passthrough_check_and_consume_header(struct stream_buf *sb,
 }
 
 
-#if defined(UNIT_TESTING) && !defined(SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if defined(UNIT_TESTING) && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 /*
  * Expose the internal builder for cross-path compatibility tests.
- * Guarded by !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH so that sni_alt_impl.c
+ * Guarded by !SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH so that sni_alt_impl.c
  * (which includes this file with the alt-path define set and all public
  * symbols renamed) does not emit a conflicting definition.
  */
 size_t
-sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
-                                        const char *sni,
-                                        const char *const *alpn_list,
-                                        int alpn_count)
+sni_gw_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
+                                           const char *sni,
+                                           const char *const *alpn_list,
+                                           int alpn_count)
 {
-    return sni_passthrough_build_client_hello(buf, bufsz, sni,
-                                              alpn_list, alpn_count);
+    return sni_gw_passthrough_build_client_hello(buf, bufsz, sni,
+                                                 alpn_list, alpn_count);
 }
-#endif /* UNIT_TESTING && !SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH */
+#endif /* UNIT_TESTING && !SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH */

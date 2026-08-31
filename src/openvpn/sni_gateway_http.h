@@ -196,7 +196,7 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  * sni-tls-http-path-upgrade clients (once their gateway has terminated TLS)
  * or sent directly by --sni-gateway sni-http-path-upgrade clients, before
  * the OpenVPN stream begins.  Mirrors
- * sni_passthrough_check_and_consume_header().
+ * sni_gw_passthrough_check_and_consume_header().
  *
  * require_path : when non-NULL, the request-target must match it exactly
  *                (case-sensitive); a mismatch is rejected.  NULL accepts any
