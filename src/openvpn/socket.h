@@ -261,7 +261,7 @@ struct link_socket
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     /* --sni-gateway sni-tls: userspace TLS wrapper around the OpenVPN TCP stream
      * to a TLS-terminating gateway (client side only).  NULL unless active. */
-    struct sni_gw_tls *gw_tls;
+    struct sni_gw_tls *sni_gw_tls;
 #endif
 
     /* HTTP proxy */
@@ -767,10 +767,10 @@ static inline ssize_t
 link_socket_write_tcp_posix(struct link_socket *sock, struct buffer *buf)
 {
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-    if (sock->gw_tls)
+    if (sock->sni_gw_tls)
     {
         /* --sni-gateway sni-tls: tunnel the plaintext through the TLS session. */
-        return sni_gw_tls_write(sock->gw_tls, sock->sd, buf);
+        return sni_gw_tls_write(sock->sni_gw_tls, sock->sd, buf);
     }
 #endif
     return send(sock->sd, BPTR(buf), BLENZ(buf), MSG_NOSIGNAL);
