@@ -2264,6 +2264,7 @@ stream_buf_init(struct stream_buf *sb, struct buffer *buf, const unsigned int so
                                 ? SNI_GW_HTTP_PENDING
                                 : SNI_GW_HTTP_DISABLED;
     sb->sni_gw_http_101_sent = false;
+    sb->sni_gw_http_scan_cursor = 0;
     stream_buf_reset(sb);
 
     dmsg(D_STREAM_DEBUG, "STREAM: INIT maxlen=%d", sb->maxlen);
