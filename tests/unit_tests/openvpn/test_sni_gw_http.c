@@ -872,7 +872,7 @@ test_server_accept_upgrade_peer_sends_nothing_bounded(void **state)
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (double)(end.tv_sec - start.tv_sec)
-                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+                     + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
 
     assert_false(ok);
     assert_true(elapsed < 5.0);
@@ -902,7 +902,7 @@ test_server_accept_upgrade_peer_trickles_bytes_bounded(void **state)
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (double)(end.tv_sec - start.tv_sec)
-                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+                     + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
 
     assert_false(ok);
     assert_true(elapsed < 5.0);
@@ -1058,7 +1058,7 @@ test_server_accept_upgrade_not_http_rejected_promptly(void **state)
     struct timespec end;
     clock_gettime(CLOCK_MONOTONIC, &end);
     double elapsed = (double)(end.tv_sec - start.tv_sec)
-                      + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
+                     + (double)(end.tv_nsec - start.tv_nsec) / 1e9;
 
     assert_false(ok);
     /* With a 30s poll_timeout, only prompt (prefix-driven) rejection keeps
