@@ -239,16 +239,16 @@ struct link_socket
 
     int mtu; /* OS discovered MTU, or 0 if unknown */
 
-#define SF_USE_IP_PKTINFO    (1 << 0)
-#define SF_TCP_NODELAY       (1 << 1) /* unused: flag always enabled */
-#define SF_PORT_SHARE        (1 << 2)
-#define SF_HOST_RANDOMIZE    (1 << 3)
-#define SF_GETADDRINFO_DGRAM (1 << 4)
-#define SF_DCO_WIN           (1 << 5)
-#define SF_PREPEND_SA        (1 << 6)
-#define SF_PKTINFO_COPY_IIF  (1 << 7)
-#define SF_SNI_PASSTHROUGH   (1 << 8)
-#define SF_SNI_GW_HTTP       (1 << 9)
+#define SF_USE_IP_PKTINFO     (1 << 0)
+#define SF_TCP_NODELAY        (1 << 1) /* unused: flag always enabled */
+#define SF_PORT_SHARE         (1 << 2)
+#define SF_HOST_RANDOMIZE     (1 << 3)
+#define SF_GETADDRINFO_DGRAM  (1 << 4)
+#define SF_DCO_WIN            (1 << 5)
+#define SF_PREPEND_SA         (1 << 6)
+#define SF_PKTINFO_COPY_IIF   (1 << 7)
+#define SF_SNI_GW_PASSTHROUGH (1 << 8)
+#define SF_SNI_GW_HTTP        (1 << 9)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;
