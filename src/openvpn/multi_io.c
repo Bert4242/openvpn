@@ -375,7 +375,7 @@ multi_io_write_link_deferred(struct multi_context *m, struct multi_instance *mi,
         mbuf_free_buf(item.buffer);
     }
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-    else if (mi->context.c2.link_sockets[0]->gw_tls)
+    else if (mi->context.c2.link_sockets[0]->sni_gw_tls)
     {
         /* SNI gateway EVENT_WRITE can be requested solely by its TLS
          * ciphertext FIFO. */
