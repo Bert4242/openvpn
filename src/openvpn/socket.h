@@ -224,12 +224,6 @@ struct link_socket
     struct buffer stream_buf_data;
     bool stream_reset;
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-    /* struct-layout-repro: dead pointer field, mirrors sni-gateway-modes-3's
-     * sni_gw_tls field size/guard exactly; never allocated/dereferenced. */
-    struct sni_gw_tls_repro_dummy *sni_gw_tls;
-#endif
-
     /* HTTP proxy */
     struct http_proxy_info *http_proxy;
 
