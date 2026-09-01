@@ -235,6 +235,15 @@ struct link_socket
     struct buffer stream_buf_data;
     bool stream_reset;
 
+    /* struct-layout-bisect: fixed +8 byte pointer, added unconditionally
+     * (no crypto-library guard) to match the real branch's actual measured
+     * sizeof on the macos-26/libressl CI runner (464, not 456) -- the
+     * sni_gw_tls field's !defined(LIBRESSL_VERSION_NUMBER) guard evidently
+     * does not exclude it there, likely a header-order issue, separate
+     * from the bug under investigation. See
+     * doc/known-issue-libressl-asan-macos-ci.md. */
+    void *sni_repro_fixed_ptr;
+
     /* HTTP proxy */
     struct http_proxy_info *http_proxy;
 
