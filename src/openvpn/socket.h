@@ -145,7 +145,6 @@ struct stream_buf
 #define SNI_PT_DISABLED 0
 #define SNI_PT_PENDING  1
 #define SNI_PT_SUCCESS  2
-    const char **sni_gateway_alpn_list;
     int sni_gateway_alpn_count;
     const char **sni_gateway_server_host_list;
     int sni_gateway_server_host_count;
