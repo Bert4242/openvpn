@@ -270,6 +270,18 @@ jobs:
         run: make -j4
       - name: configure checks
         run: echo 'RUN_SUDO="sudo -E"' >tests/t_server_null.rc
+      # Temporary interactive debug session for the known macos-26/libressl/asan
+      # t_server_null TCP crash -- see doc/known-issue-libressl-asan-macos-ci.md.
+      # limit-access-to-actor restricts the SSH connection to the GitHub user who
+      # triggered this run (matched against their registered public keys) since
+      # this repo is public and job logs -- including the tmate connection string
+      # -- are publicly readable otherwise. Remove once the investigation is done.
+      - name: Debug via tmate (macos-26 / libressl / asan only)
+        if: ${{ matrix.os == 'macos-26' && matrix.ssllib == 'libressl' && matrix.build == 'asan' }}
+        uses: mxschmitt/action-tmate@35b54afac29c97fb54faba5b513f8fbd1882f113 # v3.24
+        timeout-minutes: 30
+        with:
+          limit-access-to-actor: true
       - name: make check
         run: make -j4 check VERBOSE=1
       # t_server_null_server.sh redirects each server's stdout+stderr (i.e. exactly
