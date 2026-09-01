@@ -145,7 +145,6 @@ struct stream_buf
 #define SNI_PT_DISABLED 0
 #define SNI_PT_PENDING  1
 #define SNI_PT_SUCCESS  2
-    bool sni_gateway_server_ignore_alpn;
 #define SNI_GW_HTTP_DISABLED 0
 #define SNI_GW_HTTP_PENDING  1
 #define SNI_GW_HTTP_SUCCESS  2
