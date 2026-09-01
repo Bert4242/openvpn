@@ -140,6 +140,7 @@ struct stream_buf
 #define SNI_PT_DISABLED 0
 #define SNI_PT_PENDING  1
 #define SNI_PT_SUCCESS  2
+    int sni_passthrough_state;
 #define SNI_GW_HTTP_DISABLED 0
 #define SNI_GW_HTTP_PENDING  1
 #define SNI_GW_HTTP_SUCCESS  2
