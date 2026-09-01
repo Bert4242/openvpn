@@ -142,6 +142,7 @@ struct stream_buf
 #define SNI_PT_SUCCESS  2
     int sni_passthrough_state;
     const char **sni_gateway_alpn_list;
+    int sni_gateway_alpn_count;
 #define SNI_GW_HTTP_DISABLED 0
 #define SNI_GW_HTTP_PENDING  1
 #define SNI_GW_HTTP_SUCCESS  2
