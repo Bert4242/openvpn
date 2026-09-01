@@ -241,6 +241,17 @@ struct link_socket
     struct buffer stream_buf_data;
     bool stream_reset;
 
+#if defined(ENABLE_CRYPTO_OPENSSL)
+/* struct-layout-bisect fix: LIBRESSL_VERSION_NUMBER is only defined once a
+ * file that includes an actual OpenSSL/LibreSSL header has been seen in
+ * this translation unit -- nothing earlier in socket.h's own include chain
+ * (syshead.h/error.h/common.h/misc.h/buffer.h) pulls one in, so the guard
+ * below silently always took the "true" branch, on OpenSSL AND LibreSSL
+ * builds alike. Pull in the lightweight version header explicitly so the
+ * check that follows is meaningful. */
+#include <openssl/opensslv.h>
+#endif
+
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
     /* struct-layout-repro: dead pointer field, mirrors sni-gateway-modes-3's
      * sni_gw_tls field size/guard exactly; never allocated/dereferenced. */
