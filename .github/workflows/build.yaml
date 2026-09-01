@@ -6,6 +6,8 @@ on:
 
 jobs:
   clang-format:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     name: Check code style with clang-format
     runs-on: ubuntu-24.04
     steps:
@@ -27,6 +29,8 @@ jobs:
         run: test ! -s format-changes.patch
 
   android:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -73,6 +77,8 @@ jobs:
 
 
   mingw:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -131,6 +137,8 @@ jobs:
 
   mingw-unittest:
     needs: [ mingw ]
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -156,6 +164,8 @@ jobs:
           srcdir: "${{ github.workspace }}/tests/unit_tests/openvpn"
 
   ubuntu:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -197,6 +207,8 @@ jobs:
         run: make -j3 check VERBOSE=1
 
   ubuntu-clang-asan:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     strategy:
       fail-fast: false
       matrix:
@@ -229,8 +241,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        ssllib: [openssl@3, libressl]
-        build: [normal, asan]
+        # struct-layout-bisect: only libressl+asan on macos-15/macos-26 are of
+        # interest right now; other combos are disabled below.
+        ssllib: [libressl]
+        build: [asan]
         os: [macos-15, macos-26]
         include:
           - build: asan
@@ -238,10 +252,6 @@ jobs:
             ldflags: -fsanitize=address,undefined -fno-sanitize-recover=all
             # Our build system ignores LDFLAGS for plugins
             configureflags: --disable-plugin-auth-pam  --disable-plugin-down-root
-          - build: normal
-            cflags: "-O2 -g"
-            ldflags: ""
-            configureflags: ""
 
     runs-on: ${{matrix.os}}
     name: "${{matrix.os}} - ${{matrix.ssllib}} - ${{matrix.build}}"
@@ -274,6 +284,8 @@ jobs:
         run: make -j4 check VERBOSE=1
 
   msvc:
+      # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+      if: false
       strategy:
         fail-fast: false
         matrix:
@@ -338,6 +350,8 @@ jobs:
             !${{ github.workspace }}/out/**/vcpkg_installed/**
 
   libressl:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     uses: ./.github/workflows/test-ssllib.yml
     with:
       libname: libressl
@@ -348,6 +362,8 @@ jobs:
       libconfigure: "LIBRESSL_GIT_OPTIONS=--no-single-branch ./autogen.sh && ./configure --prefix=$LIBPREFIX"
 
   openssl4:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     uses: ./.github/workflows/test-ssllib.yml
     with:
       libname: openssl
@@ -358,6 +374,8 @@ jobs:
       libconfigure: ./Configure --prefix=$LIBPREFIX --libdir=$LIBPREFIX/lib --openssldir=$LIBPREFIX -g
 
   mbedtls4:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     uses: ./.github/workflows/test-ssllib.yml
     with:
       libname: mbedtls
@@ -372,6 +390,8 @@ jobs:
       ovpnconfigureenv: PKG_CONFIG_PATH=$LIBPREFIX/lib/pkgconfig
 
   aws-lc:
+    # struct-layout-bisect: disabled, only macos-* - libressl - asan wanted
+    if: false
     uses: ./.github/workflows/test-ssllib.yml
     with:
       libname: aws-lc
