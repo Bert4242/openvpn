@@ -151,6 +151,7 @@ struct stream_buf
 #define SNI_GW_HTTP_SUCCESS  2
     int sni_gw_http_state;
     bool sni_gw_http_101_sent;
+    const char *sni_gw_http_require_path;
 };
 
 /*
