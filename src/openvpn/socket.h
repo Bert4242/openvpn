@@ -264,11 +264,15 @@ struct link_socket
  * Most .c files that include socket.h never do so before this point, which
  * left the guard below always taking the "true" branch regardless of
  * whether LibreSSL was in use -- except in the one file that happened to
- * include openssl_compat.h (which pulls in <openssl/ssl.h>) first, giving
- * that translation unit a different, ODR-violating view of struct
- * link_socket's size/layout than every other one. Include the lightweight
- * version header explicitly so every translation unit agrees. */
-#include <openssl/opensslv.h>
+ * include openssl_compat.h first, giving that translation unit a
+ * different, ODR-violating view of struct link_socket's size/layout than
+ * every other one. Include openssl_compat.h explicitly here too so every
+ * translation unit agrees. (Deliberately not <openssl/opensslv.h> directly:
+ * on aws-lc that header pulls in crypto.h/base.h in a way that breaks when
+ * reached this early/isolated -- openssl_compat.h's own <openssl/ssl.h>
+ * entry point is already proven safe across all three crypto backends
+ * this project supports, since other files already include it this way.) */
+#include "openssl_compat.h"
 #endif
 
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
