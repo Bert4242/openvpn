@@ -153,6 +153,7 @@ struct stream_buf
     bool sni_gw_http_101_sent;
     const char *sni_gw_http_require_path;
     const char *sni_gw_http_upgrade_token;
+    int sni_gw_http_scan_cursor;
 };
 
 /*
