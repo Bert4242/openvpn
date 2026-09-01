@@ -1287,6 +1287,14 @@ link_socket_new(void)
 {
     struct link_socket *sock;
 
+    fprintf(stderr, "SIZECHECK sizeof(struct link_socket)=%zu sizeof(struct stream_buf)=%zu offsetof(ptos_defined)=%zu\n",
+            sizeof(struct link_socket), sizeof(struct stream_buf),
+#if PASSTOS_CAPABILITY
+            offsetof(struct link_socket, ptos_defined)
+#else
+            (size_t)0
+#endif
+            );
     ALLOC_OBJ_CLEAR(sock, struct link_socket);
     sock->sd = SOCKET_UNDEFINED;
     sock->ctrl_sd = SOCKET_UNDEFINED;
