@@ -137,28 +137,17 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
-    /* struct-layout-repro: dead fields, unread/unwritten anywhere in this
-     * branch -- mirrors exactly the size/shape sni-gateway-modes-3 adds to
-     * this struct, to test whether that alone (no behavior change) is
-     * enough to reproduce the macos-libressl-asan t_server_null UBSan
-     * crash documented in doc/known-issue-libressl-asan-macos-ci.md. */
-#define SNI_PT_DISABLED 0
-#define SNI_PT_PENDING  1
-#define SNI_PT_SUCCESS  2
-    int sni_passthrough_state;
-    const char **sni_gateway_alpn_list;
-    int sni_gateway_alpn_count;
-    const char **sni_gateway_server_host_list;
-    int sni_gateway_server_host_count;
-    bool sni_gateway_server_ignore_alpn;
-#define SNI_GW_HTTP_DISABLED 0
-#define SNI_GW_HTTP_PENDING  1
-#define SNI_GW_HTTP_SUCCESS  2
-    int sni_gw_http_state;
-    bool sni_gw_http_101_sent;
-    const char *sni_gw_http_require_path;
-    const char *sni_gw_http_upgrade_token;
-    int sni_gw_http_scan_cursor;
+    /* struct-layout-bisect: single byte-precise padding field, size set at
+     * compile time via -DSNI_REPRO_PAD_BYTES=N, replacing the named dead
+     * fields from struct-layout-repro with an equivalent-sized blob so the
+     * exact minimal trigger size can be bisected. Unread/unwritten. See
+     * doc/known-issue-libressl-asan-macos-ci.md. */
+#ifndef SNI_REPRO_PAD_BYTES
+#define SNI_REPRO_PAD_BYTES 64
+#endif
+#if SNI_REPRO_PAD_BYTES > 0
+    char sni_repro_pad[SNI_REPRO_PAD_BYTES];
+#endif
 };
 
 /*
@@ -245,12 +234,6 @@ struct link_socket
     struct stream_buf stream_buf;
     struct buffer stream_buf_data;
     bool stream_reset;
-
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
-    /* struct-layout-repro: dead pointer field, mirrors sni-gateway-modes-3's
-     * sni_gw_tls field size/guard exactly; never allocated/dereferenced. */
-    struct sni_gw_tls_repro_dummy *sni_gw_tls;
-#endif
 
     /* HTTP proxy */
     struct http_proxy_info *http_proxy;
