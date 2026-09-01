@@ -42,8 +42,9 @@ jobs:
         run: make -j4 check VERBOSE=1
       # See doc/known-issue-libressl-asan-macos-ci.md -- bisecting the minimal
       # SNI_REPRO_PAD_BYTES that reproduces the struct-layout-triggered crash.
-      - name: Show t_server_null server/client logs (on failure)
-        if: failure()
+      # always() (not failure()): need the SIZECHECK line even on passing runs.
+      - name: Show t_server_null server/client logs (always)
+        if: always()
         run: |
           shopt -s nullglob
           for d in tests/t_server_null-*/; do
