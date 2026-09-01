@@ -137,6 +137,12 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
+#define SNI_PT_DISABLED 0
+#define SNI_PT_PENDING  1
+#define SNI_PT_SUCCESS  2
+#define SNI_GW_HTTP_DISABLED 0
+#define SNI_GW_HTTP_PENDING  1
+#define SNI_GW_HTTP_SUCCESS  2
 };
 
 /*
