@@ -137,22 +137,22 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
-#define SNI_PT_DISABLED 0 /* SNI gateway passthrough not active */
-#define SNI_PT_PENDING  1 /* SNI gateway waiting to inspect first byte */
-#define SNI_PT_SUCCESS  2 /* SNI gateway routing header was consumed */
-    int sni_passthrough_state;
+#define SNI_GW_PASSTHROUGH_DISABLED 0 /* SNI gateway passthrough not active */
+#define SNI_GW_PASSTHROUGH_PENDING  1 /* SNI gateway waiting to inspect first byte */
+#define SNI_GW_PASSTHROUGH_SUCCESS  2 /* SNI gateway routing header was consumed */
+    int sni_gw_passthrough_state;
     /* SNI gateway client ALPN list (sent in its routing header) */
-    const char **sni_gateway_alpn_list;
-    int sni_gateway_alpn_count;
+    const char **sni_gw_alpn_list;
+    int sni_gw_alpn_count;
     /* SNI gateway server-side routing filters */
-    const char **sni_gateway_server_host_list;
-    int sni_gateway_server_host_count;
-    bool sni_gateway_server_ignore_alpn;
+    const char **sni_gw_server_host_list;
+    int sni_gw_server_host_count;
+    bool sni_gw_server_ignore_alpn;
 
     /* --sni-gateway-server sni-http-path-upgrade: state machine that consumes the inbound
      * HTTP/1.1 Upgrade request (plaintext -- either forwarded by a
      * TLS-terminating gateway, or sent directly by an sni-http-path-upgrade
-     * client) and triggers the 101 reply.  Parallel to sni_passthrough_state
+     * client) and triggers the 101 reply.  Parallel to sni_gw_passthrough_state
      * above. */
 #define SNI_GW_HTTP_DISABLED 0             /* not active / done */
 #define SNI_GW_HTTP_PENDING  1             /* waiting for / parsing the Upgrade request */
@@ -189,6 +189,21 @@ struct socket_buffer_size
  */
 void socket_set_buffers(socket_descriptor_t fd, const struct socket_buffer_size *sbs,
                         bool reduce_size);
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+/* LIBRESSL_VERSION_NUMBER is only defined once a file that includes an
+ * actual OpenSSL/LibreSSL header has been seen in this translation unit.
+ * Most .c files that include socket.h never do so before this point, which
+ * left the sni_gw_tls guard inside struct link_socket below always taking
+ * the "true" branch regardless of whether LibreSSL was in use -- except in
+ * the one file that happened to include openssl_compat.h first, giving
+ * that translation unit a different, ODR-violating view of struct
+ * link_socket's size/layout than every other one. Include
+ * openssl_compat.h here (at file scope, before the struct -- NOT inside
+ * it: that pulls in real declarations, which corrupts the struct body if
+ * spliced into its middle) so every translation unit agrees. */
+#include "openssl_compat.h"
+#endif
 
 /*
  * This is the main socket structure used by OpenVPN.  The SOCKET_
@@ -239,16 +254,16 @@ struct link_socket
 
     int mtu; /* OS discovered MTU, or 0 if unknown */
 
-#define SF_USE_IP_PKTINFO    (1 << 0)
-#define SF_TCP_NODELAY       (1 << 1) /* unused: flag always enabled */
-#define SF_PORT_SHARE        (1 << 2)
-#define SF_HOST_RANDOMIZE    (1 << 3)
-#define SF_GETADDRINFO_DGRAM (1 << 4)
-#define SF_DCO_WIN           (1 << 5)
-#define SF_PREPEND_SA        (1 << 6)
-#define SF_PKTINFO_COPY_IIF  (1 << 7)
-#define SF_SNI_PASSTHROUGH   (1 << 8)
-#define SF_SNI_GW_HTTP       (1 << 9)
+#define SF_USE_IP_PKTINFO     (1 << 0)
+#define SF_TCP_NODELAY        (1 << 1) /* unused: flag always enabled */
+#define SF_PORT_SHARE         (1 << 2)
+#define SF_HOST_RANDOMIZE     (1 << 3)
+#define SF_GETADDRINFO_DGRAM  (1 << 4)
+#define SF_DCO_WIN            (1 << 5)
+#define SF_PREPEND_SA         (1 << 6)
+#define SF_PKTINFO_COPY_IIF   (1 << 7)
+#define SF_SNI_GW_PASSTHROUGH (1 << 8)
+#define SF_SNI_GW_HTTP        (1 << 9)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;

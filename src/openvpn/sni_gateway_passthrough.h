@@ -50,7 +50,7 @@
  *   hostname_count  > 0  → the SNI extension must be present and the hostname
  *                          must match one of hostname_list[] (case-insensitive).
  */
-struct sni_pt_server_check_ctx
+struct sni_gw_passthrough_server_check_ctx
 {
     const char *const *alpn_list;
     int alpn_count;
@@ -70,9 +70,9 @@ struct sni_pt_server_check_ctx
  *
  * Returns true on success, false on failure.
  */
-bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
-                                       const char *const *alpn_list,
-                                       int alpn_count);
+bool sni_gw_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
+                                          const char *const *alpn_list,
+                                          int alpn_count);
 
 /*
  * Server side: drive the state machine that detects and discards the SNI
@@ -81,29 +81,29 @@ bool sni_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).
  */
-bool sni_passthrough_check_and_consume_header(struct stream_buf *sb,
-                                              const struct sni_pt_server_check_ctx *ctx);
+bool sni_gw_passthrough_check_and_consume_header(struct stream_buf *sb,
+                                                 const struct sni_gw_passthrough_server_check_ctx *ctx);
 
 /*
  * Inspect a raw packet against the server check context.
  * Returns the total byte length of the SNI header on match, 0 otherwise.
  * Exposed here for unit testing.
  */
-int sni_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
-                                 const struct sni_pt_server_check_ctx *ctx);
+int sni_gw_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
+                                    const struct sni_gw_passthrough_server_check_ctx *ctx);
 
 #ifdef UNIT_TESTING
 /*
- * Thin wrapper around the internal sni_passthrough_build_client_hello()
+ * Thin wrapper around the internal sni_gw_passthrough_build_client_hello()
  * for cross-path compatibility tests.  Only compiled when UNIT_TESTING is
- * defined and SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH is NOT set (so the
+ * defined and SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH is NOT set (so the
  * normal/OpenSSL builder is exposed; sni_alt_impl.c provides the alt
  * flavour under a separate name).
  */
-size_t sni_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
-                                               const char *sni,
-                                               const char *const *alpn_list,
-                                               int alpn_count);
+size_t sni_gw_passthrough_build_client_hello_test(uint8_t *buf, size_t bufsz,
+                                                  const char *sni,
+                                                  const char *const *alpn_list,
+                                                  int alpn_count);
 #endif /* UNIT_TESTING */
 
 

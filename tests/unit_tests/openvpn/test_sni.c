@@ -24,11 +24,11 @@
  * Unit tests for sni_gateway_passthrough.c: SNI passthrough header parsing
  * and consumption; plus sni_gateway.h's mode-string parser.
  *
- * sni_passthrough_check_packet() (the SNI/ALPN extractor) has a single,
+ * sni_gw_passthrough_check_packet() (the SNI/ALPN extractor) has a single,
  * backend-independent implementation, so both test drivers exercise the
  * same checker code.  They still differ in which ClientHello builder they
  * use to synthesize input packets:
- *   sni_testdriver          - SNI_PASSTHROUGH_TEST_ALTERNATIVE_PATH defined,
+ *   sni_testdriver          - SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH defined,
  *                             builds ClientHellos with the generic
  *                             template-based builder (no OpenSSL).
  *   sni_openssl_testdriver  - no override, builds ClientHellos by driving a
@@ -72,7 +72,7 @@
  *                        list_len=24 proto_len=23
  *                        "hacky-sni-passthrough/1"         (30 bytes)
  *
- * Total: 82 bytes.  sni_passthrough_check_packet() must return 82.
+ * Total: 82 bytes.  sni_gw_passthrough_check_packet() must return 82.
  * ========================================================================= */
 static const uint8_t valid_sni_pkt[] = {
     /* TLS record header */
@@ -330,7 +330,7 @@ static const uint8_t no_ext_pkt[] = {
  *                         list_len=24, proto_len=23
  *                         "hacky-sni-passthrough/1" (30 bytes)
  *
- * Total: 123 bytes.  sni_passthrough_check_packet() must return 123.
+ * Total: 123 bytes.  sni_gw_passthrough_check_packet() must return 123.
  */
 /*
  * Packet layout (all lengths big-endian):
@@ -476,7 +476,7 @@ static const uint8_t sni_and_alpn_pkt[] = {
  * ========================================================================== */
 
 /* Default ctx: built-in ALPN, any hostname, ALPN required */
-static const struct sni_pt_server_check_ctx ctx_default = { 0 };
+static const struct sni_gw_passthrough_server_check_ctx ctx_default = { 0 };
 
 /* Helper: allocate a stream_buf whose buf contains the given bytes */
 static void
@@ -485,7 +485,7 @@ make_stream_buf(struct stream_buf *sb, const uint8_t *data, int len)
     memset(sb, 0, sizeof(*sb));
     sb->buf = alloc_buf((size_t)len + 16);
     assert_true(buf_write(&sb->buf, data, (size_t)len));
-    sb->sni_passthrough_state = SNI_PT_PENDING;
+    sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_PENDING;
 }
 
 static void
@@ -495,15 +495,15 @@ free_stream_buf(struct stream_buf *sb)
 }
 
 /* ==========================================================================
- * sni_passthrough_check_packet tests
+ * sni_gw_passthrough_check_packet tests
  * ========================================================================== */
 
 static void
 test_sni_check_packet_valid_openvpn_alpn(void **state)
 {
     (void)state;
-    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt),
-                                           &ctx_default);
+    int ret = sni_gw_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt),
+                                              &ctx_default);
     assert_int_equal(ret, (int)sizeof(valid_sni_pkt));
 }
 
@@ -511,8 +511,8 @@ static void
 test_sni_check_packet_too_short(void **state)
 {
     (void)state;
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 4, &ctx_default), 0);
-    assert_int_equal(sni_passthrough_check_packet(valid_sni_pkt, 0, &ctx_default), 0);
+    assert_int_equal(sni_gw_passthrough_check_packet(valid_sni_pkt, 4, &ctx_default), 0);
+    assert_int_equal(sni_gw_passthrough_check_packet(valid_sni_pkt, 0, &ctx_default), 0);
 }
 
 static void
@@ -522,7 +522,7 @@ test_sni_check_packet_not_handshake(void **state)
     uint8_t buf[sizeof(valid_sni_pkt)];
     memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
     buf[0] = 0x17;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), 0);
+    assert_int_equal(sni_gw_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), 0);
 }
 
 static void
@@ -532,7 +532,7 @@ test_sni_check_packet_not_clienthello(void **state)
     uint8_t buf[sizeof(valid_sni_pkt)];
     memcpy(buf, valid_sni_pkt, sizeof(valid_sni_pkt));
     buf[5] = 0x02;
-    assert_int_equal(sni_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), -1);
+    assert_int_equal(sni_gw_passthrough_check_packet(buf, (int)sizeof(buf), &ctx_default), -1);
 }
 
 static void
@@ -540,8 +540,8 @@ test_sni_check_packet_wrong_alpn(void **state)
 {
     (void)state;
     assert_int_equal(
-        sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt),
-                                     &ctx_default),
+        sni_gw_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt),
+                                        &ctx_default),
         -1);
 }
 
@@ -550,7 +550,7 @@ test_sni_check_packet_no_extensions(void **state)
 {
     (void)state;
     assert_int_equal(
-        sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx_default), -1);
+        sni_gw_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx_default), -1);
 }
 
 static void
@@ -558,8 +558,8 @@ test_sni_check_packet_truncated_record(void **state)
 {
     (void)state;
     assert_int_equal(
-        sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10,
-                                     &ctx_default),
+        sni_gw_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt) - 10,
+                                        &ctx_default),
         0);
 }
 
@@ -568,9 +568,9 @@ static void
 test_sni_check_packet_ignore_alpn(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
+    struct sni_gw_passthrough_server_check_ctx ctx = { .ignore_alpn = true };
     /* wrong_alpn_pkt carries "http/1.1", not the configured token */
-    int ret = sni_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), &ctx);
+    int ret = sni_gw_passthrough_check_packet(wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt), &ctx);
     assert_int_equal(ret, (int)sizeof(wrong_alpn_pkt));
 }
 
@@ -579,9 +579,9 @@ static void
 test_sni_check_packet_ignore_alpn_no_ext(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
+    struct sni_gw_passthrough_server_check_ctx ctx = { .ignore_alpn = true };
     /* no_ext_pkt has no extensions at all */
-    int ret = sni_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx);
+    int ret = sni_gw_passthrough_check_packet(no_ext_pkt, (int)sizeof(no_ext_pkt), &ctx);
     assert_int_equal(ret, (int)sizeof(no_ext_pkt));
 }
 
@@ -591,12 +591,12 @@ test_sni_check_packet_hostname_match(void **state)
 {
     (void)state;
     const char *hosts[] = { "vpn.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
-    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
-                                           &ctx);
+    int ret = sni_gw_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                              &ctx);
     assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
 }
 
@@ -606,12 +606,12 @@ test_sni_check_packet_hostname_match_case(void **state)
 {
     (void)state;
     const char *hosts[] = { "VPN.EXAMPLE.COM" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
-    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
-                                           &ctx);
+    int ret = sni_gw_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                              &ctx);
     assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
 }
 
@@ -621,12 +621,12 @@ test_sni_check_packet_hostname_mismatch(void **state)
 {
     (void)state;
     const char *hosts[] = { "other.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
-    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
-                                           &ctx);
+    int ret = sni_gw_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                              &ctx);
     assert_int_equal(ret, -1);
 }
 
@@ -636,12 +636,12 @@ test_sni_check_packet_hostname_multi_match(void **state)
 {
     (void)state;
     const char *hosts[] = { "other.example.com", "vpn.example.com", "another.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 3,
     };
-    int ret = sni_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
-                                           &ctx);
+    int ret = sni_gw_passthrough_check_packet(sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt),
+                                              &ctx);
     assert_int_equal(ret, (int)sizeof(sni_and_alpn_pkt));
 }
 
@@ -651,23 +651,23 @@ test_sni_check_packet_hostname_filter_no_sni(void **state)
 {
     (void)state;
     const char *hosts[] = { "vpn.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
     /* valid_sni_pkt has only ALPN, no SNI extension */
-    int ret = sni_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), &ctx);
+    int ret = sni_gw_passthrough_check_packet(valid_sni_pkt, (int)sizeof(valid_sni_pkt), &ctx);
     assert_int_equal(ret, -1);
 }
 
 /* ==========================================================================
- * sni_passthrough_check_and_consume_header tests
+ * sni_gw_passthrough_check_and_consume_header tests
  *
  * These exercise the stream_buf state machine that socket.c calls at
- * stream_buf_read_dowork() when sni_passthrough_state == SNI_PT_PENDING.
+ * stream_buf_read_dowork() when sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING.
  * ========================================================================== */
 
-/* Valid SNI header: header is consumed, state transitions to SNI_PT_SUCCESS */
+/* Valid SNI header: header is consumed, state transitions to SNI_GW_PASSTHROUGH_SUCCESS */
 static void
 test_sni_consume_header_valid(void **state)
 {
@@ -675,10 +675,10 @@ test_sni_consume_header_valid(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, valid_sni_pkt, (int)sizeof(valid_sni_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_true(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_SUCCESS);
     assert_int_equal(sb.buf.len, 0);
 
     free_stream_buf(&sb);
@@ -697,10 +697,10 @@ test_sni_consume_header_with_trailing_data(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, combined, (int)sizeof(combined));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_true(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_SUCCESS);
     assert_int_equal(sb.buf.len, (int)sizeof(trailing));
     assert_memory_equal(BPTR(&sb.buf), trailing, sizeof(trailing));
 
@@ -709,7 +709,7 @@ test_sni_consume_header_with_trailing_data(void **state)
 
 /*
  * OpenVPN client without --sni-gateway sni.
- * First byte != 0x16 → SNI_PT_DISABLED immediately.
+ * First byte != 0x16 → SNI_GW_PASSTHROUGH_DISABLED immediately.
  */
 static void
 test_sni_consume_header_openvpn_client(void **state)
@@ -719,10 +719,10 @@ test_sni_consume_header_openvpn_client(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, openvpn_data, (int)sizeof(openvpn_data));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_DISABLED);
 
     free_stream_buf(&sb);
 }
@@ -735,11 +735,11 @@ test_sni_consume_header_tls_wrong_alpn(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
     assert_true(sb.error);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_DISABLED);
 
     free_stream_buf(&sb);
 }
@@ -753,10 +753,10 @@ test_sni_consume_header_partial(void **state)
     struct stream_buf sb;
     make_stream_buf(&sb, partial, (int)sizeof(partial));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx_default);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx_default);
 
     assert_false(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_PENDING);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_PENDING);
 
     free_stream_buf(&sb);
 }
@@ -766,14 +766,14 @@ static void
 test_sni_consume_header_ignore_alpn(void **state)
 {
     (void)state;
-    struct sni_pt_server_check_ctx ctx = { .ignore_alpn = true };
+    struct sni_gw_passthrough_server_check_ctx ctx = { .ignore_alpn = true };
     struct stream_buf sb;
     make_stream_buf(&sb, wrong_alpn_pkt, (int)sizeof(wrong_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx);
 
     assert_true(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_SUCCESS);
 
     free_stream_buf(&sb);
 }
@@ -784,17 +784,17 @@ test_sni_consume_header_hostname_match(void **state)
 {
     (void)state;
     const char *hosts[] = { "vpn.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
     struct stream_buf sb;
     make_stream_buf(&sb, sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx);
 
     assert_true(result);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_SUCCESS);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_SUCCESS);
 
     free_stream_buf(&sb);
 }
@@ -805,24 +805,24 @@ test_sni_consume_header_hostname_mismatch(void **state)
 {
     (void)state;
     const char *hosts[] = { "other.example.com" };
-    struct sni_pt_server_check_ctx ctx = {
+    struct sni_gw_passthrough_server_check_ctx ctx = {
         .hostname_list = hosts,
         .hostname_count = 1,
     };
     struct stream_buf sb;
     make_stream_buf(&sb, sni_and_alpn_pkt, (int)sizeof(sni_and_alpn_pkt));
 
-    bool result = sni_passthrough_check_and_consume_header(&sb, &ctx);
+    bool result = sni_gw_passthrough_check_and_consume_header(&sb, &ctx);
 
     assert_false(result);
     assert_true(sb.error);
-    assert_int_equal(sb.sni_passthrough_state, SNI_PT_DISABLED);
+    assert_int_equal(sb.sni_gw_passthrough_state, SNI_GW_PASSTHROUGH_DISABLED);
 
     free_stream_buf(&sb);
 }
 
 /* ==========================================================================
- * sni_gateway_client_mode_from_string / sni_gateway_server_mode_from_string
+ * sni_gw_client_mode_from_string / sni_gw_server_mode_from_string
  * tests
  *
  * Covers the --sni-gateway / --sni-gateway-server mode argument parsers.
@@ -837,89 +837,89 @@ test_sni_consume_header_hostname_mismatch(void **state)
  * ========================================================================== */
 
 static void
-test_sni_gateway_client_mode_from_string_sni(void **state)
+test_sni_gw_client_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni"), SNI_GW_CLIENT_SNI);
+    assert_int_equal(sni_gw_client_mode_from_string("sni"), SNI_GW_CLIENT_SNI);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_sni_tls(void **state)
+test_sni_gw_client_mode_from_string_sni_tls(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls"), SNI_GW_CLIENT_TLS);
+    assert_int_equal(sni_gw_client_mode_from_string("sni-tls"), SNI_GW_CLIENT_TLS);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_sni_tls_http_path_upgrade(void **state)
+test_sni_gw_client_mode_from_string_sni_tls_http_path_upgrade(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_CLIENT_TLS_HTTP_UPGRADE);
+    assert_int_equal(sni_gw_client_mode_from_string("sni-tls-http-path-upgrade"), SNI_GW_CLIENT_TLS_HTTP_UPGRADE);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_sni_http_path_upgrade(void **state)
+test_sni_gw_client_mode_from_string_sni_http_path_upgrade(void **state)
 {
     (void)state;
     /* Client-side: "sni-http-path-upgrade" is the no-TLS mode,
      * SNI_GW_CLIENT_HTTP_UPGRADE -- NOT the same enum value the server
      * accepts under the same string. */
-    assert_int_equal(sni_gateway_client_mode_from_string("sni-http-path-upgrade"), SNI_GW_CLIENT_HTTP_UPGRADE);
+    assert_int_equal(sni_gw_client_mode_from_string("sni-http-path-upgrade"), SNI_GW_CLIENT_HTTP_UPGRADE);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_auto(void **state)
+test_sni_gw_client_mode_from_string_auto(void **state)
 {
     (void)state;
     /* "auto" DOES parse client-side (so options.c can give it a dedicated
      * "server-only" error) even though it is never a valid client mode. */
-    assert_int_equal(sni_gateway_client_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
+    assert_int_equal(sni_gw_client_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_unknown(void **state)
+test_sni_gw_client_mode_from_string_unknown(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string("bogus"), -1);
-    assert_int_equal(sni_gateway_client_mode_from_string(""), -1);
+    assert_int_equal(sni_gw_client_mode_from_string("bogus"), -1);
+    assert_int_equal(sni_gw_client_mode_from_string(""), -1);
     /* case-sensitive: "Sni" must not match "sni" */
-    assert_int_equal(sni_gateway_client_mode_from_string("Sni"), -1);
+    assert_int_equal(sni_gw_client_mode_from_string("Sni"), -1);
 }
 
 static void
-test_sni_gateway_client_mode_from_string_null(void **state)
+test_sni_gw_client_mode_from_string_null(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_client_mode_from_string(NULL), -1);
+    assert_int_equal(sni_gw_client_mode_from_string(NULL), -1);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_sni(void **state)
+test_sni_gw_server_mode_from_string_sni(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string("sni"), SNI_GW_SERVER_SNI);
+    assert_int_equal(sni_gw_server_mode_from_string("sni"), SNI_GW_SERVER_SNI);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_sni_http_path_upgrade(void **state)
+test_sni_gw_server_mode_from_string_sni_http_path_upgrade(void **state)
 {
     (void)state;
     /* Server-side: "sni-http-path-upgrade" means "accept the plaintext
      * HTTP/1.1 Upgrade" -- SNI_GW_SERVER_HTTP_UPGRADE is an alias of the
      * same value the client-side parser returns (as SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
      * for "sni-tls-http-path-upgrade". */
-    assert_int_equal(sni_gateway_server_mode_from_string("sni-http-path-upgrade"), SNI_GW_SERVER_HTTP_UPGRADE);
+    assert_int_equal(sni_gw_server_mode_from_string("sni-http-path-upgrade"), SNI_GW_SERVER_HTTP_UPGRADE);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_auto(void **state)
+test_sni_gw_server_mode_from_string_auto(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
+    assert_int_equal(sni_gw_server_mode_from_string("auto"), SNI_GW_SERVER_AUTO);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_tls_strings_not_recognized(void **state)
+test_sni_gw_server_mode_from_string_tls_strings_not_recognized(void **state)
 {
     (void)state;
     /* Neither TLS-flavored string is a real server mode: the server never
@@ -927,23 +927,23 @@ test_sni_gateway_server_mode_from_string_tls_strings_not_recognized(void **state
      * directly with one unified "no TLS on the server" error before ever
      * calling this parser, so it doesn't need to special-case either one --
      * both are plain unknowns here, same as any other bogus string. */
-    assert_int_equal(sni_gateway_server_mode_from_string("sni-tls"), -1);
-    assert_int_equal(sni_gateway_server_mode_from_string("sni-tls-http-path-upgrade"), -1);
+    assert_int_equal(sni_gw_server_mode_from_string("sni-tls"), -1);
+    assert_int_equal(sni_gw_server_mode_from_string("sni-tls-http-path-upgrade"), -1);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_unknown(void **state)
+test_sni_gw_server_mode_from_string_unknown(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string("bogus"), -1);
-    assert_int_equal(sni_gateway_server_mode_from_string(""), -1);
+    assert_int_equal(sni_gw_server_mode_from_string("bogus"), -1);
+    assert_int_equal(sni_gw_server_mode_from_string(""), -1);
 }
 
 static void
-test_sni_gateway_server_mode_from_string_null(void **state)
+test_sni_gw_server_mode_from_string_null(void **state)
 {
     (void)state;
-    assert_int_equal(sni_gateway_server_mode_from_string(NULL), -1);
+    assert_int_equal(sni_gw_server_mode_from_string(NULL), -1);
 }
 
 /* ==========================================================================
@@ -956,7 +956,7 @@ main(void)
     openvpn_unit_test_setup();
 
     const struct CMUnitTest tests[] = {
-        /* sni_passthrough_check_packet – basic */
+        /* sni_gw_passthrough_check_packet – basic */
         cmocka_unit_test(test_sni_check_packet_valid_openvpn_alpn),
         cmocka_unit_test(test_sni_check_packet_too_short),
         cmocka_unit_test(test_sni_check_packet_not_handshake),
@@ -964,17 +964,17 @@ main(void)
         cmocka_unit_test(test_sni_check_packet_wrong_alpn),
         cmocka_unit_test(test_sni_check_packet_no_extensions),
         cmocka_unit_test(test_sni_check_packet_truncated_record),
-        /* sni_passthrough_check_packet – ignore_alpn */
+        /* sni_gw_passthrough_check_packet – ignore_alpn */
         cmocka_unit_test(test_sni_check_packet_ignore_alpn),
         cmocka_unit_test(test_sni_check_packet_ignore_alpn_no_ext),
-        /* sni_passthrough_check_packet – hostname filter */
+        /* sni_gw_passthrough_check_packet – hostname filter */
         cmocka_unit_test(test_sni_check_packet_hostname_match),
         cmocka_unit_test(test_sni_check_packet_hostname_match_case),
         cmocka_unit_test(test_sni_check_packet_hostname_mismatch),
         cmocka_unit_test(test_sni_check_packet_hostname_multi_match),
         cmocka_unit_test(test_sni_check_packet_hostname_filter_no_sni),
 
-        /* sni_passthrough_check_and_consume_header */
+        /* sni_gw_passthrough_check_and_consume_header */
         cmocka_unit_test(test_sni_consume_header_valid),
         cmocka_unit_test(test_sni_consume_header_with_trailing_data),
         cmocka_unit_test(test_sni_consume_header_openvpn_client),
@@ -984,22 +984,22 @@ main(void)
         cmocka_unit_test(test_sni_consume_header_hostname_match),
         cmocka_unit_test(test_sni_consume_header_hostname_mismatch),
 
-        /* sni_gateway_client_mode_from_string */
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_tls),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_tls_http_path_upgrade),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_sni_http_path_upgrade),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_auto),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_unknown),
-        cmocka_unit_test(test_sni_gateway_client_mode_from_string_null),
+        /* sni_gw_client_mode_from_string */
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_sni),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_sni_tls),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_sni_tls_http_path_upgrade),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_sni_http_path_upgrade),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_auto),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_unknown),
+        cmocka_unit_test(test_sni_gw_client_mode_from_string_null),
 
-        /* sni_gateway_server_mode_from_string */
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_sni),
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_sni_http_path_upgrade),
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_auto),
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_tls_strings_not_recognized),
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_unknown),
-        cmocka_unit_test(test_sni_gateway_server_mode_from_string_null),
+        /* sni_gw_server_mode_from_string */
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_sni),
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_sni_http_path_upgrade),
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_auto),
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_tls_strings_not_recognized),
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_unknown),
+        cmocka_unit_test(test_sni_gw_server_mode_from_string_null),
     };
 
     return cmocka_run_group_tests(tests, NULL, NULL);
