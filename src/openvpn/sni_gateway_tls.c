@@ -692,8 +692,7 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
             /* buffer_list_push_data() aborts the process on OOM (via
              * alloc_buf()'s check_malloc_return()), matching every other
              * network-fed buffer_list user in the tree (e.g. ssl.c's
-             * ks->paybuf) rather than the graceful per-connection teardown
-             * the old hand-rolled FIFO attempted on realloc() failure. */
+             * ks->paybuf). */
             buffer_list_push_data(t->in_plaintext, scratch, (size_t)n);
             produced = true;
             continue;
@@ -740,8 +739,8 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
      * when it coalesces many OpenVPN frames and exceeds the net_bio window:
      * draining SSL frees net_bio space, letting us recv() the rest.  Because
      * ALL available plaintext lands in the FIFO, nothing stays buffered
-     * invisibly inside OpenSSL where the level-triggered event loop can't see
-     * it (that was the stall bug this holding area fixes).
+     * invisibly inside OpenSSL, where the level-triggered event loop has no
+     * readable fd left to notice it and would otherwise stall.
      */
     bool progress = true;
     while (progress && !fatal)

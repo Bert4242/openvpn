@@ -826,10 +826,10 @@ test_sni_consume_header_hostname_mismatch(void **state)
  * tests
  *
  * Covers the --sni-gateway / --sni-gateway-server mode argument parsers.
- * These used to be one shared function; split into two once the HTTP-Upgrade
- * mode's client and server CLI string sets diverged ("sni-tls-http-path-upgrade"
- * stays client-only -- the client genuinely does TLS in that mode --  while
- * the server, which never terminates TLS in ANY mode, uses
+ * Client and server use separate parsers because their CLI string sets
+ * diverge for the HTTP-Upgrade mode: "sni-tls-http-path-upgrade" is
+ * client-only -- the client genuinely does TLS in that mode -- while the
+ * server, which never terminates TLS in ANY mode, uses
  * "sni-http-path-upgrade" for the same SNI_GW_SERVER_HTTP_UPGRADE value
  * instead (an alias of SNI_GW_CLIENT_TLS_HTTP_UPGRADE); "sni-http-path-upgrade"
  * itself is client-only for a DIFFERENT enum value, SNI_GW_CLIENT_HTTP_UPGRADE,

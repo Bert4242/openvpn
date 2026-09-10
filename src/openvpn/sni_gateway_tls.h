@@ -162,9 +162,6 @@ bool sni_gw_tls_write_pending(const struct sni_gw_tls *t);
 bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
 
 /*
- * Free all resources.  Safe to call with t == NULL.
- */
-/*
  * Returns true when decrypted plaintext is buffered inside the tunnel waiting
  * to be served by sni_gw_tls_read().  The event loop consults this (via
  * sockets_read_residual) so it re-enters the read path without blocking on the
@@ -173,6 +170,9 @@ bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
  */
 bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
 
+/*
+ * Free all resources.  Safe to call with t == NULL.
+ */
 void sni_gw_tls_free(struct sni_gw_tls *t);
 
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
