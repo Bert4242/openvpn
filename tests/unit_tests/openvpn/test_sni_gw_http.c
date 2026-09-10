@@ -582,9 +582,9 @@ static void
 test_consume_upgrade_token_substring_no_longer_matches(void **state)
 {
     (void)state;
-    /* Under the OLD substring-search behavior, a configured token of "vpn"
-     * would have matched the "openvpn" header value. Exact (comma-split,
-     * trimmed) matching must now reject this. */
+    /* A configured token of "vpn" must NOT match an "openvpn" header value:
+     * matching is exact against each comma-split, trimmed element, never a
+     * substring match. */
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
     int r = sni_gw_http_check_and_consume_request(&sb, NULL, "vpn");
@@ -854,8 +854,7 @@ static void
 test_server_accept_upgrade_peer_sends_nothing_bounded(void **state)
 {
     (void)state;
-    /* Guards against the blocking-recv() DoS this function used to have: a
-     * peer that opens the connection and sends nothing must not hang this
+    /* A peer that opens the connection and sends nothing must not hang this
      * call. Use a short poll_timeout so the select()-timeout path is
      * exercised, and assert the call returns well within a small bound
      * instead of hanging the test process. */
@@ -886,8 +885,8 @@ test_server_accept_upgrade_peer_trickles_bytes_bounded(void **state)
 {
     (void)state;
     /* A peer that sends a byte, then stalls, must not extend the wait past
-     * a single poll_timeout window either -- the fix bounds each recv(),
-     * not just the initial one. */
+     * a single poll_timeout window either -- each recv() is individually
+     * bounded, not just the initial one. */
     int fds[2];
     assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
     assert_int_equal((int)send(fds[1], "G", 1, 0), 1);
@@ -913,11 +912,9 @@ test_server_accept_upgrade_peer_trickles_bytes_bounded(void **state)
 
 /*
  * The tests below exercise sni_gw_http_server_accept_upgrade() end to end
- * over a real socketpair -- this is the shared-parser dedup's actual point:
- * these cases were previously only ever exercised (indirectly) through
- * sni_gw_http_check_and_consume_request() above, so the accept-time reader's
- * own request-line/version/path/Upgrade-header validation had no direct
- * regression coverage at all.
+ * over a real socketpair, giving the accept-time reader's own
+ * request-line/version/path/Upgrade-header validation direct coverage,
+ * independent of the sni_gw_http_check_and_consume_request() tests above.
  */
 
 static void
@@ -1031,17 +1028,15 @@ test_server_accept_upgrade_not_http_rejected_promptly(void **state)
 {
     (void)state;
     /*
-     * Regression coverage for a behavior difference the dedup fixed: before
-     * sharing the parser, this blocking accept-time reader only checked the
-     * "GET " prefix AFTER finding a full CRLFCRLF terminator, so a peer
-     * sending non-HTTP bytes that never included a blank line would be held
-     * until the SNI_GW_HTTP_MAX_REQUEST cap (4096 bytes) or a select()
-     * timeout, rather than being recognized as non-HTTP immediately -- unlike
-     * the streaming parser, which has always rejected a bad prefix as soon as
-     * the first mismatching byte arrives (see test_consume_raw_openvpn /
-     * test_consume_wrong_method above). Send a handful of clearly-non-HTTP
-     * bytes with no terminator and confirm the call returns quickly rather
-     * than waiting for the poll_timeout.
+     * A peer sending non-HTTP bytes that never include a blank line must be
+     * recognized as non-HTTP as soon as the first byte mismatches the "GET "
+     * prefix, not held until the SNI_GW_HTTP_MAX_REQUEST cap (4096 bytes) or
+     * a select() timeout -- the shared parser checks the prefix before
+     * looking for the CRLFCRLF terminator (see test_consume_raw_openvpn /
+     * test_consume_wrong_method above, which cover the same rule on the
+     * streaming path). Send a handful of clearly-non-HTTP bytes with no
+     * terminator and confirm the call returns quickly rather than waiting
+     * for the poll_timeout.
      */
     int fds[2];
     assert_int_equal(socketpair(AF_UNIX, SOCK_STREAM, 0, fds), 0);
@@ -1062,8 +1057,8 @@ test_server_accept_upgrade_not_http_rejected_promptly(void **state)
 
     assert_false(ok);
     /* With a 30s poll_timeout, only prompt (prefix-driven) rejection keeps
-     * this well under that bound; the pre-dedup implementation would have
-     * blocked for the full 30s waiting on more bytes. */
+     * this well under that bound -- a reader that waited for CRLFCRLF before
+     * checking the prefix would block for the full 30s waiting on more bytes. */
     assert_true(elapsed < 5.0);
 
     close(fds[0]);

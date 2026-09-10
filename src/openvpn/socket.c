@@ -71,14 +71,13 @@ sockets_read_residual(const struct context *c)
              * pending TUN write), leaving EVENT_READ never requested for
              * this socket. If stream_buf.residual is ALSO pending at the
              * same time (a big FIFO-fed read can produce both leftover FIFO
-             * bytes and leftover stream_buf residual in one shot -- see
-             * commit message / sni-gateway-android-data-reset memory for a
-             * full trace), link_socket_read_tcp() would otherwise start
-             * from an empty stream_buf.buf and silently strand those
-             * residual bytes, desyncing the length-prefix framing ("Bad
-             * encapsulated packet length"). Run the merge here explicitly
-             * so it always happens before the forced read below, regardless
-             * of what this iteration's socket_set() call decided. */
+             * bytes and leftover stream_buf residual in one shot),
+             * link_socket_read_tcp() would otherwise start from an empty
+             * stream_buf.buf and silently strand those residual bytes,
+             * desyncing the length-prefix framing ("Bad encapsulated packet
+             * length"). Run the merge here explicitly so it always happens
+             * before the forced read below, regardless of what this
+             * iteration's socket_set() call decided. */
             stream_buf_read_setup(c->c2.link_sockets[i]);
             return true;
         }
@@ -2415,7 +2414,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
 #if PORT_SHARE
                         if (sb->port_share_state == PS_ENABLED)
                         {
-                            /* SNI header has been droped , cant anymore do port_share */
+                            /* SNI header already consumed; port_share can no longer inspect it. */
                             sb->port_share_state = PS_DISABLED;
                         }
 #endif
