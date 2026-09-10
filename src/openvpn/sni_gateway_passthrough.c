@@ -688,14 +688,10 @@ error:
  * locate the server_name extension (type 0x0000) and the ALPN extension
  * (type 0x0010) and verifies them against the configured filters.
  *
- * Earlier revisions of this file drove OpenSSL's own
- * SSL_CTX_set_client_hello_cb() through a real (if incomplete) SSL_accept()
- * over mem-BIOs on OpenSSL builds, duplicating this logic in a second,
- * independently-maintained implementation, and allocating a fresh
- * SSL_CTX/SSL/two BIOs per connection just to reach the callback.  That path
- * was removed in favour of this one so that a correctness fix only needs to
- * land once and all backends see it, and so no per-connection OpenSSL
- * object allocation is needed just to classify a TCP connection.
+ * Deliberately backend-agnostic and allocation-free: a single implementation
+ * shared by every backend means a correctness fix only needs to land once
+ * and all backends see it, and classifying a TCP connection never requires
+ * allocating a per-connection SSL_CTX/SSL/BIO pair just to reach a callback.
  *
  * ClientHello layout (all lengths big-endian):
  *   TLS record header  : type(1) + version(2) + record_len(2)        = 5 bytes
