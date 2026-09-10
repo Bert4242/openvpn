@@ -27,7 +27,8 @@
 #include "syshead.h"
 
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL) \
+    && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 #include "openssl_compat.h"
 #endif
 #include "socket.h"
@@ -119,7 +120,8 @@ pt_build_alpn_proto_list(struct buffer *buf,
 }
 
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL) \
+    && !defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
 
 static size_t
 sni_gw_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sni,

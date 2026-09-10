@@ -66,7 +66,7 @@ struct signal_info siginfo_static;
 
 /* sni_gateway_tls.c (the code under test) only exists on an OpenSSL,
  * non-LibreSSL build -- mirror its own build guard here. */
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
 
 #include <setjmp.h>
 #include <cmocka.h>

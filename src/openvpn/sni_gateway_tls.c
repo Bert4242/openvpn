@@ -28,7 +28,7 @@
 
 #include "sni_gateway_tls.h"
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
 
 #include "openssl_compat.h"
 #include "error.h"
