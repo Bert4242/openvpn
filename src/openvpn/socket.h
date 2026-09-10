@@ -273,7 +273,7 @@ struct link_socket
     struct buffer stream_buf_data;
     bool stream_reset;
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
     /* --sni-gateway sni-tls: userspace TLS wrapper around the OpenVPN TCP stream
      * to a TLS-terminating gateway (client side only).  NULL unless active. */
     struct sni_gw_tls *sni_gw_tls;
@@ -317,7 +317,7 @@ struct link_socket
 #define MSG_NOSIGNAL 0
 #endif
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
 /* --sni-gateway sni-tls steady-state I/O (defined in sni_gateway_tls.c).  Forward
  * declared here so the inline TCP read/write paths can delegate to them without
  * pulling in sni_gateway_tls.h (which itself includes socket.h). */
@@ -796,7 +796,7 @@ link_socket_write_udp_posix(struct link_socket *sock, struct buffer *buf,
 static inline ssize_t
 link_socket_write_tcp_posix(struct link_socket *sock, struct buffer *buf)
 {
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
     if (sock->sni_gw_tls)
     {
         /* --sni-gateway sni-tls: tunnel the plaintext through the TLS session. */
