@@ -1748,7 +1748,7 @@ process_outgoing_link(struct context *c, struct link_socket *sock)
     struct gc_arena gc = gc_new();
     int error_code = 0;
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
     /* An SNI gateway writable event may exist solely for ciphertext retained
      * after an earlier EAGAIN.  Flush it without another OpenVPN packet. */
     if (c->c2.to_link.len <= 0 && sock->sni_gw_tls

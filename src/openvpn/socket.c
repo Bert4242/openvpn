@@ -55,7 +55,7 @@ sockets_read_residual(const struct context *c)
         {
             return true;
         }
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         /* --sni-gateway sni-tls: plaintext decrypted from a coalesced TLS record can
          * outlast the socket's readable state (the fd is drained but bytes remain
          * buffered in the tunnel).  Force a non-blocking re-entry so the read path
@@ -1862,7 +1862,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             goto done;
         }
     }
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
              && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_TLS
@@ -2010,7 +2010,7 @@ link_socket_close(struct link_socket *sock)
 
         stream_buf_close(&sock->stream_buf);
         free_buf(&sock->stream_buf_data);
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         sni_gw_tls_free(sock->sni_gw_tls);
         sock->sni_gw_tls = NULL;
 #endif
@@ -2557,7 +2557,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         len = sockethandle_finalize(sh, &sock->reads, buf, NULL);
 #else
         struct buffer frag = stream_buf_get_next(&sock->stream_buf);
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         if (sock->sni_gw_tls)
         {
             /* --sni-gateway sni-tls: decrypt ciphertext off the socket into frag.
@@ -2572,7 +2572,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
         }
 #endif
 
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         if (sock->sni_gw_tls)
         {
             /* gw_tls semantics differ from raw recv(): 0 means "plaintext not
@@ -3260,7 +3260,7 @@ socket_set(struct link_socket *s, struct event_set *es, unsigned int rwflags, vo
 {
     if (s)
     {
-#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER)
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         /* Ciphertext accepted by the SNI gateway TLS wrapper is transport
          * output even after OpenVPN's plaintext buffer has been consumed. */
         if (s->sni_gw_tls && sni_gw_tls_write_pending(s->sni_gw_tls))

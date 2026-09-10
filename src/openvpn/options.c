@@ -2360,7 +2360,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
          * platform requirements. */
         const char *modename =
             (ce->sni_gw_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE) ? "sni-tls-http-path-upgrade" : "sni-tls";
-#if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER))
+#if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL))
         msg(M_USAGE, "--sni-gateway %s requires an OpenSSL build "
                      "(not available with this crypto backend)",
             modename);
