@@ -24,26 +24,23 @@
  * Stress test for the --sni-gateway sni-tls client's steady-state read path
  * (sni_gateway_tls.c: gw_drain_ssl / in_plaintext FIFO / sni_gw_tls_read).
  *
- * Motivated by a real field failure: a live tcpdump showed a gateway
- * (Traefik) delivering 7 TCP segments / ~7.8 KiB to the client within a
- * 2.4 ms window (a burst, following network stall/backpressure), after which
- * the client immediately logged "Bad encapsulated packet length" and reset
- * the connection -- having ack'd only part of what the kernel had already
- * buffered.  sni_gateway_tls.c's FIFO is specifically designed to survive a
- * gateway coalescing many OpenVPN frames into far fewer reads/records than
- * the client makes, but until now that exact scenario had zero unit test
- * coverage (only a steady, evenly-paced manual run had ever exercised it).
+ * A gateway (e.g. Traefik) can deliver a burst of several TCP segments
+ * within a few milliseconds -- following network stall/backpressure -- that
+ * coalesces many OpenVPN frames into far fewer reads/records than the client
+ * makes, with the whole burst already sitting in the kernel socket buffer
+ * before sni_gw_tls_read() is first called.  sni_gateway_tls.c's FIFO must
+ * survive that.
  *
  * This test plays the role of "Traefik": a real TLS server (self-signed
- * sample-keys cert, no_verify on the client side, matching the workaround
- * already deployed for the Android CA gap) that performs a real handshake
- * with the production client code, then blasts dozens of length-prefixed
- * OpenVPN-shaped frames at it back-to-back with zero pacing -- so they are
- * all already sitting in the kernel socket buffer before the client-under-
- * test ever calls sni_gw_tls_read().  It then reconstructs the frames using
- * the same length-prefix/residual algorithm stream_buf_added() uses in
- * socket.c, and verifies every byte of every frame survives intact, in
- * order, with nothing lost or duplicated.
+ * sample-keys cert, no_verify on the client side, matching how the Android
+ * client is deployed without a full CA bundle) that performs a real
+ * handshake with the production client code, then blasts dozens of
+ * length-prefixed OpenVPN-shaped frames at it back-to-back with zero
+ * pacing -- so they are all already sitting in the kernel socket buffer
+ * before the client-under-test ever calls sni_gw_tls_read().  It then
+ * reconstructs the frames using the same length-prefix/residual algorithm
+ * stream_buf_added() uses in socket.c, and verifies every byte of every
+ * frame survives intact, in order, with nothing lost or duplicated.
  */
 
 #ifdef HAVE_CONFIG_H
