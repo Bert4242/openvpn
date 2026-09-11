@@ -1718,7 +1718,10 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         c->options.sni_gw_server_host_count;
     sock->stream_buf.sni_gw_server_ignore_alpn =
         c->options.sni_gw_server_ignore_alpn;
-    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gw_server_http_path;
+    sock->stream_buf.sni_gw_http_require_path_list =
+        (const char **)c->options.sni_gw_server_http_path_list;
+    sock->stream_buf.sni_gw_http_require_path_count =
+        c->options.sni_gw_server_http_path_count;
     sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gw_server_http_upgrade_token;
 
     /* Second chance to resolv/create socket */
@@ -1815,7 +1818,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             if (run_http_upgrade)
             {
                 if (!sni_gw_http_server_accept_upgrade(
-                        sock->sd, sock->stream_buf.sni_gw_http_require_path,
+                        sock->sd, sock->stream_buf.sni_gw_http_require_path_list,
+                        sock->stream_buf.sni_gw_http_require_path_count,
                         sock->stream_buf.sni_gw_http_upgrade_token,
                         &sig_info->signal_received,
                         (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
@@ -2358,7 +2362,8 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
      * OpenVPN length-prefix logic because the request is not length-prefixed. */
     if (sb->sni_gw_http_state == SNI_GW_HTTP_PENDING)
     {
-        int r = sni_gw_http_check_and_consume_request(sb, sb->sni_gw_http_require_path,
+        int r = sni_gw_http_check_and_consume_request(sb, sb->sni_gw_http_require_path_list,
+                                                      sb->sni_gw_http_require_path_count,
                                                       sb->sni_gw_http_upgrade_token);
         if (r > 0)
         {

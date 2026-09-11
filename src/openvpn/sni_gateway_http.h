@@ -198,9 +198,11 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  * the OpenVPN stream begins.  Mirrors
  * sni_gw_passthrough_check_and_consume_header().
  *
- * require_path : when non-NULL, the request-target must match it exactly
- *                (case-sensitive); a mismatch is rejected.  NULL accepts any
- *                path (the gateway is expected to gate the path).
+ * require_path_list/count : when count > 0, the request-target must match one
+ *                of require_path_list[] exactly (case-sensitive); any one
+ *                match is sufficient, a mismatch against all of them is
+ *                rejected.  count == 0 accepts any path (the gateway is
+ *                expected to gate the path).
  * token        : the required Upgrade: header token (see
  *                sni_gw_http_upgrade_token_is_valid() in sni_gateway.h). The
  *                request's Upgrade: header value is parsed as a
@@ -218,7 +220,8 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  *         request (a raw-OpenVPN client) -- proceed as normal OpenVPN.
  */
 int sni_gw_http_check_and_consume_request(struct stream_buf *sb,
-                                          const char *require_path,
+                                          const char *const *require_path_list,
+                                          int require_path_count,
                                           const char *token);
 
 /*
@@ -233,7 +236,7 @@ bool sni_gw_http_send_101(socket_descriptor_t sd, const char *token);
  * Server side: accept of the HTTP/1.1 Upgrade handshake.  Called once on the
  * accepted fd while it is still in blocking mode (before the main event loop
  * makes it non-blocking).  Reads until CRLF CRLF, validates the request,
- * checks the path if require_path is non-NULL, checks the Upgrade token (see
+ * checks the path if require_path_count > 0, checks the Upgrade token (see
  * sni_gw_http_check_and_consume_request() above), and sends the 101 response.
  *
  * signal_received / poll_timeout : each read is gated behind a bounded
@@ -247,7 +250,8 @@ bool sni_gw_http_send_101(socket_descriptor_t sd, const char *token);
  * timeout, interrupted by signal, …).
  */
 bool sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
-                                       const char *require_path,
+                                       const char *const *require_path_list,
+                                       int require_path_count,
                                        const char *token,
                                        volatile int *signal_received,
                                        int poll_timeout);
