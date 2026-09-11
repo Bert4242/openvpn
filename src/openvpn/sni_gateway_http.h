@@ -100,7 +100,7 @@ struct stream_buf;
  * host  : value of the Host: header (required, non-empty).
  * path  : request-target (required, must be non-empty and start with '/').
  * token : value of the Upgrade: header (required, non-empty -- see
- *         sni_gw_upgrade_token_is_valid() in sni_gateway.h for the full
+ *         sni_gw_http_upgrade_token_is_valid() in sni_gateway.h for the full
  *         charset rule; this function only checks non-empty defensively,
  *         the real validation happens once at options-parse time).
  *
@@ -202,7 +202,7 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
  *                (case-sensitive); a mismatch is rejected.  NULL accepts any
  *                path (the gateway is expected to gate the path).
  * token        : the required Upgrade: header token (see
- *                sni_gw_upgrade_token_is_valid() in sni_gateway.h). The
+ *                sni_gw_http_upgrade_token_is_valid() in sni_gateway.h). The
  *                request's Upgrade: header value is parsed as a
  *                comma-separated list per RFC 7230 §6.7 and matched for an
  *                EXACT (case-insensitive) element match against token --

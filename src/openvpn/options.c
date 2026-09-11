@@ -2419,11 +2419,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             {
                 msg(M_USAGE, "--sni-gateway-http-path must start with '/'");
             }
-            if (!sni_gw_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
+            if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
             {
                 msg(M_USAGE, "--sni-gateway-http-upgrade-token must be 1-%d bytes of "
                              "RFC 7230 token characters (no spaces, commas, or CR/LF)",
-                    SNI_GW_UPGRADE_TOKEN_MAXLEN);
+                    SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
             }
         }
         else /* SNI_GW_CLIENT_TLS */
@@ -2480,11 +2480,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             msg(M_USAGE, "--sni-gateway-alpn is meaningless with --sni-gateway "
                          "sni-http-path-upgrade (there is no ClientHello to carry it)");
         }
-        if (!sni_gw_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
+        if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
         {
             msg(M_USAGE, "--sni-gateway-http-upgrade-token must be 1-%d bytes of "
                          "RFC 7230 token characters (no spaces, commas, or CR/LF)",
-                SNI_GW_UPGRADE_TOKEN_MAXLEN);
+                SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
         }
     }
     if (ce->sni_gw_mode == SNI_GW_CLIENT_SNI
@@ -2989,11 +2989,11 @@ options_postprocess_verify(const struct options *o)
                      "--sni-gateway-server sni-http-path-upgrade or auto");
     }
     if (o->sni_gw_server_http_upgrade_token
-        && !sni_gw_upgrade_token_is_valid(o->sni_gw_server_http_upgrade_token))
+        && !sni_gw_http_upgrade_token_is_valid(o->sni_gw_server_http_upgrade_token))
     {
         msg(M_USAGE, "--sni-gateway-server-http-upgrade-token must be 1-%d bytes of "
                      "RFC 7230 token characters (no spaces, commas, or CR/LF)",
-            SNI_GW_UPGRADE_TOKEN_MAXLEN);
+            SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
     }
     if (!o->sni_gw_server_enabled
         && (o->sni_gw_server_host_count > 0 || o->sni_gw_server_ignore_alpn))

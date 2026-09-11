@@ -29,7 +29,7 @@
  * --sni-gateway-server-http-upgrade-token, in bytes. The genuine token is a
  * handful of bytes ("openvpn", "websocket", ...); this is just a sanity
  * cap, not a real protocol limit. */
-#define SNI_GW_UPGRADE_TOKEN_MAXLEN 64
+#define SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN 64
 
 /*
  * Validate a user-supplied HTTP Upgrade token (--sni-gateway-http-upgrade-token /
@@ -40,10 +40,10 @@
  * charset (visible US-ASCII, excluding delimiters) -- this one rule is
  * sufficient to rule out CR/LF/space/comma/colon header-injection bytes, so
  * no separate CR/LF blocklist is needed. Also enforces non-empty and
- * SNI_GW_UPGRADE_TOKEN_MAXLEN.
+ * SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN.
  */
 static inline bool
-sni_gw_upgrade_token_is_valid(const char *tok)
+sni_gw_http_upgrade_token_is_valid(const char *tok)
 {
     if (!tok || !tok[0])
     {
@@ -52,7 +52,7 @@ sni_gw_upgrade_token_is_valid(const char *tok)
     size_t len = 0;
     for (const char *p = tok; *p; p++, len++)
     {
-        if (len >= SNI_GW_UPGRADE_TOKEN_MAXLEN)
+        if (len >= SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN)
         {
             return false;
         }
