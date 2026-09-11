@@ -201,6 +201,10 @@ Notes
 
 - ``--sni-gateway-alpn`` defaults to ``hacky-sni-passthrough/1`` if
   unset; it must match between client and server.
+- ``--sni-gateway-server-http-path`` may be repeated to accept more than
+  one path (any one match is sufficient) -- e.g. two Traefik routers
+  forwarding different paths to the same backend. Default (unset):
+  accept any path.
 - ``--sni-gateway-http-upgrade-token``/``--sni-gateway-server-http-upgrade-token``
   (the HTTP-Upgrade modes' ``Upgrade:`` header value) default to
   ``openvpn`` if unset; when set, they must match between client and
