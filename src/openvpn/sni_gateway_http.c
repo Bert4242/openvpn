@@ -146,7 +146,7 @@ sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
 }
 
 /* ------------------------------------------------------------------------- */
-/* Client-side: plain-socket Upgrade (--sni-gateway sni-http-path-upgrade)   */
+/* Client-side: plain-socket Upgrade (--sni-gateway-client sni-http-path-upgrade)   */
 /* ------------------------------------------------------------------------- */
 
 /*
@@ -287,7 +287,7 @@ sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http (plain): could not build Upgrade request "
-                           "(bad --sni-gateway-host/--sni-gateway-http-path?)");
+                           "(bad --sni-gateway-client-host/--sni-gateway-client-http-path?)");
         return false;
     }
 

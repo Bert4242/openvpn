@@ -27,7 +27,7 @@
 #include "socket.h"
 
 /*
- * Implementation of the --sni-gateway "sni" mode (SNI_GW_CLIENT_SNI /
+ * Implementation of the --sni-gateway-client "sni" mode (SNI_GW_CLIENT_SNI /
  * SNI_GW_SERVER_SNI): a fake ClientHello is sent/consumed and then
  * discarded, no real TLS added.
  * The shared mode enum and CLI string parser live in sni_gateway.h, not
@@ -76,7 +76,7 @@ bool sni_gw_passthrough_send_client_hello(socket_descriptor_t sd, const char *sn
 
 /*
  * Server side: drive the state machine that detects and discards the SNI
- * routing header prepended by --sni-gateway sni clients.
+ * routing header prepended by --sni-gateway-client sni clients.
  *
  * Returns true  — header consumed (or not present); caller continues normally.
  * Returns false — need more data, or a fatal error (sb->error set).

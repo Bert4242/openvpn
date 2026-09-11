@@ -56,7 +56,7 @@ sockets_read_residual(const struct context *c)
             return true;
         }
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
-        /* --sni-gateway sni-tls: plaintext decrypted from a coalesced TLS record can
+        /* --sni-gateway-client sni-tls: plaintext decrypted from a coalesced TLS record can
          * outlast the socket's readable state (the fd is drained but bytes remain
          * buffered in the tunnel).  Force a non-blocking re-entry so the read path
          * drains it frame by frame instead of stalling in event_wait(). */
@@ -1887,10 +1887,10 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     if (proto_is_tcp(sock->info.proto)
         && sock->info.proto == PROTO_TCP_CLIENT
-        && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_SNI
-        && c->options.ce.sni_gw_host)
+        && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_SNI
+        && c->options.ce.sni_gw_client_host)
     {
-        if (!sni_gw_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_host,
+        if (!sni_gw_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_client_host,
                                                   (const char *const *)c->options.ce.sni_gw_alpn_list,
                                                   c->options.ce.sni_gw_alpn_count))
         {
@@ -1901,17 +1901,17 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_TLS
-             && c->options.ce.sni_gw_host)
+             && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_TLS
+             && c->options.ce.sni_gw_client_host)
     {
-        /* --sni-gateway sni-tls: perform the genuine TLS handshake to the gateway
+        /* --sni-gateway-client sni-tls: perform the genuine TLS handshake to the gateway
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
          * All subsequent OpenVPN bytes on this socket flow through the TLS
          * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
                 (const char *const *)c->options.ce.sni_gw_alpn_list,
                 c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_tls_ca,
                 c->options.ce.sni_gw_tls_ca_no_verify, &sig_info->signal_received,
@@ -1928,24 +1928,24 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
     }
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
-             && c->options.ce.sni_gw_host)
+             && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+             && c->options.ce.sni_gw_client_host)
     {
-        /* --sni-gateway sni-tls-http-path-upgrade: FIRST open the genuine TLS session to the gateway
+        /* --sni-gateway-client sni-tls-http-path-upgrade: FIRST open the genuine TLS session to the gateway
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
          * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
          * steady-state gw_tls read/write seams carry the OpenVPN stream. */
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
                 (const char *const *)c->options.ce.sni_gw_alpn_list,
                 c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_tls_ca,
                 c->options.ce.sni_gw_tls_ca_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout))
             || !sni_gw_http_client_upgrade(
-                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
-                c->options.ce.sni_gw_http_path, c->options.ce.sni_gw_http_upgrade_token,
+                sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
+                c->options.ce.sni_gw_client_http_path, c->options.ce.sni_gw_http_upgrade_token,
                 &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -1961,17 +1961,17 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
     else if (proto_is_tcp(sock->info.proto)
              && sock->info.proto == PROTO_TCP_CLIENT
-             && c->options.ce.sni_gw_mode == SNI_GW_CLIENT_HTTP_UPGRADE
-             && c->options.ce.sni_gw_host)
+             && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_HTTP_UPGRADE
+             && c->options.ce.sni_gw_client_host)
     {
-        /* --sni-gateway sni-http-path-upgrade: the same HTTP/1.1 Upgrade
+        /* --sni-gateway-client sni-http-path-upgrade: the same HTTP/1.1 Upgrade
          * handshake as sni-tls-http-path-upgrade, but over the PLAIN socket
          * -- no TLS at all.  sock->sni_gw_tls is deliberately never touched:
          * with no userspace steady-state wrapper allocated, every later
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
         if (!sni_gw_http_client_upgrade_plain(
-                sock->sd, c->options.ce.sni_gw_host, c->options.ce.sni_gw_http_path,
+                sock->sd, c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path,
                 c->options.ce.sni_gw_http_upgrade_token, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -2596,7 +2596,7 @@ link_socket_read_tcp(struct link_socket *sock, struct buffer *buf)
 #if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
         if (sock->sni_gw_tls)
         {
-            /* --sni-gateway sni-tls: decrypt ciphertext off the socket into frag.
+            /* --sni-gateway-client sni-tls: decrypt ciphertext off the socket into frag.
              * Returns >0 plaintext len, 0 = incomplete, <0 = fatal -- fed into
              * the stream_buf logic exactly like a raw recv() result. */
             len = (int)sni_gw_tls_read(sock->sni_gw_tls, sock->sd, &frag);

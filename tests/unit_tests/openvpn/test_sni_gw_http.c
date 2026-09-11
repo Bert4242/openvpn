@@ -22,8 +22,8 @@
 
 /*
  * Unit tests for the transport-independent pieces of
- * --sni-gateway sni-tls-http-path-upgrade, plus the plain-socket
- * --sni-gateway sni-http-path-upgrade client-side upgrade:
+ * --sni-gateway-client sni-tls-http-path-upgrade, plus the plain-socket
+ * --sni-gateway-client sni-http-path-upgrade client-side upgrade:
  *   - sni_gw_http_build_upgrade()             (client request builder)
  *   - sni_gw_http_build_101()                 (server response builder)
  *   - sni_gw_http_check_and_consume_request() (server request state machine)
