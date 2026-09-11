@@ -190,8 +190,13 @@ struct connection_entry
     /** True once --sni-gateway has been seen for this connection entry. */
     bool sni_gw_defined;
 
-    /** True once any --sni-gateway* client option has been seen for this
-     *  connection entry (used for validation / cross-checks). */
+    /** True once --sni-gateway or --sni-gateway-host (client-role-only
+     *  options) has been seen for this connection entry.  Deliberately NOT
+     *  set by --sni-gateway-alpn, which is dual-use (also set on the
+     *  server to restrict its accepted ALPN list).  Used by
+     *  options_postprocess_verify_ce() to reject a connection entry that
+     *  is also part of a --sni-gateway-server config: a single process
+     *  cannot be both an SNI gateway client and an SNI gateway server. */
     bool sni_gw_client_enabled;
 
     /** Hostname to embed in the SNI routing header (--sni-gateway-host).
