@@ -229,9 +229,9 @@ struct connection_entry
      *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
      *  has no TLS session to verify. */
     const char *sni_gw_tls_ca;
-    /** Skip gateway certificate verification (--sni-gateway-tls-ca-no-verify).
+    /** Skip gateway certificate verification (--sni-gateway-client-tls-ca-no-verify).
      *  Same applicability as sni_gw_tls_ca above. */
-    bool sni_gw_tls_ca_no_verify;
+    bool sni_gw_client_tls_ca_no_verify;
 };
 
 struct remote_entry
