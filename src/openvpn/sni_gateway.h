@@ -25,15 +25,15 @@
 
 #include "syshead.h"
 
-/* Max length accepted for --sni-gateway-upgrade-token /
- * --sni-gateway-server-upgrade-token, in bytes. The genuine token is a
+/* Max length accepted for --sni-gateway-http-upgrade-token /
+ * --sni-gateway-server-http-upgrade-token, in bytes. The genuine token is a
  * handful of bytes ("openvpn", "websocket", ...); this is just a sanity
  * cap, not a real protocol limit. */
 #define SNI_GW_UPGRADE_TOKEN_MAXLEN 64
 
 /*
- * Validate a user-supplied HTTP Upgrade token (--sni-gateway-upgrade-token /
- * --sni-gateway-server-upgrade-token) before it is ever spliced verbatim
+ * Validate a user-supplied HTTP Upgrade token (--sni-gateway-http-upgrade-token /
+ * --sni-gateway-server-http-upgrade-token) before it is ever spliced verbatim
  * into a raw "Upgrade: <token>\r\n" header line by sni_gateway_http.c (both
  * the client's request builder and the server's 101-response builder use
  * plain snprintf with no escaping). Requires the RFC 7230 §3.2.6 `token`

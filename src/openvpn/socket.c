@@ -1755,8 +1755,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         c->options.sni_gw_server_host_count;
     sock->stream_buf.sni_gw_server_ignore_alpn =
         c->options.sni_gw_server_ignore_alpn;
-    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gw_server_path;
-    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gw_server_upgrade_token;
+    sock->stream_buf.sni_gw_http_require_path = c->options.sni_gw_server_http_path;
+    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gw_server_http_upgrade_token;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
@@ -1945,7 +1945,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout))
             || !sni_gw_http_client_upgrade(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_host,
-                c->options.ce.sni_gw_path, c->options.ce.sni_gw_upgrade_token,
+                c->options.ce.sni_gw_http_path, c->options.ce.sni_gw_http_upgrade_token,
                 &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -1971,8 +1971,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
         if (!sni_gw_http_client_upgrade_plain(
-                sock->sd, c->options.ce.sni_gw_host, c->options.ce.sni_gw_path,
-                c->options.ce.sni_gw_upgrade_token, &sig_info->signal_received,
+                sock->sd, c->options.ce.sni_gw_host, c->options.ce.sni_gw_http_path,
+                c->options.ce.sni_gw_http_upgrade_token, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             if (!sig_info->signal_received)
