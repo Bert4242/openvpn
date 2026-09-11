@@ -287,7 +287,7 @@ sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http (plain): could not build Upgrade request "
-                           "(bad --sni-gateway-host/--sni-gateway-path?)");
+                           "(bad --sni-gateway-host/--sni-gateway-http-path?)");
         return false;
     }
 
@@ -537,7 +537,7 @@ sni_gw_http_parse_request(const char *data, int len, const char *require_path,
         if ((rp_len != path_len) || (memcmp(path_start, require_path, (size_t)path_len) != 0))
         {
             msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not match "
-                        "--sni-gateway-server-path, rejecting");
+                        "--sni-gateway-server-http-path, rejecting");
             return SNI_GW_HTTP_PARSE_INVALID;
         }
     }
@@ -617,7 +617,7 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
     if (total == 0)
     {
         msg(D_LINK_ERRORS, "--sni-gateway-server sni-http-path-upgrade: could not build "
-                           "101 response (bad --sni-gateway-server-upgrade-token?)");
+                           "101 response (bad --sni-gateway-server-http-upgrade-token?)");
         return false;
     }
     const char *p = resp;
