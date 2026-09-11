@@ -216,14 +216,14 @@ struct connection_entry
 
     /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
      *  gateway modes. */
-    const char *sni_gw_path;
-    /** HTTP Upgrade: header token (--sni-gateway-upgrade-token), used by the
+    const char *sni_gw_http_path;
+    /** HTTP Upgrade: header token (--sni-gateway-http-upgrade-token), used by the
      *  sni-tls-http-path-upgrade and sni-http-path-upgrade gateway modes
-     *  only. Must match the server's --sni-gateway-server-upgrade-token.
+     *  only. Must match the server's --sni-gateway-server-http-upgrade-token.
      *  NULL until options_postprocess_mutate_ce() resolves it to
      *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only for the two
      *  modes above; stays NULL (meaningless) otherwise. */
-    const char *sni_gw_upgrade_token;
+    const char *sni_gw_http_upgrade_token;
     /** CA bundle to verify the gateway's outer TLS certificate
      *  (--sni-gateway-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
      *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
@@ -755,17 +755,17 @@ struct options
     bool sni_gw_server_ignore_alpn;
 
     /** Optional exact request path to enforce in --sni-gateway-server
-     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-path).
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-path).
      *  NULL accepts any path (the gateway is expected to gate the path). */
-    const char *sni_gw_server_path;
+    const char *sni_gw_server_http_path;
 
     /** HTTP Upgrade: header token to require in --sni-gateway-server
-     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-upgrade-token).
-     *  Must match the client's --sni-gateway-upgrade-token. NULL until
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-upgrade-token).
+     *  Must match the client's --sni-gateway-http-upgrade-token. NULL until
      *  options_postprocess_mutate_invariant() resolves it to
      *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only when the
      *  server is enabled in one of those two modes; stays NULL otherwise. */
-    const char *sni_gw_server_upgrade_token;
+    const char *sni_gw_server_http_upgrade_token;
 
     /* Allow only one session */
     bool single_session;
