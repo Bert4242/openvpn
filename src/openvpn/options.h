@@ -225,12 +225,12 @@ struct connection_entry
      *  modes above; stays NULL (meaningless) otherwise. */
     const char *sni_gw_http_upgrade_token;
     /** CA bundle to verify the gateway's outer TLS certificate
-     *  (--sni-gateway-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
+     *  (--sni-gateway-client-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
      *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
      *  has no TLS session to verify. */
-    const char *sni_gw_tls_ca;
+    const char *sni_gw_client_tls_ca;
     /** Skip gateway certificate verification (--sni-gateway-client-tls-ca-no-verify).
-     *  Same applicability as sni_gw_tls_ca above. */
+     *  Same applicability as sni_gw_client_tls_ca above. */
     bool sni_gw_client_tls_ca_no_verify;
 };
 
