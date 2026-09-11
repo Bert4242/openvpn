@@ -1966,7 +1966,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
         if (!sni_gw_http_client_upgrade(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
-                c->options.ce.sni_gw_client_http_path, c->options.ce.sni_gw_http_upgrade_token,
+                c->options.ce.sni_gw_client_http_path, c->options.ce.sni_gw_client_http_upgrade_token,
                 &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -1995,7 +1995,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
         if (!sni_gw_http_client_upgrade_plain(
                 sock->sd, c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path,
-                c->options.ce.sni_gw_http_upgrade_token, &sig_info->signal_received,
+                c->options.ce.sni_gw_client_http_upgrade_token, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
             if (!sig_info->signal_received)

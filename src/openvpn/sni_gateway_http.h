@@ -41,7 +41,7 @@
  *      \r\n
  *
  * <token> defaults to "openvpn" (SNI_GW_HTTP_UPGRADE_TOKEN below) and is
- * overridable via --sni-gateway-http-upgrade-token (client) /
+ * overridable via --sni-gateway-client-http-upgrade-token (client) /
  * --sni-gateway-server-http-upgrade-token (server) -- the two MUST match for the
  * handshake to succeed.
  *
@@ -89,7 +89,7 @@
 struct stream_buf;
 
 /* The compiled-in DEFAULT Upgrade protocol token, used when neither
- * --sni-gateway-http-upgrade-token nor --sni-gateway-server-http-upgrade-token is set
+ * --sni-gateway-client-http-upgrade-token nor --sni-gateway-server-http-upgrade-token is set
  * (options.c resolves the default there; downstream code always receives a
  * non-NULL, already-validated token). */
 #define SNI_GW_HTTP_UPGRADE_TOKEN "openvpn"
