@@ -686,6 +686,11 @@ static const char usage_message[] =
     "                  --sni-gateway sni-tls-http-path-upgrade or\n"
     "                  sni-http-path-upgrade (must start with '/').  Required\n"
     "                  in those modes.\n"
+    "--sni-gateway-upgrade-token token : (Client) HTTP Upgrade: header token\n"
+    "                  for --sni-gateway sni-tls-http-path-upgrade or\n"
+    "                  sni-http-path-upgrade (1-64 bytes of RFC 7230 token\n"
+    "                  characters).  Must match the server's\n"
+    "                  --sni-gateway-server-upgrade-token.  Default: \"openvpn\".\n"
     "--sni-gateway-ca file : (Client) CA bundle to verify the gateway certificate\n"
     "                  in --sni-gateway sni-tls/sni-tls-http-path-upgrade mode\n"
     "                  (default: system trust store).\n"
@@ -728,6 +733,12 @@ static const char usage_message[] =
     "                  sni-http-path-upgrade or auto mode, require the\n"
     "                  client's request path to match <path> exactly (must\n"
     "                  start with '/').  Default: accept any path.\n"
+    "--sni-gateway-server-upgrade-token token : (Server) In\n"
+    "                  --sni-gateway-server sni-http-path-upgrade or auto\n"
+    "                  mode, require the client's HTTP Upgrade: header token\n"
+    "                  to match <token> (1-64 bytes of RFC 7230 token\n"
+    "                  characters).  Must match the client's\n"
+    "                  --sni-gateway-upgrade-token.  Default: \"openvpn\".\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -2453,6 +2464,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             msg(M_USAGE, "--sni-gateway-ca and --sni-gateway-no-verify are meaningless "
                          "with --sni-gateway sni-http-path-upgrade (there is no TLS "
                          "session to verify)");
+        }
+        if (ce->sni_gw_alpn_defined)
+        {
+            msg(M_USAGE, "--sni-gateway-alpn is meaningless with --sni-gateway "
+                         "sni-http-path-upgrade (there is no ClientHello to carry it)");
         }
         if (!sni_gw_upgrade_token_is_valid(ce->sni_gw_upgrade_token))
         {
