@@ -24,7 +24,7 @@
 #define SNI_GATEWAY_TLS_H
 
 /*
- * --sni-gateway sni-tls (client side only)
+ * --sni-gateway-client sni-tls (client side only)
  *
  * In "sni-tls" mode the OpenVPN TCP client opens a *real* TLS session to a
  * TLS-terminating gateway (e.g. Traefik).  The gateway terminates that TLS
@@ -89,7 +89,7 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
                                  int server_poll_timeout);
 
 /*
- * --sni-gateway sni-tls-http-path-upgrade: after sni_gw_tls_client_handshake() has completed (and
+ * --sni-gateway-client sni-tls-http-path-upgrade: after sni_gw_tls_client_handshake() has completed (and
  * while sd is still BLOCKING), perform the HTTP/1.1 Upgrade handshake over the
  * TLS tunnel:
  *
@@ -104,7 +104,7 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
  * into the same TLS record after the blank line are left buffered for the
  * steady-state sni_gw_tls_read() path.
  *
- * host / path : mirror --sni-gateway-host / --sni-gateway-http-path (path must be
+ * host / path : mirror --sni-gateway-client-host / --sni-gateway-client-http-path (path must be
  *               non-empty and start with '/').
  * token : mirrors --sni-gateway-http-upgrade-token (must match the server's
  *         --sni-gateway-server-http-upgrade-token).

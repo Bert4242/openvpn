@@ -42,7 +42,7 @@
 #include <openssl/x509.h>
 
 /*
- * --sni-gateway sni-tls: client-side userspace TLS wrapper around an OpenVPN TCP
+ * --sni-gateway-client sni-tls: client-side userspace TLS wrapper around an OpenVPN TCP
  * stream.  See sni_gateway_tls.h for the high-level description.
  *
  * Design: memory-BIO-over-the-event-loop.
@@ -354,7 +354,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
 
     if (!host || !*host)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: no --sni-gateway-host set");
+        msg(D_LINK_ERRORS, "sni-gateway tls: no --sni-gateway-client-host set");
         return false;
     }
 
@@ -516,7 +516,7 @@ err:
 }
 
 /* -------------------------------------------------------------------------- */
-/* Blocking HTTP/1.1 Upgrade over the established tunnel (--sni-gateway sni-tls-http-path-upgrade)  */
+/* Blocking HTTP/1.1 Upgrade over the established tunnel (--sni-gateway-client sni-tls-http-path-upgrade)  */
 /* -------------------------------------------------------------------------- */
 
 /*
@@ -647,7 +647,7 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http: could not build Upgrade request "
-                           "(bad --sni-gateway-host/--sni-gateway-http-path?)");
+                           "(bad --sni-gateway-client-host/--sni-gateway-client-http-path?)");
         return false;
     }
 

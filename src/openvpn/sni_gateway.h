@@ -69,7 +69,7 @@ sni_gw_http_upgrade_token_is_valid(const char *tok)
 }
 
 /*
- * Shared core of the --sni-gateway feature: the mode enum and its two CLI
+ * Shared core of the --sni-gateway-client feature: the mode enum and its two CLI
  * string parsers (client and server -- see below for why there are two, not
  * one).  Kept separate from the per-mode implementation files
  * (sni_gateway_passthrough.{c,h}, sni_gateway_tls.{c,h},
@@ -78,7 +78,7 @@ sni_gw_http_upgrade_token_is_valid(const char *tok)
  * mode's implementation.
  *
  * SNI gateway mode, selected via
- * --sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>
+ * --sni-gateway-client <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>
  * (client) and --sni-gateway-server <sni|sni-http-path-upgrade|auto>
  * (server).  Both fields are still typed as this one shared
  * `enum sni_gw_mode` (C enum constants aren't scoped to their
@@ -87,7 +87,7 @@ sni_gw_http_upgrade_token_is_valid(const char *tok)
  * explicit SNI_GW_CLIENT_ or SNI_GW_SERVER_ marker so it's always clear
  * at the call site which side a check is about.
  *
- * The client field (ce->sni_gw_mode) and the server field
+ * The client field (ce->sni_gw_client_mode) and the server field
  * (o->sni_gw_server_mode) are NEVER compared against each other
  * anywhere in the codebase -- each is only ever tested against constants
  * meant for its own side.  Because of that, SNI_GW_CLIENT_* and
@@ -136,7 +136,7 @@ sni_gw_http_upgrade_token_is_valid(const char *tok)
  *              pieces, including the server-side accept and the plain
  *              client-side upgrade).
  * SNI_GW_SERVER_AUTO: CLI value "auto" -- SERVER-SIDE ONLY, never valid for
- *              client --sni-gateway.  Accepts sni, sni-tls (for free, as
+ *              client --sni-gateway-client.  Accepts sni, sni-tls (for free, as
  *              with plain "sni"), and both HTTP-Upgrade client flavors
  *              (sni-tls-http-path-upgrade via a TLS-terminating proxy, or
  *              sni-http-path-upgrade directly) on one process/port: the
@@ -158,7 +158,7 @@ sni_gw_http_upgrade_token_is_valid(const char *tok)
  */
 enum sni_gw_mode
 {
-    /* Client-side values (ce->sni_gw_mode). */
+    /* Client-side values (ce->sni_gw_client_mode). */
     SNI_GW_CLIENT_SNI = 0,
     SNI_GW_CLIENT_TLS = 1,
     SNI_GW_CLIENT_TLS_HTTP_UPGRADE = 2,
@@ -173,7 +173,7 @@ enum sni_gw_mode
 };
 
 /*
- * Parse a --sni-gateway (CLIENT) mode argument.
+ * Parse a --sni-gateway-client (CLIENT) mode argument.
  * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade",
  * "sni-http-path-upgrade", "auto" (case-sensitive).  "auto" IS recognized
  * here (returning SNI_GW_SERVER_AUTO) purely so options.c can give it a
@@ -227,7 +227,7 @@ sni_gw_client_mode_from_string(const char *s)
  * -- the real server modes, nothing else.
  *
  * Neither "sni-tls" nor "sni-tls-http-path-upgrade" is recognized here.
- * Both are real, valid --sni-gateway (CLIENT) mode strings, so a user who
+ * Both are real, valid --sni-gateway-client (CLIENT) mode strings, so a user who
  * mistypes the client mode name into --sni-gateway-server (an easy
  * mistake: same option family, similar name)
  * needs a clear "there is no TLS on the server" error rather than a plain
