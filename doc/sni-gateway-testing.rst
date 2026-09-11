@@ -96,7 +96,7 @@ client.conf::
     sni-gateway-client sni-tls-http-path-upgrade
     sni-gateway-client-host vpn.example.com
     sni-gateway-client-http-path /vpn-upgrade
-    # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
+    # sni-gateway-client-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
 server.conf::
 
@@ -121,7 +121,7 @@ client.conf::
     sni-gateway-client-http-path /vpn-upgrade
     # no sni-gateway-client-tls-ca / sni-gateway-client-tls-ca-no-verify -- there is no TLS
     # session to verify in this mode.
-    # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
+    # sni-gateway-client-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
 server.conf::
 
@@ -205,7 +205,7 @@ Notes
   one path (any one match is sufficient) -- e.g. two Traefik routers
   forwarding different paths to the same backend. Default (unset):
   accept any path.
-- ``--sni-gateway-http-upgrade-token``/``--sni-gateway-server-http-upgrade-token``
+- ``--sni-gateway-client-http-upgrade-token``/``--sni-gateway-server-http-upgrade-token``
   (the HTTP-Upgrade modes' ``Upgrade:`` header value) default to
   ``openvpn`` if unset; when set, they must match between client and
   server. Useful for testing/working around intermediaries that only

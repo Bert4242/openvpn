@@ -693,7 +693,7 @@ static const char usage_message[] =
     "                  --sni-gateway-client sni-tls-http-path-upgrade or\n"
     "                  sni-http-path-upgrade (must start with '/').  Required\n"
     "                  in those modes.\n"
-    "--sni-gateway-http-upgrade-token token : (Client) HTTP Upgrade: header token\n"
+    "--sni-gateway-client-http-upgrade-token token : (Client) HTTP Upgrade: header token\n"
     "                  for --sni-gateway-client sni-tls-http-path-upgrade or\n"
     "                  sni-http-path-upgrade (1-64 bytes of RFC 7230 token\n"
     "                  characters).  Must match the server's\n"
@@ -747,7 +747,7 @@ static const char usage_message[] =
     "                  mode, require the client's HTTP Upgrade: header token\n"
     "                  to match <token> (1-64 bytes of RFC 7230 token\n"
     "                  characters).  Must match the client's\n"
-    "                  --sni-gateway-http-upgrade-token.  Default: \"openvpn\".\n"
+    "                  --sni-gateway-client-http-upgrade-token.  Default: \"openvpn\".\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -2420,9 +2420,9 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             {
                 msg(M_USAGE, "--sni-gateway-client-http-path must start with '/'");
             }
-            if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
+            if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_client_http_upgrade_token))
             {
-                msg(M_USAGE, "--sni-gateway-http-upgrade-token must be 1-%d bytes of "
+                msg(M_USAGE, "--sni-gateway-client-http-upgrade-token must be 1-%d bytes of "
                              "RFC 7230 token characters (no spaces, commas, or CR/LF)",
                     SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
             }
@@ -2434,9 +2434,9 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                 msg(M_USAGE, "--sni-gateway-client-http-path is only meaningful with "
                              "--sni-gateway-client sni-tls-http-path-upgrade");
             }
-            if (ce->sni_gw_http_upgrade_token)
+            if (ce->sni_gw_client_http_upgrade_token)
             {
-                msg(M_USAGE, "--sni-gateway-http-upgrade-token is only meaningful with "
+                msg(M_USAGE, "--sni-gateway-client-http-upgrade-token is only meaningful with "
                              "--sni-gateway-client sni-tls-http-path-upgrade or "
                              "sni-http-path-upgrade");
             }
@@ -2481,9 +2481,9 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
             msg(M_USAGE, "--sni-gateway-alpn is meaningless with --sni-gateway-client "
                          "sni-http-path-upgrade (there is no ClientHello to carry it)");
         }
-        if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_http_upgrade_token))
+        if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_client_http_upgrade_token))
         {
-            msg(M_USAGE, "--sni-gateway-http-upgrade-token must be 1-%d bytes of "
+            msg(M_USAGE, "--sni-gateway-client-http-upgrade-token must be 1-%d bytes of "
                          "RFC 7230 token characters (no spaces, commas, or CR/LF)",
                 SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
         }
@@ -2495,9 +2495,9 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                      "--sni-gateway-client-tls-ca-no-verify are only meaningful with "
                      "--sni-gateway-client sni-tls or sni-tls-http-path-upgrade");
     }
-    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_http_upgrade_token)
+    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_client_http_upgrade_token)
     {
-        msg(M_USAGE, "--sni-gateway-http-upgrade-token is only meaningful with "
+        msg(M_USAGE, "--sni-gateway-client-http-upgrade-token is only meaningful with "
                      "--sni-gateway-client sni-tls-http-path-upgrade or "
                      "sni-http-path-upgrade");
     }
@@ -2670,16 +2670,16 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
         ce->explicit_exit_notification = 0;
     }
 
-    /* --sni-gateway-http-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN when
+    /* --sni-gateway-client-http-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN when
      * unset, but only for the two modes that actually perform an HTTP
      * Upgrade -- left NULL otherwise so options_postprocess_verify_ce()'s
      * "meaningless in this mode" checks below can still tell "never set" from
      * "defaulted", exactly like --sni-gateway-client-http-path does today. */
-    if (!ce->sni_gw_http_upgrade_token
+    if (!ce->sni_gw_client_http_upgrade_token
         && (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
             || ce->sni_gw_client_mode == SNI_GW_CLIENT_HTTP_UPGRADE))
     {
-        ce->sni_gw_http_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
+        ce->sni_gw_client_http_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
     }
 }
 
@@ -8115,10 +8115,10 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
         options->ce.sni_gw_client_http_path = p[1];
     }
-    else if (streq(p[0], "sni-gateway-http-upgrade-token") && p[1] && !p[2])
+    else if (streq(p[0], "sni-gateway-client-http-upgrade-token") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
-        options->ce.sni_gw_http_upgrade_token = p[1];
+        options->ce.sni_gw_client_http_upgrade_token = p[1];
     }
     else if (streq(p[0], "sni-gateway-client-tls-ca") && p[1] && !p[2])
     {

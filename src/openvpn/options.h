@@ -217,13 +217,13 @@ struct connection_entry
     /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
      *  gateway modes (--sni-gateway-client-http-path). */
     const char *sni_gw_client_http_path;
-    /** HTTP Upgrade: header token (--sni-gateway-http-upgrade-token), used by the
+    /** HTTP Upgrade: header token (--sni-gateway-client-http-upgrade-token), used by the
      *  sni-tls-http-path-upgrade and sni-http-path-upgrade gateway modes
      *  only. Must match the server's --sni-gateway-server-http-upgrade-token.
      *  NULL until options_postprocess_mutate_ce() resolves it to
      *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only for the two
      *  modes above; stays NULL (meaningless) otherwise. */
-    const char *sni_gw_http_upgrade_token;
+    const char *sni_gw_client_http_upgrade_token;
     /** CA bundle to verify the gateway's outer TLS certificate
      *  (--sni-gateway-client-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
      *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
@@ -763,7 +763,7 @@ struct options
 
     /** HTTP Upgrade: header token to require in --sni-gateway-server
      *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-upgrade-token).
-     *  Must match the client's --sni-gateway-http-upgrade-token. NULL until
+     *  Must match the client's --sni-gateway-client-http-upgrade-token. NULL until
      *  options_postprocess_mutate_invariant() resolves it to
      *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only when the
      *  server is enabled in one of those two modes; stays NULL otherwise. */
