@@ -676,12 +676,19 @@ static const char usage_message[] =
     "                  this OpenVPN server; embedded in the SNI routing header\n"
     "                  (sni/sni-tls/sni-tls-http-path-upgrade) or the HTTP\n"
     "                  Host: header (sni-http-path-upgrade).\n"
-    "--sni-gateway-alpn name : Append an ALPN token to the SNI routing\n"
-    "                  header.  May be repeated to offer multiple tokens.  Can\n"
-    "                  be set globally or per <connection> block; a per-connection\n"
-    "                  list replaces (not adds to) the global list.  Default when\n"
-    "                  no --sni-gateway-alpn is given: hacky-sni-passthrough/1.\n"
-    "                  Must match between client and server.\n"
+    "--sni-gateway-alpn name : (Client and Server) Append an ALPN token to\n"
+    "                  the SNI routing header.  May be repeated to offer\n"
+    "                  multiple tokens.  Set on the client to advertise its\n"
+    "                  ALPN list, and on the server (same option name, no\n"
+    "                  '-server-' prefix) to restrict which ALPN values\n"
+    "                  --sni-gateway-server sni/auto accepts -- see\n"
+    "                  --sni-gateway-server-ignore-alpn to skip the server\n"
+    "                  check entirely instead.  Can be set globally or per\n"
+    "                  <connection> block; a per-connection list replaces\n"
+    "                  (not adds to) the global list.  Default when no\n"
+    "                  --sni-gateway-alpn is given: hacky-sni-passthrough/1.\n"
+    "                  Must match between client and server.  Meaningless\n"
+    "                  (and rejected) with --sni-gateway sni-http-path-upgrade.\n"
     "--sni-gateway-path path : (Client) HTTP request path for\n"
     "                  --sni-gateway sni-tls-http-path-upgrade or\n"
     "                  sni-http-path-upgrade (must start with '/').  Required\n"
@@ -2489,6 +2496,12 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--sni-gateway-upgrade-token is only meaningful with "
                      "--sni-gateway sni-tls-http-path-upgrade or "
                      "sni-http-path-upgrade");
+    }
+    if (ce->sni_gw_client_enabled && options->sni_gw_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway/--sni-gateway-host and --sni-gateway-server "
+                     "are mutually exclusive -- a single OpenVPN process cannot "
+                     "be both an SNI gateway client and an SNI gateway server");
     }
 
     uninit_options(&defaults);
@@ -8086,7 +8099,6 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
         sni_gw_alpn_append(&options->ce, p[1], &options->gc,
                            options->connection_list == NULL);
-        options->ce.sni_gw_client_enabled = true;
     }
     else if (streq(p[0], "sni-gateway-path") && p[1] && !p[2])
     {
