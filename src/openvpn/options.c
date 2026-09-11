@@ -698,12 +698,13 @@ static const char usage_message[] =
     "                  sni-http-path-upgrade (1-64 bytes of RFC 7230 token\n"
     "                  characters).  Must match the server's\n"
     "                  --sni-gateway-server-upgrade-token.  Default: \"openvpn\".\n"
-    "--sni-gateway-ca file : (Client) CA bundle to verify the gateway certificate\n"
-    "                  in --sni-gateway sni-tls/sni-tls-http-path-upgrade mode\n"
-    "                  (default: system trust store).\n"
-    "--sni-gateway-no-verify : (Client) Skip gateway certificate verification in\n"
-    "                  --sni-gateway sni-tls/sni-tls-http-path-upgrade mode\n"
-    "                  (insecure).\n"
+    "--sni-gateway-tls-ca file : (Client) CA bundle to verify the gateway\n"
+    "                  certificate in --sni-gateway sni-tls/\n"
+    "                  sni-tls-http-path-upgrade mode (default: system trust\n"
+    "                  store).\n"
+    "--sni-gateway-tls-ca-no-verify : (Client) Skip gateway certificate\n"
+    "                  verification in --sni-gateway sni-tls/\n"
+    "                  sni-tls-http-path-upgrade mode (insecure).\n"
     "--sni-gateway-server <sni|sni-http-path-upgrade|auto> : (Server)\n"
     "                  Enable server-side SNI gateway handling.  'sni' detects\n"
     "                  and discards the SNI routing header sent by clients\n"
@@ -2398,9 +2399,10 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                          "(--proto tcp-client)",
                 modename);
         }
-        if (ce->sni_gw_no_verify && ce->sni_gw_ca)
+        if (ce->sni_gw_tls_ca_no_verify && ce->sni_gw_tls_ca)
         {
-            msg(M_WARN, "--sni-gateway-no-verify makes --sni-gateway-ca have no effect");
+            msg(M_WARN, "--sni-gateway-tls-ca-no-verify makes --sni-gateway-tls-ca "
+                        "have no effect");
         }
 
         if (ce->sni_gw_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
@@ -2466,11 +2468,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         {
             msg(M_USAGE, "--sni-gateway-path must start with '/'");
         }
-        if (ce->sni_gw_ca || ce->sni_gw_no_verify)
+        if (ce->sni_gw_tls_ca || ce->sni_gw_tls_ca_no_verify)
         {
-            msg(M_USAGE, "--sni-gateway-ca and --sni-gateway-no-verify are meaningless "
-                         "with --sni-gateway sni-http-path-upgrade (there is no TLS "
-                         "session to verify)");
+            msg(M_USAGE, "--sni-gateway-tls-ca and --sni-gateway-tls-ca-no-verify are "
+                         "meaningless with --sni-gateway sni-http-path-upgrade (there "
+                         "is no TLS session to verify)");
         }
         if (ce->sni_gw_alpn_defined)
         {
@@ -2485,11 +2487,11 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         }
     }
     if (ce->sni_gw_mode == SNI_GW_CLIENT_SNI
-        && (ce->sni_gw_path || ce->sni_gw_ca || ce->sni_gw_no_verify))
+        && (ce->sni_gw_path || ce->sni_gw_tls_ca || ce->sni_gw_tls_ca_no_verify))
     {
-        msg(M_USAGE, "--sni-gateway-path, --sni-gateway-ca and --sni-gateway-no-verify "
-                     "are only meaningful with --sni-gateway sni-tls or "
-                     "sni-tls-http-path-upgrade");
+        msg(M_USAGE, "--sni-gateway-path, --sni-gateway-tls-ca and "
+                     "--sni-gateway-tls-ca-no-verify are only meaningful with "
+                     "--sni-gateway sni-tls or sni-tls-http-path-upgrade");
     }
     if (ce->sni_gw_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_upgrade_token)
     {
@@ -8110,15 +8112,15 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
         options->ce.sni_gw_upgrade_token = p[1];
     }
-    else if (streq(p[0], "sni-gateway-ca") && p[1] && !p[2])
+    else if (streq(p[0], "sni-gateway-tls-ca") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
-        options->ce.sni_gw_ca = p[1];
+        options->ce.sni_gw_tls_ca = p[1];
     }
-    else if (streq(p[0], "sni-gateway-no-verify") && !p[1])
+    else if (streq(p[0], "sni-gateway-tls-ca-no-verify") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
-        options->ce.sni_gw_no_verify = true;
+        options->ce.sni_gw_tls_ca_no_verify = true;
     }
     else if (streq(p[0], "sni-gateway-server") && p[1] && !p[2])
     {
