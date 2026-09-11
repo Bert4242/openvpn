@@ -1857,6 +1857,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_SNI
         && c->options.ce.sni_gw_client_host)
     {
+        msg(M_INFO, "--sni-gateway-client sni: attempting SNI routing (hostname: %s)",
+            c->options.ce.sni_gw_client_host);
         if (!sni_gw_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_client_host,
                                                   (const char *const *)c->options.ce.sni_gw_alpn_list,
                                                   c->options.ce.sni_gw_alpn_count))
@@ -1875,6 +1877,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
          * All subsequent OpenVPN bytes on this socket flow through the TLS
          * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
+        msg(M_INFO, "sni-gateway tls: attempting TLS handshake to '%s'",
+            c->options.ce.sni_gw_client_host);
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
@@ -1902,6 +1906,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
          * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
          * steady-state gw_tls read/write seams carry the OpenVPN stream. */
+        msg(M_INFO, "sni-gateway tls: attempting TLS handshake to '%s'",
+            c->options.ce.sni_gw_client_host);
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
             || !sni_gw_tls_client_handshake(
@@ -1909,8 +1915,19 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
                 (const char *const *)c->options.ce.sni_gw_alpn_list,
                 c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_tls_ca,
                 c->options.ce.sni_gw_tls_ca_no_verify, &sig_info->signal_received,
-                (int)get_server_poll_remaining_time(sock->server_poll_timeout))
-            || !sni_gw_http_client_upgrade(
+                (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
+        {
+            sni_gw_tls_free(sock->sni_gw_tls);
+            sock->sni_gw_tls = NULL;
+            if (!sig_info->signal_received)
+            {
+                register_signal(sig_info, SIGUSR1, "sni-gateway-http-upgrade-error");
+            }
+            goto done;
+        }
+        msg(M_INFO, "sni-gateway http: attempting HTTP Upgrade to '%s' path '%s'",
+            c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
+        if (!sni_gw_http_client_upgrade(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
                 c->options.ce.sni_gw_client_http_path, c->options.ce.sni_gw_http_upgrade_token,
                 &sig_info->signal_received,
@@ -1937,6 +1954,8 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * with no userspace steady-state wrapper allocated, every later
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
+        msg(M_INFO, "sni-gateway http (plain): attempting HTTP Upgrade to '%s' path '%s'",
+            c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
         if (!sni_gw_http_client_upgrade_plain(
                 sock->sd, c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path,
                 c->options.ce.sni_gw_http_upgrade_token, &sig_info->signal_received,
@@ -1948,6 +1967,13 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             }
             goto done;
         }
+    }
+
+    if (proto_is_tcp(sock->info.proto)
+        && sock->info.proto == PROTO_TCP_CLIENT
+        && c->options.ce.sni_gw_client_host)
+    {
+        msg(M_INFO, "--sni-gateway-client: gateway handshake complete, passing the flow to main openvpn");
     }
 
     phase2_set_socket_flags(sock);
