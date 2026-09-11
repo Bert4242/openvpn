@@ -95,16 +95,16 @@ client.conf::
     remote gateway.example.com 443 tcp
     sni-gateway sni-tls-http-path-upgrade
     sni-gateway-host vpn.example.com
-    sni-gateway-path /vpn-upgrade
-    # sni-gateway-upgrade-token websocket   # optional, must match server; default "openvpn"
+    sni-gateway-http-path /vpn-upgrade
+    # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
 server.conf::
 
     proto tcp-server
     port 1194
     sni-gateway-server sni-http-path-upgrade
-    sni-gateway-server-path /vpn-upgrade
-    # sni-gateway-server-upgrade-token websocket   # optional, must match client; default "openvpn"
+    sni-gateway-server-http-path /vpn-upgrade
+    # sni-gateway-server-http-upgrade-token websocket   # optional, must match client; default "openvpn"
 
 Traefik: HTTP router matching ``Host(vpn.example.com) &&
 Path(/vpn-upgrade)``, ``tls: {}``, forwarding to
@@ -118,18 +118,18 @@ client.conf::
     remote gateway.example.com 1194 tcp
     sni-gateway sni-http-path-upgrade
     sni-gateway-host vpn.example.com
-    sni-gateway-path /vpn-upgrade
+    sni-gateway-http-path /vpn-upgrade
     # no sni-gateway-tls-ca / sni-gateway-tls-ca-no-verify -- there is no TLS
     # session to verify in this mode.
-    # sni-gateway-upgrade-token websocket   # optional, must match server; default "openvpn"
+    # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
 server.conf::
 
     proto tcp-server
     port 1194
     sni-gateway-server sni-http-path-upgrade
-    sni-gateway-server-path /vpn-upgrade
-    # sni-gateway-server-upgrade-token websocket   # optional, must match client; default "openvpn"
+    sni-gateway-server-http-path /vpn-upgrade
+    # sni-gateway-server-http-upgrade-token websocket   # optional, must match client; default "openvpn"
 
 This server.conf is **byte-for-byte identical** to the
 ``sni-tls-http-path-upgrade`` section's above -- ``--sni-gateway-server
@@ -181,8 +181,8 @@ server.conf::
     proto tcp-server
     port 1298
     sni-gateway-server auto
-    sni-gateway-server-path /vpn-upgrade   # optional, still enforced for http clients
-    # sni-gateway-server-upgrade-token websocket   # optional, must match clients; default "openvpn"
+    sni-gateway-server-http-path /vpn-upgrade   # optional, still enforced for http clients
+    # sni-gateway-server-http-upgrade-token websocket   # optional, must match clients; default "openvpn"
 
 Traefik: three routers, all forwarding to the *same* backend
 (``los.hudzia.net:1298`` in the real deployment behind
@@ -201,7 +201,7 @@ Notes
 
 - ``--sni-gateway-alpn`` defaults to ``hacky-sni-passthrough/1`` if
   unset; it must match between client and server.
-- ``--sni-gateway-upgrade-token``/``--sni-gateway-server-upgrade-token``
+- ``--sni-gateway-http-upgrade-token``/``--sni-gateway-server-http-upgrade-token``
   (the HTTP-Upgrade modes' ``Upgrade:`` header value) default to
   ``openvpn`` if unset; when set, they must match between client and
   server. Useful for testing/working around intermediaries that only

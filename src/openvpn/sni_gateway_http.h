@@ -41,8 +41,8 @@
  *      \r\n
  *
  * <token> defaults to "openvpn" (SNI_GW_HTTP_UPGRADE_TOKEN below) and is
- * overridable via --sni-gateway-upgrade-token (client) /
- * --sni-gateway-server-upgrade-token (server) -- the two MUST match for the
+ * overridable via --sni-gateway-http-upgrade-token (client) /
+ * --sni-gateway-server-http-upgrade-token (server) -- the two MUST match for the
  * handshake to succeed.
  *
  * For "sni-tls-http-path-upgrade" clients, the gateway (Traefik) terminates
@@ -89,7 +89,7 @@
 struct stream_buf;
 
 /* The compiled-in DEFAULT Upgrade protocol token, used when neither
- * --sni-gateway-upgrade-token nor --sni-gateway-server-upgrade-token is set
+ * --sni-gateway-http-upgrade-token nor --sni-gateway-server-http-upgrade-token is set
  * (options.c resolves the default there; downstream code always receives a
  * non-NULL, already-validated token). */
 #define SNI_GW_HTTP_UPGRADE_TOKEN "openvpn"
@@ -179,7 +179,7 @@ bool sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
 /*
  * Client side: --sni-gateway sni-http-path-upgrade -- perform the HTTP/1.1
  * Upgrade handshake directly over the plain, still-blocking TCP socket sd --
- * no TLS at all.  host/path mirror --sni-gateway-host/--sni-gateway-path.
+ * no TLS at all.  host/path mirror --sni-gateway-host/--sni-gateway-http-path.
  * signal_received/server_poll_timeout as for sni_gw_http_client_upgrade() in
  * sni_gateway_tls.c, so this is interruptible and cannot hang forever.
  * Returns true on a completed 101 upgrade, false on any failure (logged).

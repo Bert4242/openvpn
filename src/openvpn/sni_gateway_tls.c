@@ -647,7 +647,7 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
     if (reqlen == 0)
     {
         msg(D_LINK_ERRORS, "sni-gateway http: could not build Upgrade request "
-                           "(bad --sni-gateway-host/--sni-gateway-path?)");
+                           "(bad --sni-gateway-host/--sni-gateway-http-path?)");
         return false;
     }
 

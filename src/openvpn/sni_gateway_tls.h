@@ -104,10 +104,10 @@ bool sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
  * into the same TLS record after the blank line are left buffered for the
  * steady-state sni_gw_tls_read() path.
  *
- * host / path : mirror --sni-gateway-host / --sni-gateway-path (path must be
+ * host / path : mirror --sni-gateway-host / --sni-gateway-http-path (path must be
  *               non-empty and start with '/').
- * token : mirrors --sni-gateway-upgrade-token (must match the server's
- *         --sni-gateway-server-upgrade-token).
+ * token : mirrors --sni-gateway-http-upgrade-token (must match the server's
+ *         --sni-gateway-server-http-upgrade-token).
  * signal_received / server_poll_timeout : as for the handshake, so the exchange
  *               is interruptible and cannot hang forever.
  *
