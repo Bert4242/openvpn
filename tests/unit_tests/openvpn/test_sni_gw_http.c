@@ -529,7 +529,7 @@ test_consume_require_path_match(void **state)
     (void)state;
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){"/vpn"}, 1, "openvpn");
+    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){ "/vpn" }, 1, "openvpn");
     assert_int_equal(r, (int)strlen(valid_req));
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     assert_false(sb.error);
@@ -542,7 +542,7 @@ test_consume_require_path_mismatch(void **state)
     (void)state;
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){"/other"}, 1, "openvpn");
+    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){ "/other" }, 1, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -555,7 +555,7 @@ test_consume_require_path_prefix_mismatch(void **state)
     /* require_path is a prefix of the request path: must NOT match (exact). */
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
-    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){"/vp"}, 1, "openvpn");
+    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){ "/vp" }, 1, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -569,7 +569,7 @@ test_consume_require_path_list_second_matches(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
     int r = sni_gw_http_check_and_consume_request(
-        &sb, (const char *const[]){"/other", "/vpn"}, 2, "openvpn");
+        &sb, (const char *const[]){ "/other", "/vpn" }, 2, "openvpn");
     assert_int_equal(r, (int)strlen(valid_req));
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     assert_false(sb.error);
@@ -584,7 +584,7 @@ test_consume_require_path_list_no_match(void **state)
     struct stream_buf sb;
     make_http_sb(&sb, valid_req, (int)strlen(valid_req));
     int r = sni_gw_http_check_and_consume_request(
-        &sb, (const char *const[]){"/other", "/another"}, 2, "openvpn");
+        &sb, (const char *const[]){ "/other", "/another" }, 2, "openvpn");
     assert_int_equal(r, -1);
     assert_true(sb.error);
     free_http_sb(&sb);
@@ -653,7 +653,7 @@ test_build_then_consume_roundtrip(void **state)
 
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)n);
-    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){"/tunnel"}, 1, "openvpn");
+    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){ "/tunnel" }, 1, "openvpn");
     assert_int_equal(r, (int)n);
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     free_http_sb(&sb);
@@ -669,7 +669,7 @@ test_build_then_consume_roundtrip_custom_token(void **state)
 
     struct stream_buf sb;
     make_http_sb(&sb, req, (int)n);
-    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){"/tunnel"}, 1, "websocket");
+    int r = sni_gw_http_check_and_consume_request(&sb, (const char *const[]){ "/tunnel" }, 1, "websocket");
     assert_int_equal(r, (int)n);
     assert_int_equal(sb.sni_gw_http_state, SNI_GW_HTTP_SUCCESS);
     free_http_sb(&sb);
@@ -978,7 +978,7 @@ test_server_accept_upgrade_valid_with_require_path(void **state)
     assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
 
     volatile int sig = 0;
-    assert_true(sni_gw_http_server_accept_upgrade(fds[0], (const char *const[]){"/vpn"}, 1, "openvpn", &sig, 5));
+    assert_true(sni_gw_http_server_accept_upgrade(fds[0], (const char *const[]){ "/vpn" }, 1, "openvpn", &sig, 5));
 
     close(fds[0]);
     close(fds[1]);
@@ -993,7 +993,7 @@ test_server_accept_upgrade_require_path_mismatch_rejected(void **state)
     assert_int_equal((int)send(fds[1], valid_req, strlen(valid_req), 0), (int)strlen(valid_req));
 
     volatile int sig = 0;
-    assert_false(sni_gw_http_server_accept_upgrade(fds[0], (const char *const[]){"/other"}, 1, "openvpn", &sig, 5));
+    assert_false(sni_gw_http_server_accept_upgrade(fds[0], (const char *const[]){ "/other" }, 1, "openvpn", &sig, 5));
 
     close(fds[0]);
     close(fds[1]);
@@ -1009,7 +1009,7 @@ test_server_accept_upgrade_require_path_list_second_matches(void **state)
 
     volatile int sig = 0;
     assert_true(sni_gw_http_server_accept_upgrade(
-        fds[0], (const char *const[]){"/other", "/vpn"}, 2, "openvpn", &sig, 5));
+        fds[0], (const char *const[]){ "/other", "/vpn" }, 2, "openvpn", &sig, 5));
 
     close(fds[0]);
     close(fds[1]);
