@@ -147,7 +147,7 @@ test_build_upgrade_bad_token(void **state)
     char buf[512];
     /* empty / NULL token -- build_upgrade only checks non-empty defensively
      * (the real charset/length validation happens once at options-parse
-     * time via sni_gw_upgrade_token_is_valid()). */
+     * time via sni_gw_http_upgrade_token_is_valid()). */
     assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/vpn", ""), 0);
     assert_int_equal((int)sni_gw_http_build_upgrade(buf, sizeof(buf), "host", "/vpn", NULL), 0);
 }
