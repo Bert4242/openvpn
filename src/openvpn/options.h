@@ -224,11 +224,14 @@ struct connection_entry
      *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only for the two
      *  modes above; stays NULL (meaningless) otherwise. */
     const char *sni_gw_upgrade_token;
-    /** Used by sni-tls/sni-tls-http-path-upgrade only -- meaningless (and
-     *  rejected) in sni-http-path-upgrade, which has no TLS session to
-     *  verify. */
-    const char *sni_gw_ca;
-    bool sni_gw_no_verify;
+    /** CA bundle to verify the gateway's outer TLS certificate
+     *  (--sni-gateway-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
+     *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
+     *  has no TLS session to verify. */
+    const char *sni_gw_tls_ca;
+    /** Skip gateway certificate verification (--sni-gateway-tls-ca-no-verify).
+     *  Same applicability as sni_gw_tls_ca above. */
+    bool sni_gw_tls_ca_no_verify;
 };
 
 struct remote_entry
