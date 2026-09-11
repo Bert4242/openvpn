@@ -75,7 +75,7 @@ client.conf::
     remote gateway.example.com 443 tcp
     sni-gateway-client sni-tls
     sni-gateway-client-host vpn.example.com
-    # sni-gateway-tls-ca /path/to/ca-bundle.pem   (omit for system trust store)
+    # sni-gateway-client-tls-ca /path/to/ca-bundle.pem   (omit for system trust store)
     # sni-gateway-client-tls-ca-no-verify                (self-signed/testing only)
 
 server.conf::
@@ -119,7 +119,7 @@ client.conf::
     sni-gateway-client sni-http-path-upgrade
     sni-gateway-client-host vpn.example.com
     sni-gateway-client-http-path /vpn-upgrade
-    # no sni-gateway-tls-ca / sni-gateway-client-tls-ca-no-verify -- there is no TLS
+    # no sni-gateway-client-tls-ca / sni-gateway-client-tls-ca-no-verify -- there is no TLS
     # session to verify in this mode.
     # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
