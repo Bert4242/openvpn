@@ -754,10 +754,12 @@ struct options
      *  Meaningful in "sni" and "auto" server modes. */
     bool sni_gw_server_ignore_alpn;
 
-    /** Optional exact request path to enforce in --sni-gateway-server
-     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-path).
-     *  NULL accepts any path (the gateway is expected to gate the path). */
-    const char *sni_gw_server_http_path;
+    /** Accepted request paths to enforce in --sni-gateway-server
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-path,
+     *  repeatable).  When empty, any path is accepted (the gateway is
+     *  expected to gate the path).  Any one match is sufficient. */
+    const char **sni_gw_server_http_path_list;
+    int sni_gw_server_http_path_count;
 
     /** HTTP Upgrade: header token to require in --sni-gateway-server
      *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-upgrade-token).

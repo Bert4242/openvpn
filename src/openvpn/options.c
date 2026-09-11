@@ -740,7 +740,8 @@ static const char usage_message[] =
     "--sni-gateway-server-http-path path : (Server) In --sni-gateway-server\n"
     "                  sni-http-path-upgrade or auto mode, require the\n"
     "                  client's request path to match <path> exactly (must\n"
-    "                  start with '/').  Default: accept any path.\n"
+    "                  start with '/').  May be repeated; any one match is\n"
+    "                  sufficient.  Default: accept any path.\n"
     "--sni-gateway-server-http-upgrade-token token : (Server) In\n"
     "                  --sni-gateway-server sni-http-path-upgrade or auto\n"
     "                  mode, require the client's HTTP Upgrade: header token\n"
@@ -2960,21 +2961,25 @@ options_postprocess_verify(const struct options *o)
                         "(it only affects sni mode)");
         }
     }
-    if (o->sni_gw_server_http_path && !o->sni_gw_server_enabled)
+    if (o->sni_gw_server_http_path_count > 0 && !o->sni_gw_server_enabled)
     {
         msg(M_USAGE, "--sni-gateway-server-http-path requires "
                      "--sni-gateway-server sni-http-path-upgrade or auto");
     }
-    if (o->sni_gw_server_http_path
+    if (o->sni_gw_server_http_path_count > 0
         && o->sni_gw_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
         && o->sni_gw_server_mode != SNI_GW_SERVER_AUTO)
     {
         msg(M_USAGE, "--sni-gateway-server-http-path is only meaningful with "
                      "--sni-gateway-server sni-http-path-upgrade or auto");
     }
-    if (o->sni_gw_server_http_path && o->sni_gw_server_http_path[0] != '/')
+    for (int i = 0; i < o->sni_gw_server_http_path_count; i++)
     {
-        msg(M_USAGE, "--sni-gateway-server-http-path must start with '/'");
+        if (o->sni_gw_server_http_path_list[i][0] != '/')
+        {
+            msg(M_USAGE, "--sni-gateway-server-http-path must start with '/'");
+            break;
+        }
     }
     if (o->sni_gw_server_http_upgrade_token && !o->sni_gw_server_enabled)
     {
@@ -8169,7 +8174,12 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     else if (streq(p[0], "sni-gateway-server-http-path") && p[1] && !p[2])
     {
         VERIFY_PERMISSION(OPT_P_GENERAL);
-        options->sni_gw_server_http_path = p[1];
+        int n = options->sni_gw_server_http_path_count;
+        options->sni_gw_server_http_path_list =
+            gc_realloc(options->sni_gw_server_http_path_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        options->sni_gw_server_http_path_list[n] = p[1];
+        options->sni_gw_server_http_path_count = n + 1;
     }
     else if (streq(p[0], "sni-gateway-server-http-upgrade-token") && p[1] && !p[2])
     {
