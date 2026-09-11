@@ -708,7 +708,7 @@ test_sni_consume_header_with_trailing_data(void **state)
 }
 
 /*
- * OpenVPN client without --sni-gateway sni.
+ * OpenVPN client without --sni-gateway-client sni.
  * First byte != 0x16 → SNI_GW_PASSTHROUGH_DISABLED immediately.
  */
 static void
@@ -825,7 +825,7 @@ test_sni_consume_header_hostname_mismatch(void **state)
  * sni_gw_client_mode_from_string / sni_gw_server_mode_from_string
  * tests
  *
- * Covers the --sni-gateway / --sni-gateway-server mode argument parsers.
+ * Covers the --sni-gateway-client / --sni-gateway-server mode argument parsers.
  * Client and server use separate parsers because their CLI string sets
  * diverge for the HTTP-Upgrade mode: "sni-tls-http-path-upgrade" is
  * client-only -- the client genuinely does TLS in that mode -- while the

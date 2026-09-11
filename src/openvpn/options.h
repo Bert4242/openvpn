@@ -182,28 +182,28 @@ struct connection_entry
     bool tls_crypt_v2_force_cookie;
 
     /** SNI gateway mode for this connection
-     *  (--sni-gateway <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>).
+     *  (--sni-gateway-client <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>).
      *  Defaults to SNI_GW_CLIENT_SNI, CLI value "sni" (the original
      *  passthrough-decoy behaviour). */
-    enum sni_gw_mode sni_gw_mode;
+    enum sni_gw_mode sni_gw_client_mode;
 
-    /** True once --sni-gateway has been seen for this connection entry. */
-    bool sni_gw_defined;
+    /** True once --sni-gateway-client has been seen for this connection entry. */
+    bool sni_gw_client_defined;
 
-    /** True once --sni-gateway or --sni-gateway-host (client-role-only
-     *  options) has been seen for this connection entry.  Deliberately NOT
-     *  set by --sni-gateway-alpn, which is dual-use (also set on the
-     *  server to restrict its accepted ALPN list).  Used by
+    /** True once --sni-gateway-client or --sni-gateway-client-host
+     *  (client-role-only options) has been seen for this connection entry.
+     *  Deliberately NOT set by --sni-gateway-alpn, which is dual-use (also
+     *  set on the server to restrict its accepted ALPN list).  Used by
      *  options_postprocess_verify_ce() to reject a connection entry that
      *  is also part of a --sni-gateway-server config: a single process
      *  cannot be both an SNI gateway client and an SNI gateway server. */
     bool sni_gw_client_enabled;
 
-    /** Hostname to embed in the SNI routing header (--sni-gateway-host).
+    /** Hostname to embed in the SNI routing header (--sni-gateway-client-host).
      *  NULL means the SNI gateway is inactive for this connection.
      *  Set globally to apply to all connections; override per <connection> block.
      *  Once set globally, cannot be cleared per connection. */
-    const char *sni_gw_host;
+    const char *sni_gw_client_host;
 
     /** ALPN token(s) for the SNI routing header (--sni-gateway-alpn).
      *  If alpn_count == 0, the built-in default "hacky-sni-passthrough/1" is used.
@@ -215,8 +215,8 @@ struct connection_entry
     bool sni_gw_alpn_defined;
 
     /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
-     *  gateway modes. */
-    const char *sni_gw_http_path;
+     *  gateway modes (--sni-gateway-client-http-path). */
+    const char *sni_gw_client_http_path;
     /** HTTP Upgrade: header token (--sni-gateway-http-upgrade-token), used by the
      *  sni-tls-http-path-upgrade and sni-http-path-upgrade gateway modes
      *  only. Must match the server's --sni-gateway-server-http-upgrade-token.

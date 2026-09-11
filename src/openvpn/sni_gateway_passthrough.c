@@ -37,7 +37,7 @@
 #include "sni_gateway_passthrough.h"
 
 /*
- * SNI passthrough support -- implements the --sni-gateway "sni" mode
+ * SNI passthrough support -- implements the --sni-gateway-client "sni" mode
  * (client) and --sni-gateway-server "sni" mode (server).
  *
  * Allows OpenVPN TCP connections to pass through SNI-aware TCP proxies such
@@ -47,7 +47,7 @@
  * and route the connection accordingly.  They expect those bytes to be
  * formatted as a ClientHello record (the standard carrier for SNI in TCP).
  *
- *   Client (--sni-gateway sni --sni-gateway-host <hostname>):
+ *   Client (--sni-gateway-client sni --sni-gateway-client-host <hostname>):
  *     Prepends a single SNI routing header — a ClientHello record
  *     carrying the given hostname — before the OpenVPN protocol bytes.
  *     The proxy reads the hostname, routes the stream to the right backend,
@@ -193,7 +193,7 @@ sni_gw_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sn
         {
             char err_buf[256];
             ERR_error_string_n(ERR_get_error(), err_buf, sizeof(err_buf));
-            msg(M_NONFATAL, "--sni-gateway sni: SSL_do_handshake failed: %s", err_buf);
+            msg(M_NONFATAL, "--sni-gateway-client sni: SSL_do_handshake failed: %s", err_buf);
             goto cleanup;
         }
         else
@@ -212,7 +212,7 @@ sni_gw_passthrough_build_client_hello(uint8_t *buf, size_t bufsz, const char *sn
         size_t pending = (size_t)BIO_ctrl_pending(wbio_peek);
         if (!pending || pending > bufsz)
         {
-            msg(M_NONFATAL, "--sni-gateway sni: ClientHello too large: pending=%zu bufsz=%zu", pending, bufsz);
+            msg(M_NONFATAL, "--sni-gateway-client sni: ClientHello too large: pending=%zu bufsz=%zu", pending, bufsz);
             goto cleanup;
         }
 
@@ -555,7 +555,7 @@ sni_gw_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char
     int eff_count;
 
 #if defined(SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH)
-    msg(M_INFO, "--sni-gateway sni: sni_gw_passthrough_build_client_hello SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
+    msg(M_INFO, "--sni-gateway-client sni: sni_gw_passthrough_build_client_hello SNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH");
 #endif
 
     if (!sni || !*sni)
@@ -592,7 +592,7 @@ sni_gw_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char
 
     if (total > bufsz || total > 0xffffU + 5)
     {
-        msg(M_NONFATAL, "--sni-gateway sni: SNI hostname too long");
+        msg(M_NONFATAL, "--sni-gateway-client sni: SNI hostname too long");
         return 0;
     }
 
@@ -641,7 +641,7 @@ sni_gw_passthrough_build_client_hello(uint8_t *raw_buf, size_t bufsz, const char
 #endif /* ENABLE_CRYPTO_OPENSSL && !LIBRESSL_VERSION_NUMBER */
 
 /*
- * Client side (--sni-gateway sni): send the SNI routing header,
+ * Client side (--sni-gateway-client sni): send the SNI routing header,
  * then return. The OpenVPN protocol will follow immediately after.
  */
 bool
@@ -657,7 +657,7 @@ sni_gw_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
 
     if (!len)
     {
-        msg(M_NONFATAL, "--sni-gateway sni: failed to build SNI routing header");
+        msg(M_NONFATAL, "--sni-gateway-client sni: failed to build SNI routing header");
         goto error;
     }
 
@@ -667,13 +667,13 @@ sni_gw_passthrough_send_client_hello(socket_descriptor_t sd, const char *sni,
         ssize_t n = send(sd, (const char *)(buf + sent), (int)(len - sent), MSG_NOSIGNAL);
         if (n <= 0)
         {
-            msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway sni: send() failed");
+            msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway-client sni: send() failed");
             goto error;
         }
         sent += n;
     }
 
-    msg(M_INFO, "--sni-gateway sni: sent SNI routing header (hostname: %s)", sni);
+    msg(M_INFO, "--sni-gateway-client sni: sent SNI routing header (hostname: %s)", sni);
     return true;
 
 error:
@@ -965,7 +965,7 @@ sni_gw_passthrough_check_packet(const unsigned char *pkt, int pkt_len,
 
 /*
  * Server side (--sni-gateway-server sni): detect and consume the SNI routing
- * header prepended by --sni-gateway sni clients before the OpenVPN
+ * header prepended by --sni-gateway-client sni clients before the OpenVPN
  * stream begins.
  */
 bool
@@ -979,7 +979,7 @@ sni_gw_passthrough_check_and_consume_header(struct stream_buf *sb,
     {
         if (BPTR(&sb->buf)[0] != 0x16) /* quick test before parsing the packet */
         {
-            /* client without --sni-gateway sni. */
+            /* client without --sni-gateway-client sni. */
             msg(M_INFO, "--sni-gateway-server sni: client without routing header");
             sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
             return false;

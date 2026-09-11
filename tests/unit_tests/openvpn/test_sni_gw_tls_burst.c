@@ -21,7 +21,7 @@
  */
 
 /*
- * Stress test for the --sni-gateway sni-tls client's steady-state read path
+ * Stress test for the --sni-gateway-client sni-tls client's steady-state read path
  * (sni_gateway_tls.c: gw_drain_ssl / in_plaintext FIFO / sni_gw_tls_read).
  *
  * A gateway (e.g. Traefik) can deliver a burst of several TCP segments

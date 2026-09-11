@@ -24,7 +24,7 @@
 #define SNI_GATEWAY_HTTP_H
 
 /*
- * --sni-gateway sni-tls-http-path-upgrade / sni-http-path-upgrade,
+ * --sni-gateway-client sni-tls-http-path-upgrade / sni-http-path-upgrade,
  * --sni-gateway-server sni-http-path-upgrade
  *
  * In "sni-tls-http-path-upgrade" mode the OpenVPN TCP client first opens a
@@ -71,10 +71,10 @@
  *                                              that detects/consumes the request.
  *   - sni_gw_http_send_101():                  emit the fixed 101 response.
  *
- * The TLS-backed client-side upgrade (--sni-gateway sni-tls-http-path-upgrade)
+ * The TLS-backed client-side upgrade (--sni-gateway-client sni-tls-http-path-upgrade)
  * lives in sni_gateway_tls.c (sni_gw_http_client_upgrade()) because it needs
  * the SSL object.  The plain-socket client-side upgrade
- * (--sni-gateway sni-http-path-upgrade, no TLS at all) lives entirely in this
+ * (--sni-gateway-client sni-http-path-upgrade, no TLS at all) lives entirely in this
  * module (sni_gw_http_client_upgrade_plain()).
  */
 
@@ -177,9 +177,9 @@ bool sni_gw_http_client_read_101(sni_gw_http_read_byte_fn read_byte, void *ctx,
                                  const char *log_prefix);
 
 /*
- * Client side: --sni-gateway sni-http-path-upgrade -- perform the HTTP/1.1
+ * Client side: --sni-gateway-client sni-http-path-upgrade -- perform the HTTP/1.1
  * Upgrade handshake directly over the plain, still-blocking TCP socket sd --
- * no TLS at all.  host/path mirror --sni-gateway-host/--sni-gateway-http-path.
+ * no TLS at all.  host/path mirror --sni-gateway-client-host/--sni-gateway-client-http-path.
  * signal_received/server_poll_timeout as for sni_gw_http_client_upgrade() in
  * sni_gateway_tls.c, so this is interruptible and cannot hang forever.
  * Returns true on a completed 101 upgrade, false on any failure (logged).
@@ -192,9 +192,9 @@ bool sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
 
 /*
  * Server side: drive the state machine that detects and consumes the HTTP/1.1
- * Upgrade request prepended (over the now-plaintext link) by --sni-gateway
+ * Upgrade request prepended (over the now-plaintext link) by --sni-gateway-client
  * sni-tls-http-path-upgrade clients (once their gateway has terminated TLS)
- * or sent directly by --sni-gateway sni-http-path-upgrade clients, before
+ * or sent directly by --sni-gateway-client sni-http-path-upgrade clients, before
  * the OpenVPN stream begins.  Mirrors
  * sni_gw_passthrough_check_and_consume_header().
  *

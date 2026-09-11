@@ -1,8 +1,8 @@
-Testing --sni-gateway (sni / sni-tls / sni-tls-http-path-upgrade / sni-http-path-upgrade)
-===========================================================================================
+Testing --sni-gateway-client (sni / sni-tls / sni-tls-http-path-upgrade / sni-http-path-upgrade)
+================================================================================================
 
 This document is a quick how-to for building and exercising the four
-``--sni-gateway`` client modes, plus the server-side ``auto`` mode that
+``--sni-gateway-client`` client modes, plus the server-side ``auto`` mode that
 accepts all of them on one port, added on the ``sni-gateway-modes`` branch.
 It only covers what's needed to test the feature; see ``--help`` output
 in ``options.c`` for the full option reference.
@@ -28,11 +28,11 @@ Build
 
 DCO does not need to be disabled at build time. It is a normal build
 default; OpenVPN falls back to userspace automatically, per connection
-entry, whenever ``--sni-gateway sni-tls`` or
-``--sni-gateway sni-tls-http-path-upgrade`` is set on that entry (same
+entry, whenever ``--sni-gateway-client sni-tls`` or
+``--sni-gateway-client sni-tls-http-path-upgrade`` is set on that entry (same
 mechanism as ``--fragment``/``--http-proxy``/``--socks-proxy``), logging
 a note when it does. DCO stays available for everything else -- plain
-OpenVPN, ``--sni-gateway sni``, or no ``--sni-gateway`` at all.
+OpenVPN, ``--sni-gateway-client sni``, or no ``--sni-gateway-client`` at all.
 
 ``sni`` mode has no build requirement beyond a plain
 ``./configure && make`` if that's all you're testing.
@@ -40,7 +40,7 @@ OpenVPN, ``--sni-gateway sni``, or no ``--sni-gateway`` at all.
 Sample configs
 ---------------
 
-All four modes are client-side (``--sni-gateway``); the server opts in
+All four modes are client-side (``--sni-gateway-client``); the server opts in
 with ``--sni-gateway-server``. ``sni``, ``sni-tls-http-path-upgrade``, and
 ``sni-http-path-upgrade`` need matching server config; ``sni-tls`` needs no
 server config at all since Traefik terminates it. A fifth, server-only
@@ -55,8 +55,8 @@ sni -- fake ClientHello, Traefik TCP-passthrough SNI routing
 client.conf::
 
     remote gateway.example.com 443 tcp
-    sni-gateway sni
-    sni-gateway-host vpn.example.com
+    sni-gateway-client sni
+    sni-gateway-client-host vpn.example.com
 
 server.conf::
 
@@ -73,8 +73,8 @@ sni-tls -- real TLS to Traefik, Traefik terminates, forwards plaintext
 client.conf::
 
     remote gateway.example.com 443 tcp
-    sni-gateway sni-tls
-    sni-gateway-host vpn.example.com
+    sni-gateway-client sni-tls
+    sni-gateway-client-host vpn.example.com
     # sni-gateway-tls-ca /path/to/ca-bundle.pem   (omit for system trust store)
     # sni-gateway-tls-ca-no-verify                (self-signed/testing only)
 
@@ -93,9 +93,9 @@ sni-tls-http-path-upgrade -- like sni-tls, plus HTTP/1.1 Upgrade so Traefik can 
 client.conf::
 
     remote gateway.example.com 443 tcp
-    sni-gateway sni-tls-http-path-upgrade
-    sni-gateway-host vpn.example.com
-    sni-gateway-http-path /vpn-upgrade
+    sni-gateway-client sni-tls-http-path-upgrade
+    sni-gateway-client-host vpn.example.com
+    sni-gateway-client-http-path /vpn-upgrade
     # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
 
 server.conf::
@@ -116,9 +116,9 @@ sni-http-path-upgrade -- the same Upgrade dance, no outer TLS at all
 client.conf::
 
     remote gateway.example.com 1194 tcp
-    sni-gateway sni-http-path-upgrade
-    sni-gateway-host vpn.example.com
-    sni-gateway-http-path /vpn-upgrade
+    sni-gateway-client sni-http-path-upgrade
+    sni-gateway-client-host vpn.example.com
+    sni-gateway-client-http-path /vpn-upgrade
     # no sni-gateway-tls-ca / sni-gateway-tls-ca-no-verify -- there is no TLS
     # session to verify in this mode.
     # sni-gateway-http-upgrade-token websocket   # optional, must match server; default "openvpn"
@@ -189,12 +189,12 @@ Traefik: three routers, all forwarding to the *same* backend
 ``*.test.1blu.hudzia.net``):
 
 - TCP router matching ``HostSNI(sni.test.1blu.hudzia.net)``, passthrough
-  (no cert) -- for ``--sni-gateway sni`` clients.
+  (no cert) -- for ``--sni-gateway-client sni`` clients.
 - TCP router matching ``HostSNI(sni-tls.test.1blu.hudzia.net)`` with
-  ``tls: {}`` -- for ``--sni-gateway sni-tls`` clients.
+  ``tls: {}`` -- for ``--sni-gateway-client sni-tls`` clients.
 - HTTP router matching ``Host(sni-tls-http-path-upgrade.test.1blu.hudzia.net)
   && Path(/vpn-upgrade)``, ``tls: {}`` -- for
-  ``--sni-gateway sni-tls-http-path-upgrade`` clients.
+  ``--sni-gateway-client sni-tls-http-path-upgrade`` clients.
 
 Notes
 -----
