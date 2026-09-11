@@ -1921,7 +1921,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             || !sni_gw_tls_client_handshake(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
                 (const char *const *)c->options.ce.sni_gw_alpn_list,
-                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_tls_ca,
+                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_client_tls_ca,
                 c->options.ce.sni_gw_client_tls_ca_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
@@ -1950,7 +1950,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             || !sni_gw_tls_client_handshake(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
                 (const char *const *)c->options.ce.sni_gw_alpn_list,
-                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_tls_ca,
+                c->options.ce.sni_gw_alpn_count, c->options.ce.sni_gw_client_tls_ca,
                 c->options.ce.sni_gw_client_tls_ca_no_verify, &sig_info->signal_received,
                 (int)get_server_poll_remaining_time(sock->server_poll_timeout)))
         {
