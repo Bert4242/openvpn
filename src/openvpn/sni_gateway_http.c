@@ -400,7 +400,7 @@ typedef enum
  *      ... header lines, including "Upgrade: <token>" ...
  *      \r\n
  *
- * Never reads past data[len-1].  require_path/token as for
+ * Never reads past data[len-1].  require_path_list/count/token as for
  * sni_gw_http_check_and_consume_request().  On SNI_GW_HTTP_PARSE_VALID,
  * *end_pos_out is set to the offset just past the terminating CRLFCRLF (the
  * length of the whole request including its blank line) and *path_len_out to
@@ -429,7 +429,8 @@ typedef enum
  * OpenVPN" vs. "hard reject", "consumed" vs. "accepted" -- is caller-specific.
  */
 static sni_gw_http_parse_result_t
-sni_gw_http_parse_request(const char *data, int len, const char *require_path,
+sni_gw_http_parse_request(const char *data, int len,
+                          const char *const *require_path_list, int require_path_count,
                           const char *token, int *end_pos_out, int *path_len_out,
                           int *scan_cursor_inout)
 {
@@ -530,11 +531,20 @@ sni_gw_http_parse_request(const char *data, int len, const char *require_path,
         return SNI_GW_HTTP_PARSE_INVALID;
     }
 
-    /* Optional exact path enforcement. */
-    if (require_path)
+    /* Optional exact path enforcement -- any one entry matching is sufficient. */
+    if (require_path_count > 0)
     {
-        int rp_len = (int)strlen(require_path);
-        if ((rp_len != path_len) || (memcmp(path_start, require_path, (size_t)path_len) != 0))
+        bool path_ok = false;
+        for (int i = 0; i < require_path_count; i++)
+        {
+            int rp_len = (int)strlen(require_path_list[i]);
+            if ((rp_len == path_len) && (memcmp(path_start, require_path_list[i], (size_t)path_len) == 0))
+            {
+                path_ok = true;
+                break;
+            }
+        }
+        if (!path_ok)
         {
             msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not match "
                         "--sni-gateway-server-http-path, rejecting");
@@ -554,7 +564,9 @@ sni_gw_http_parse_request(const char *data, int len, const char *require_path,
 }
 
 int
-sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require_path,
+sni_gw_http_check_and_consume_request(struct stream_buf *sb,
+                                      const char *const *require_path_list,
+                                      int require_path_count,
                                       const char *token)
 {
     struct buffer *b = &sb->buf;
@@ -564,8 +576,8 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb, const char *require
     int request_len = -1;
     int path_len = 0;
     sni_gw_http_parse_result_t result =
-        sni_gw_http_parse_request(data, len, require_path, token, &request_len, &path_len,
-                                  &sb->sni_gw_http_scan_cursor);
+        sni_gw_http_parse_request(data, len, require_path_list, require_path_count, token,
+                                  &request_len, &path_len, &sb->sni_gw_http_scan_cursor);
 
     switch (result)
     {
@@ -659,7 +671,9 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
 }
 
 bool
-sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_path,
+sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
+                                  const char *const *require_path_list,
+                                  int require_path_count,
                                   const char *token,
                                   volatile int *signal_received, int poll_timeout)
 {
@@ -678,8 +692,8 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd, const char *require_pa
         int end_pos = -1;
         int path_len = 0;
         sni_gw_http_parse_result_t result =
-            sni_gw_http_parse_request(buf, total, require_path, token, &end_pos, &path_len,
-                                      &scan_cursor);
+            sni_gw_http_parse_request(buf, total, require_path_list, require_path_count, token,
+                                      &end_pos, &path_len, &scan_cursor);
 
         if (result == SNI_GW_HTTP_PARSE_VALID)
         {
