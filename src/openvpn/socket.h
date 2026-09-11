@@ -154,14 +154,14 @@ struct stream_buf
      * TLS-terminating gateway, or sent directly by an sni-http-path-upgrade
      * client) and triggers the 101 reply.  Parallel to sni_gw_passthrough_state
      * above. */
-#define SNI_GW_HTTP_DISABLED 0             /* not active / done */
-#define SNI_GW_HTTP_PENDING  1             /* waiting for / parsing the Upgrade request */
-#define SNI_GW_HTTP_SUCCESS  2             /* request consumed; 101 owed / sent */
+#define SNI_GW_HTTP_DISABLED 0                  /* not active / done */
+#define SNI_GW_HTTP_PENDING  1                  /* waiting for / parsing the Upgrade request */
+#define SNI_GW_HTTP_SUCCESS  2                  /* request consumed; 101 owed / sent */
     int sni_gw_http_state;
-    bool sni_gw_http_101_sent;             /* the 101 response has been emitted */
+    bool sni_gw_http_101_sent;                  /* the 101 response has been emitted */
     const char **sni_gw_http_require_path_list; /* accepted paths; empty = any */
     int sni_gw_http_require_path_count;
-    const char *sni_gw_http_upgrade_token; /* required Upgrade: header token */
+    const char *sni_gw_http_upgrade_token;      /* required Upgrade: header token */
     /* Resumable CRLFCRLF-terminator scan cursor for
      * sni_gw_http_check_and_consume_request(): how many bytes of sb->buf
      * have already been scanned (with no terminator found) as of the last
