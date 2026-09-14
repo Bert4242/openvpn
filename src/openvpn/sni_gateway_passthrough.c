@@ -542,7 +542,7 @@ buf_write_alpn_ext(struct buffer *buf, const struct buffer *proto_list)
     return buf_write_u16(buf, 0x0010)                 /* ALPN ext type */
            && buf_write_u16(buf, ext_data_len)
            && buf_write_u16(buf, (uint16_t)list_len)
-           && buf_write(buf, BPTR(proto_list), list_len);
+           && buf_write(buf, CBPTR(proto_list), list_len);
 }
 
 static size_t
