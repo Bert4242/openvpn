@@ -1914,7 +1914,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * while the fd is still BLOCKING (before phase2_set_socket_flags()).
          * All subsequent OpenVPN bytes on this socket flow through the TLS
          * session (see link_socket_read_tcp / link_socket_write_tcp_posix). */
-        msg(M_INFO, "sni-gateway tls: attempting TLS handshake to '%s'",
+        msg(M_INFO, "sni-gateway-client tls: attempting TLS handshake to '%s'",
             c->options.ce.sni_gw_client_host);
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
@@ -1943,7 +1943,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * (identical to tls mode), THEN -- while the fd is still BLOCKING --
          * perform the HTTP/1.1 Upgrade over the tunnel.  After the 101 reply the
          * steady-state gw_tls read/write seams carry the OpenVPN stream. */
-        msg(M_INFO, "sni-gateway tls: attempting TLS handshake to '%s'",
+        msg(M_INFO, "sni-gateway-client tls: attempting TLS handshake to '%s'",
             c->options.ce.sni_gw_client_host);
         sock->sni_gw_tls = sni_gw_tls_new();
         if (!sock->sni_gw_tls
@@ -1962,7 +1962,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
             }
             goto done;
         }
-        msg(M_INFO, "sni-gateway http: attempting HTTP Upgrade to '%s' path '%s'",
+        msg(M_INFO, "sni-gateway-client http: attempting HTTP Upgrade to '%s' path '%s'",
             c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
         if (!sni_gw_http_client_upgrade(
                 sock->sni_gw_tls, sock->sd, c->options.ce.sni_gw_client_host,
@@ -1991,7 +1991,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
          * with no userspace steady-state wrapper allocated, every later
          * read/write/close path falls through to the existing raw-socket
          * behavior automatically, exactly as SNI_GW_CLIENT_SNI does above. */
-        msg(M_INFO, "sni-gateway http (plain): attempting HTTP Upgrade to '%s' path '%s'",
+        msg(M_INFO, "sni-gateway-client http (plain): attempting HTTP Upgrade to '%s' path '%s'",
             c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path);
         if (!sni_gw_http_client_upgrade_plain(
                 sock->sd, c->options.ce.sni_gw_client_host, c->options.ce.sni_gw_client_http_path,

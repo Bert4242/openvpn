@@ -146,7 +146,7 @@ gw_out_flush(struct sni_gw_tls *t, socket_descriptor_t sd, bool *fatal)
             {
                 return false; /* not fatal, retry later */
             }
-            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: send() of ciphertext failed");
+            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client tls: send() of ciphertext failed");
             *fatal = true;
             return false;
         }
@@ -268,7 +268,7 @@ gw_handshake_flush_out(struct sni_gw_tls *t, socket_descriptor_t sd,
         while (sent < n)
         {
             if (!sni_gw_wait_socket(sd, true, signal_received, poll_timeout,
-                                    "sni-gateway tls: handshake"))
+                                    "sni-gateway-client tls: handshake"))
             {
                 return false;
             }
@@ -285,7 +285,7 @@ gw_handshake_flush_out(struct sni_gw_tls *t, socket_descriptor_t sd,
                 {
                     continue;
                 }
-                msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: handshake send() failed");
+                msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client tls: handshake send() failed");
                 return false;
             }
         }
@@ -305,7 +305,7 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
     uint8_t scratch[SNI_GW_TLS_SCRATCH];
 
     if (!sni_gw_wait_socket(sd, false, signal_received, poll_timeout,
-                            "sni-gateway tls: handshake"))
+                            "sni-gateway-client tls: handshake"))
     {
         return false;
     }
@@ -313,7 +313,7 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
     ssize_t r = recv(sd, (char *)scratch, (int)sizeof(scratch), MSG_NOSIGNAL);
     if (r == 0)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: gateway closed connection during handshake");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: gateway closed connection during handshake");
         return false;
     }
     if (r < 0)
@@ -323,7 +323,7 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
         {
             return true; /* spurious wakeup, try again */
         }
-        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: handshake recv() failed");
+        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client tls: handshake recv() failed");
         return false;
     }
 
@@ -334,7 +334,7 @@ gw_handshake_fill_in(struct sni_gw_tls *t, socket_descriptor_t sd,
         if (w <= 0)
         {
             /* net_bio full without SSL draining it: cannot make progress. */
-            msg(D_LINK_ERRORS, "sni-gateway tls: handshake BIO_write stalled");
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: handshake BIO_write stalled");
             return false;
         }
         off += w;
@@ -354,14 +354,14 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
 
     if (!host || !*host)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: no --sni-gateway-client-host set");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: no --sni-gateway-client-host set");
         return false;
     }
 
     t->ctx = SSL_CTX_new(TLS_client_method());
     if (!t->ctx)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: SSL_CTX_new failed");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_CTX_new failed");
         goto err;
     }
     SSL_CTX_set_min_proto_version(t->ctx, TLS1_2_VERSION);
@@ -372,13 +372,13 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         {
             if (SSL_CTX_load_verify_locations(t->ctx, ca_file, NULL) != 1)
             {
-                msg(D_LINK_ERRORS, "sni-gateway tls: cannot load CA file '%s'", ca_file);
+                msg(D_LINK_ERRORS, "sni-gateway-client tls: cannot load CA file '%s'", ca_file);
                 goto err;
             }
         }
         else if (SSL_CTX_set_default_verify_paths(t->ctx) != 1)
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: cannot load system trust store");
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: cannot load system trust store");
             goto err;
         }
     }
@@ -386,14 +386,14 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
     t->ssl = SSL_new(t->ctx);
     if (!t->ssl)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: SSL_new failed");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_new failed");
         goto err;
     }
 
     /* SNI */
     if (!SSL_set_tlsext_host_name(t->ssl, host))
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: SSL_set_tlsext_host_name failed");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_set_tlsext_host_name failed");
         goto err;
     }
 
@@ -415,7 +415,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         if (SSL_set1_host(t->ssl, host) != 1)
 #endif
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: failed to set verification hostname");
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: failed to set verification hostname");
             goto err;
         }
         SSL_set_verify(t->ssl, SSL_VERIFY_PEER, NULL);
@@ -429,12 +429,12 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         buf_set_write(&alpn_wire, alpn_raw, sizeof(alpn_raw));
         if (!gw_build_alpn_wire(&alpn_wire, alpn_list, alpn_count) || !BLEN(&alpn_wire))
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: failed to build ALPN list");
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: failed to build ALPN list");
             goto err;
         }
         if (SSL_set_alpn_protos(t->ssl, BPTR(&alpn_wire), (unsigned int)BLEN(&alpn_wire)) != 0)
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: SSL_set_alpn_protos failed");
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_set_alpn_protos failed");
             goto err;
         }
     }
@@ -442,7 +442,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
     /* Wire up the BIO pair: ssl_bio -> SSL, net_bio -> us. */
     if (BIO_new_bio_pair(&ssl_bio, SNI_GW_TLS_SCRATCH, &t->net_bio, SNI_GW_TLS_SCRATCH) != 1)
     {
-        msg(D_LINK_ERRORS, "sni-gateway tls: BIO_new_bio_pair failed");
+        msg(D_LINK_ERRORS, "sni-gateway-client tls: BIO_new_bio_pair failed");
         ssl_bio = NULL;
         goto err;
     }
@@ -480,7 +480,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         {
             char buf[256];
             ERR_error_string_n(ERR_get_error(), buf, sizeof(buf));
-            msg(D_LINK_ERRORS, "sni-gateway tls: handshake failed: %s", buf);
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: handshake failed: %s", buf);
             goto err;
         }
     }
@@ -496,14 +496,14 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         long vr = SSL_get_verify_result(t->ssl);
         if (vr != X509_V_OK)
         {
-            msg(D_LINK_ERRORS, "sni-gateway tls: certificate verification failed: %s",
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: certificate verification failed: %s",
                 X509_verify_cert_error_string(vr));
             goto err;
         }
     }
 
     t->handshake_done = true;
-    msg(D_HANDSHAKE, "sni-gateway tls: TLS handshake to '%s' complete%s", host,
+    msg(D_HANDSHAKE, "sni-gateway-client tls: TLS handshake to '%s' complete%s", host,
         no_verify ? " (verification disabled)" : "");
     return true;
 
@@ -555,7 +555,7 @@ gw_ssl_write_all(struct sni_gw_tls *t, socket_descriptor_t sd,
         {
             char e[256];
             ERR_error_string_n(ERR_get_error(), e, sizeof(e));
-            msg(D_LINK_ERRORS, "sni-gateway http: SSL_write failed: %s", e);
+            msg(D_LINK_ERRORS, "sni-gateway-client http: SSL_write failed: %s", e);
             return false;
         }
     }
@@ -599,14 +599,14 @@ gw_ssl_read_byte(struct sni_gw_tls *t, socket_descriptor_t sd, uint8_t *out,
         }
         else if (err == SSL_ERROR_ZERO_RETURN)
         {
-            msg(D_LINK_ERRORS, "sni-gateway http: gateway closed TLS during upgrade");
+            msg(D_LINK_ERRORS, "sni-gateway-client http: gateway closed TLS during upgrade");
             return false;
         }
         else
         {
             char e[256];
             ERR_error_string_n(ERR_get_error(), e, sizeof(e));
-            msg(D_LINK_ERRORS, "sni-gateway http: SSL_read failed: %s", e);
+            msg(D_LINK_ERRORS, "sni-gateway-client http: SSL_read failed: %s", e);
             return false;
         }
     }
@@ -638,7 +638,7 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
 
     if (!t || !t->ssl || !t->handshake_done)
     {
-        msg(D_LINK_ERRORS, "sni-gateway http: upgrade requested before TLS handshake");
+        msg(D_LINK_ERRORS, "sni-gateway-client http: upgrade requested before TLS handshake");
         return false;
     }
 
@@ -646,7 +646,7 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
     size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path, token);
     if (reqlen == 0)
     {
-        msg(D_LINK_ERRORS, "sni-gateway http: could not build Upgrade request "
+        msg(D_LINK_ERRORS, "sni-gateway-client http: could not build Upgrade request "
                            "(bad --sni-gateway-client-host/--sni-gateway-client-http-path?)");
         return false;
     }
@@ -658,12 +658,12 @@ sni_gw_http_client_upgrade(struct sni_gw_tls *t, socket_descriptor_t sd,
 
     struct gw_ssl_read_ctx ctx = { .t = t, .sd = sd };
     if (!sni_gw_http_client_read_101(gw_ssl_read_byte_adapter, &ctx, signal_received,
-                                     poll_timeout, "sni-gateway http"))
+                                     poll_timeout, "sni-gateway-client http"))
     {
         return false;
     }
 
-    msg(D_HANDSHAKE, "sni-gateway http: HTTP Upgrade to '%s' path '%s' complete", host, path);
+    msg(D_HANDSHAKE, "sni-gateway-client http: HTTP Upgrade to '%s' path '%s' complete", host, path);
     return true;
 }
 
@@ -714,11 +714,11 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
             if (code)
             {
                 ERR_error_string_n(code, e, sizeof(e));
-                msg(D_LINK_ERRORS, "sni-gateway tls: SSL_read failed: %s", e);
+                msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_read failed: %s", e);
             }
             else
             {
-                msg(D_LINK_ERRORS, "sni-gateway tls: SSL_read failed (connection reset)");
+                msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_read failed (connection reset)");
             }
             *fatal = true;
             return produced;
@@ -761,7 +761,7 @@ sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf
                 int e = openvpn_errno();
                 if (e != EAGAIN && e != EWOULDBLOCK && e != EINTR)
                 {
-                    msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway tls: recv() failed");
+                    msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client tls: recv() failed");
                     fatal = true;
                 }
                 /* EAGAIN: no new ciphertext; SSL may still hold decryptable data. */
@@ -892,7 +892,7 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
             }
             char e[256];
             ERR_error_string_n(ERR_get_error(), e, sizeof(e));
-            msg(D_LINK_ERRORS, "sni-gateway tls: SSL_write failed: %s", e);
+            msg(D_LINK_ERRORS, "sni-gateway-client tls: SSL_write failed: %s", e);
             return -1;
         }
         /* For a memory BIO SSL_write is all-or-nothing at these sizes. */
