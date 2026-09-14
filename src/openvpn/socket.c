@@ -1894,7 +1894,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         && c->options.ce.sni_gw_client_mode == SNI_GW_CLIENT_SNI
         && c->options.ce.sni_gw_client_host)
     {
-        msg(M_INFO, "--sni-gateway-client sni: attempting SNI routing (hostname: %s)",
+        msg(M_INFO, "sni-gateway-client sni: attempting SNI routing (hostname: %s)",
             c->options.ce.sni_gw_client_host);
         if (!sni_gw_passthrough_send_client_hello(sock->sd, c->options.ce.sni_gw_client_host,
                                                   (const char *const *)c->options.ce.sni_gw_alpn_list,
@@ -2010,7 +2010,7 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
         && sock->info.proto == PROTO_TCP_CLIENT
         && c->options.ce.sni_gw_client_host)
     {
-        msg(M_INFO, "--sni-gateway-client: gateway handshake complete, passing the flow to main openvpn");
+        msg(M_INFO, "sni-gateway-client: gateway handshake complete, passing the flow to main openvpn");
     }
 
     phase2_set_socket_flags(sock);

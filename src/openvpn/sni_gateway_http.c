@@ -479,7 +479,7 @@ sni_gw_http_parse_request(const char *data, int len,
         }
         if (len > SNI_GW_HTTP_MAX_REQUEST)
         {
-            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request header exceeds %d bytes, rejecting",
+            msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: request header exceeds %d bytes, rejecting",
                 SNI_GW_HTTP_MAX_REQUEST);
             return SNI_GW_HTTP_PARSE_TOO_LARGE;
         }
@@ -494,20 +494,20 @@ sni_gw_http_parse_request(const char *data, int len,
     {
         /* Cannot happen (CRLFCRLF found above implies a '\r' in
          * [data, request_len)), but stay defensive. */
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
+        msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
         return SNI_GW_HTTP_PARSE_INVALID;
     }
     const char *path_start = data + 4; /* just past "GET " */
     const char *sp = memchr(path_start, ' ', (size_t)(line_end - path_start));
     if (!sp || (sp == path_start))
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
+        msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
         return SNI_GW_HTTP_PARSE_INVALID;
     }
     int path_len = (int)(sp - path_start);
     if (path_start[0] != '/')
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not start with '/', rejecting");
+        msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: request path does not start with '/', rejecting");
         return SNI_GW_HTTP_PARSE_INVALID;
     }
 
@@ -516,7 +516,7 @@ sni_gw_http_parse_request(const char *data, int len,
     int ver_len = (int)(line_end - ver);
     if ((ver_len != 8) || (memcmp(ver, "HTTP/1.1", 8) != 0))
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: unsupported HTTP version, rejecting");
+        msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: unsupported HTTP version, rejecting");
         return SNI_GW_HTTP_PARSE_INVALID;
     }
 
@@ -525,7 +525,7 @@ sni_gw_http_parse_request(const char *data, int len,
     int hdrs_len = (int)(end - hdrs);
     if (!http_has_upgrade_token(hdrs, hdrs_len, token))
     {
-        msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: missing or mismatched "
+        msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: missing or mismatched "
                     "'Upgrade: %s' header, rejecting",
             token);
         return SNI_GW_HTTP_PARSE_INVALID;
@@ -546,7 +546,7 @@ sni_gw_http_parse_request(const char *data, int len,
         }
         if (!path_ok)
         {
-            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: request path does not match "
+            msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: request path does not match "
                         "--sni-gateway-server-http-path, rejecting");
             return SNI_GW_HTTP_PARSE_INVALID;
         }
@@ -585,7 +585,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb,
             return 0;
 
         case SNI_GW_HTTP_PARSE_NOT_HTTP:
-            msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: non-HTTP client, proceeding as OpenVPN");
+            msg(M_INFO, "sni-gateway-server sni-http-path-upgrade: non-HTTP client, proceeding as OpenVPN");
             sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
             return -1; /* sb->error left false -> proceed as normal OpenVPN */
 
@@ -604,7 +604,7 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb,
     {
         int remaining = len - request_len;
         const char *path_start = data + 4;
-        msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: consumed %d-byte Upgrade request (path '%.*s')",
+        msg(M_INFO, "sni-gateway-server sni-http-path-upgrade: consumed %d-byte Upgrade request (path '%.*s')",
             request_len, path_len, path_start);
         if (remaining > 0)
         {
@@ -628,7 +628,7 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
     size_t total = sni_gw_http_build_101(resp, sizeof(resp), token);
     if (total == 0)
     {
-        msg(D_LINK_ERRORS, "--sni-gateway-server sni-http-path-upgrade: could not build "
+        msg(D_LINK_ERRORS, "sni-gateway-server sni-http-path-upgrade: could not build "
                            "101 response (bad --sni-gateway-server-http-upgrade-token?)");
         return false;
     }
@@ -650,7 +650,7 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
         {
             if (++attempts > 100)
             {
-                msg(D_LINK_ERRORS, "--sni-gateway-server sni-http-path-upgrade: timed out sending 101 response");
+                msg(D_LINK_ERRORS, "sni-gateway-server sni-http-path-upgrade: timed out sending 101 response");
                 return false;
             }
             /* Wait (briefly, bounded) for the socket to drain. */
@@ -664,7 +664,7 @@ sni_gw_http_send_101(socket_descriptor_t sd, const char *token)
             continue;
         }
 
-        msg(D_LINK_ERRORS | M_ERRNO, "--sni-gateway-server sni-http-path-upgrade: send() of 101 response failed");
+        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-server sni-http-path-upgrade: send() of 101 response failed");
         return false;
     }
     return true;
@@ -697,13 +697,13 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
 
         if (result == SNI_GW_HTTP_PARSE_VALID)
         {
-            msg(M_INFO, "--sni-gateway-server sni-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
+            msg(M_INFO, "sni-gateway-server sni-http-path-upgrade: accepted %d-byte Upgrade request (path '%.*s')",
                 end_pos, path_len, buf + 4);
             return sni_gw_http_send_101(sd, token);
         }
         if (result == SNI_GW_HTTP_PARSE_NOT_HTTP)
         {
-            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: not a GET request");
+            msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: not a GET request");
             return false;
         }
         if ((result == SNI_GW_HTTP_PARSE_INVALID) || (result == SNI_GW_HTTP_PARSE_TOO_LARGE))
@@ -717,7 +717,7 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
          * this blocking reader can never actually reach; guard here instead). */
         if (total >= (int)sizeof(buf))
         {
-            msg(M_WARN, "--sni-gateway-server sni-http-path-upgrade: Upgrade request too large or truncated");
+            msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: Upgrade request too large or truncated");
             return false;
         }
 
@@ -737,13 +737,13 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
         if (status == 0)
         {
             msg(D_LINK_ERRORS,
-                "--sni-gateway-server sni-http-path-upgrade: timed out reading Upgrade request");
+                "sni-gateway-server sni-http-path-upgrade: timed out reading Upgrade request");
             return false;
         }
         if (status < 0)
         {
             msg(D_LINK_ERRORS | M_ERRNO,
-                "--sni-gateway-server sni-http-path-upgrade: select() failed reading Upgrade request");
+                "sni-gateway-server sni-http-path-upgrade: select() failed reading Upgrade request");
             return false;
         }
 
@@ -756,13 +756,13 @@ sni_gw_http_server_accept_upgrade(socket_descriptor_t sd,
                 continue;
             }
             msg(D_LINK_ERRORS | M_ERRNO,
-                "--sni-gateway-server sni-http-path-upgrade: recv() reading Upgrade request");
+                "sni-gateway-server sni-http-path-upgrade: recv() reading Upgrade request");
             return false;
         }
         if (n == 0)
         {
             msg(D_LINK_ERRORS,
-                "--sni-gateway-server sni-http-path-upgrade: connection closed before Upgrade request");
+                "sni-gateway-server sni-http-path-upgrade: connection closed before Upgrade request");
             return false;
         }
         total += (int)n;
