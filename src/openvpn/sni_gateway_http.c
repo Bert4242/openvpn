@@ -199,7 +199,7 @@ gw_plain_write_all(socket_descriptor_t sd, const void *data, int len,
     while (off < len)
     {
         if (!sni_gw_wait_socket(sd, true, signal_received, poll_timeout,
-                                "sni-gateway http (plain):"))
+                                "sni-gateway-client http (plain):"))
         {
             return false;
         }
@@ -216,7 +216,7 @@ gw_plain_write_all(socket_descriptor_t sd, const void *data, int len,
             {
                 continue;
             }
-            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): send() failed");
+            msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client http (plain): send() failed");
             return false;
         }
     }
@@ -238,7 +238,7 @@ gw_plain_read_byte(socket_descriptor_t sd, uint8_t *out,
     for (;;)
     {
         if (!sni_gw_wait_socket(sd, false, signal_received, poll_timeout,
-                                "sni-gateway http (plain):"))
+                                "sni-gateway-client http (plain):"))
         {
             return false;
         }
@@ -250,7 +250,7 @@ gw_plain_read_byte(socket_descriptor_t sd, uint8_t *out,
         }
         if (r == 0)
         {
-            msg(D_LINK_ERRORS, "sni-gateway http (plain): gateway closed connection during upgrade");
+            msg(D_LINK_ERRORS, "sni-gateway-client http (plain): gateway closed connection during upgrade");
             return false;
         }
 
@@ -259,7 +259,7 @@ gw_plain_read_byte(socket_descriptor_t sd, uint8_t *out,
         {
             continue; /* spurious wakeup, try again */
         }
-        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway http (plain): recv() failed");
+        msg(D_LINK_ERRORS | M_ERRNO, "sni-gateway-client http (plain): recv() failed");
         return false;
     }
 }
@@ -286,7 +286,7 @@ sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
     size_t reqlen = sni_gw_http_build_upgrade(req, sizeof(req), host, path, token);
     if (reqlen == 0)
     {
-        msg(D_LINK_ERRORS, "sni-gateway http (plain): could not build Upgrade request "
+        msg(D_LINK_ERRORS, "sni-gateway-client http (plain): could not build Upgrade request "
                            "(bad --sni-gateway-client-host/--sni-gateway-client-http-path?)");
         return false;
     }
@@ -297,12 +297,12 @@ sni_gw_http_client_upgrade_plain(socket_descriptor_t sd,
     }
 
     if (!sni_gw_http_client_read_101(plain_read_byte_adapter, &sd, signal_received,
-                                     poll_timeout, "sni-gateway http (plain)"))
+                                     poll_timeout, "sni-gateway-client http (plain)"))
     {
         return false;
     }
 
-    msg(D_HANDSHAKE, "sni-gateway http (plain): HTTP Upgrade to '%s' path '%s' complete",
+    msg(D_HANDSHAKE, "sni-gateway-client http (plain): HTTP Upgrade to '%s' path '%s' complete",
         host, path);
     return true;
 }
