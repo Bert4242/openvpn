@@ -210,9 +210,18 @@ struct connection_entry
      *  Per-connection list replaces (not adds to) the global list. */
     const char **sni_gw_alpn_list;
     int sni_gw_alpn_count;
-    /** True once this entry owns its own alpn list (i.e. the first
-     *  sni-gateway-alpn was seen inside this connection block). */
+    /** True once ALPN is configured for this entry, whether declared
+     *  locally or inherited from the global connection entry. Used by
+     *  options_postprocess_verify_ce() to flag it as meaningless when
+     *  combined with an incompatible client mode. */
     bool sni_gw_alpn_defined;
+    /** True once THIS <connection> block has replaced its (possibly
+     *  inherited) alpn list with its own. Explicitly cleared for each new
+     *  block -- unlike sni_gw_alpn_defined above, it must not survive the
+     *  `sub.ce = options->ce` inheriting copy, or a block's first
+     *  sni-gateway-alpn would append to the inherited global list instead
+     *  of replacing it. */
+    bool sni_gw_alpn_block_owns_list;
 
     /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
      *  gateway modes (--sni-gateway-client-http-path). */
