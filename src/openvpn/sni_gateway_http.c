@@ -582,6 +582,24 @@ sni_gw_http_check_and_consume_request(struct stream_buf *sb,
     switch (result)
     {
         case SNI_GW_HTTP_PARSE_NEED_MORE:
+            if (len >= sb->maxlen)
+            {
+                /* The backing buffer is already at capacity (sb->maxlen,
+                 * typically well under SNI_GW_HTTP_MAX_REQUEST) with no
+                 * CRLFCRLF found -- more data can never arrive, so the
+                 * SNI_GW_HTTP_MAX_REQUEST check above will never trigger.
+                 * Reject now: leaving this as NEED_MORE would make
+                 * stream_buf_get_next() compute a zero-length next read and
+                 * hit its own ASSERT(next.len > 0). Mirrors the maxlen
+                 * guard in the sibling
+                 * sni_gw_passthrough_check_and_consume_header(). */
+                msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: request exceeds "
+                            "available buffer (%d bytes), rejecting",
+                    sb->maxlen);
+                sb->error = true;
+                sb->sni_gw_http_state = SNI_GW_HTTP_DISABLED;
+                return -1;
+            }
             return 0;
 
         case SNI_GW_HTTP_PARSE_NOT_HTTP:
