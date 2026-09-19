@@ -334,6 +334,14 @@ http_has_upgrade_token(const char *hdrs, int hdrs_len, const char *token)
         {
             break;
         }
+        if ((eol + 1 >= stop) || (eol[1] != '\n'))
+        {
+            /* Bare '\r' not followed by '\n': malformed line framing per
+             * RFC 7230. Stop scanning rather than silently desyncing the
+             * remaining header-line boundaries by advancing past an
+             * assumed-but-absent '\n' (see p = eol + 2 below). */
+            break;
+        }
         int line_len = (int)(eol - p);
         if (line_len == 0)
         {
@@ -490,10 +498,16 @@ sni_gw_http_parse_request(const char *data, int len,
 
     /* Parse the request line "GET <path> HTTP/1.1". */
     const char *line_end = memchr(data, '\r', (size_t)request_len);
-    if (!line_end)
+    if (!line_end || (line_end[1] != '\n'))
     {
-        /* Cannot happen (CRLFCRLF found above implies a '\r' in
-         * [data, request_len)), but stay defensive. */
+        /* No '\r' at all cannot happen (CRLFCRLF found above implies one in
+         * [data, request_len)), but a bare '\r' not followed by '\n' can --
+         * memchr() finds the FIRST '\r', which may be a malformed one
+         * earlier in the request line rather than its real CRLF
+         * terminator. Reject rather than silently treating that stray byte
+         * as the line boundary. line_end[1] is always in-bounds here:
+         * request_len < len whenever the found '\r' isn't the verified
+         * CRLFCRLF terminator itself. */
         msg(M_WARN, "sni-gateway-server sni-http-path-upgrade: malformed request line, rejecting");
         return SNI_GW_HTTP_PARSE_INVALID;
     }
