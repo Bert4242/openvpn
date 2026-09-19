@@ -270,7 +270,7 @@ dco_check_option_ce(const struct connection_entry *ce, msglvl_t msglevel, int mo
         return false;
     }
 
-    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS || ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
+    if (sni_gw_client_mode_wraps_tls(ce->sni_gw_client_mode))
     {
         /* The --sni-gateway-client sni-tls and sni-tls-http-path-upgrade modes wrap
          * the socket in a userspace TLS session; DCO does the socket I/O in

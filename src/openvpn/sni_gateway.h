@@ -173,6 +173,20 @@ enum sni_gw_mode
 };
 
 /*
+ * True for the two client modes (sni-tls, sni-tls-http-path-upgrade) that
+ * wrap the socket in a genuine userspace TLS session to the gateway (see
+ * sni_gateway_tls.c). Shared so the "does this mode need the TLS wrapper"
+ * check -- used to reject DCO (dco.c) and to gate the TLS-only validation
+ * block (options.c) -- can't drift out of sync between call sites if a
+ * future mode is added.
+ */
+static inline bool
+sni_gw_client_mode_wraps_tls(enum sni_gw_mode mode)
+{
+    return mode == SNI_GW_CLIENT_TLS || mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE;
+}
+
+/*
  * Parse a --sni-gateway-client (CLIENT) mode argument.
  * Accepts exactly "sni", "sni-tls", "sni-tls-http-path-upgrade",
  * "sni-http-path-upgrade", "auto" (case-sensitive).  "auto" IS recognized

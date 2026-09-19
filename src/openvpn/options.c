@@ -2374,7 +2374,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
      * (--sni-gateway-client-http-path/-http-upgrade-token) are meaningless
      * in sni mode and are rejected there to avoid silently ignoring them.
      */
-    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS || ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
+    if (sni_gw_client_mode_wraps_tls(ce->sni_gw_client_mode))
     {
         /* Both sni-tls and sni-tls-http-path-upgrade open a genuine userspace
          * TLS session to the gateway, so they share the same backend /
