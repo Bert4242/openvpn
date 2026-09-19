@@ -979,8 +979,13 @@ sni_gw_passthrough_check_and_consume_header(struct stream_buf *sb,
     {
         if (BPTR(&sb->buf)[0] != 0x16) /* quick test before parsing the packet */
         {
-            /* client without --sni-gateway-client sni. */
+            /* client without --sni-gateway-client sni. Caller already
+             * determined these bytes aren't recognisable OpenVPN protocol
+             * either, so this is neither a routed nor a direct client --
+             * reject rather than letting the caller fall through and parse
+             * untrusted bytes as a trusted OpenVPN length prefix. */
             msg(M_INFO, "sni-gateway-server sni: client without routing header");
+            sb->error = true;
             sb->sni_gw_passthrough_state = SNI_GW_PASSTHROUGH_DISABLED;
             return false;
         }
