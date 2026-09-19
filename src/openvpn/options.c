@@ -4525,11 +4525,13 @@ static void
 sni_gw_alpn_append(struct connection_entry *ce, const char *val,
                    struct gc_arena *gc, bool inside_connection)
 {
-    if (inside_connection && !ce->sni_gw_alpn_defined)
+    if (inside_connection && !ce->sni_gw_alpn_block_owns_list)
     {
-        /* First entry in this connection block – start from scratch. */
+        /* First entry in this connection block – start from scratch,
+         * discarding anything inherited from the global connection entry. */
         ce->sni_gw_alpn_list = NULL;
         ce->sni_gw_alpn_count = 0;
+        ce->sni_gw_alpn_block_owns_list = true;
         ce->sni_gw_alpn_defined = true;
     }
     else if (!ce->sni_gw_alpn_defined)
@@ -4984,6 +4986,9 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 
             init_options(&sub);
             sub.ce = options->ce;
+            /* This block hasn't overridden the inherited ALPN list yet --
+             * see sni_gw_alpn_block_owns_list's doc comment in options.h. */
+            sub.ce.sni_gw_alpn_block_owns_list = false;
             read_config_string("[CONNECTION-OPTIONS]", &sub, p[1], msglevel, OPT_P_CONNECTION,
                                option_types_found, es);
             if (!sub.ce.remote)
