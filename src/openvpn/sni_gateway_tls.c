@@ -474,7 +474,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
         }
 
         int err = SSL_get_error(t->ssl, r);
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        if ((err == SSL_ERROR_WANT_READ) || (err == SSL_ERROR_WANT_WRITE))
         {
             /* Always flush anything SSL wants to send first... */
             if (!gw_handshake_flush_out(t, sd, signal_received, poll_timeout))
@@ -553,7 +553,7 @@ gw_ssl_write_all(struct sni_gw_tls *t, socket_descriptor_t sd,
             continue;
         }
         int err = SSL_get_error(t->ssl, w);
-        if (err == SSL_ERROR_WANT_WRITE || err == SSL_ERROR_WANT_READ)
+        if ((err == SSL_ERROR_WANT_WRITE) || (err == SSL_ERROR_WANT_READ))
         {
             if (!gw_handshake_flush_out(t, sd, signal_received, poll_timeout))
             {
@@ -713,7 +713,7 @@ gw_drain_ssl(struct sni_gw_tls *t, bool *fatal)
         }
 
         int err = SSL_get_error(t->ssl, n);
-        if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+        if ((err == SSL_ERROR_WANT_READ) || (err == SSL_ERROR_WANT_WRITE))
         {
             return produced; /* no more plaintext without further ciphertext */
         }
@@ -896,7 +896,7 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
         if (w <= 0)
         {
             int err = SSL_get_error(t->ssl, w);
-            if (err == SSL_ERROR_WANT_READ || err == SSL_ERROR_WANT_WRITE)
+            if ((err == SSL_ERROR_WANT_READ) || (err == SSL_ERROR_WANT_WRITE))
             {
                 /* Renegotiation stall: extremely unlikely for TLS1.2/1.3 with
                  * our config.  Report a soft failure so the packet is dropped

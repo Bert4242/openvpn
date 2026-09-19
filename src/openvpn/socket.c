@@ -2101,7 +2101,7 @@ stream_buf_added(struct stream_buf *sb, ssize_t length_added)
         packet_size_type net_size;
 
 #if PORT_SHARE
-        if (sb->port_share_state == PS_ENABLED || sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
+        if ((sb->port_share_state == PS_ENABLED) || (sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING))
 #else
         if (sb->sni_gw_passthrough_state == SNI_GW_PASSTHROUGH_PENDING)
 #endif

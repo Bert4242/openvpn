@@ -137,7 +137,7 @@ sni_gw_accept_classify_fd(socket_descriptor_t sd, bool *error,
         if (n < 0)
         {
             int e = openvpn_errno();
-            if (e == EINTR || e == EAGAIN || e == EWOULDBLOCK)
+            if ((e == EINTR) || (e == EAGAIN) || (e == EWOULDBLOCK))
             {
                 continue;
             }
