@@ -105,8 +105,22 @@ struct sni_gw_tls
     bool handshake_done;
 };
 
-/* Scratch size for moving ciphertext between the socket and net_bio. */
+/* Scratch size for moving ciphertext between the socket and net_bio in
+ * bounded chunks -- deliberately independent of the BIO pair capacity
+ * below, since the relay loops always drain in a loop regardless of how
+ * much data is pending. */
 #define SNI_GW_TLS_SCRATCH 16384
+
+/* Capacity of each side of the BIO pair backing the TLS wrapper. Must hold
+ * the ciphertext of a single SSL_write() of up to TUN_MTU_MAX (mtu.h)
+ * bytes of plaintext: since net_bio is always fully drained before the
+ * next SSL_write(), that write's record(s) -- TLS records cap at 16384
+ * bytes of payload each, so a maximal write fragments into several -- are
+ * the only thing that can occupy the buffer. Size generously above the
+ * worst case so SSL_write() can never return SSL_ERROR_WANT_WRITE merely
+ * from running out of buffer space under a large --tun-mtu/--link-mtu;
+ * only a genuine renegotiation stall should produce that. */
+#define SNI_GW_TLS_BIO_PAIR_SIZE (TUN_MTU_MAX + 4096)
 
 /* -------------------------------------------------------------------------- */
 /* Byte-FIFO helpers (shared by out_ciphertext and in_plaintext, backed by    */
@@ -440,7 +454,7 @@ sni_gw_tls_client_handshake(struct sni_gw_tls *t, socket_descriptor_t sd,
     }
 
     /* Wire up the BIO pair: ssl_bio -> SSL, net_bio -> us. */
-    if (BIO_new_bio_pair(&ssl_bio, SNI_GW_TLS_SCRATCH, &t->net_bio, SNI_GW_TLS_SCRATCH) != 1)
+    if (BIO_new_bio_pair(&ssl_bio, SNI_GW_TLS_BIO_PAIR_SIZE, &t->net_bio, SNI_GW_TLS_BIO_PAIR_SIZE) != 1)
     {
         msg(D_LINK_ERRORS, "sni-gateway-client tls: BIO_new_bio_pair failed");
         ssl_bio = NULL;
