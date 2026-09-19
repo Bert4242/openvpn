@@ -2501,7 +2501,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                      "--sni-gateway-client sni-tls-http-path-upgrade or "
                      "sni-http-path-upgrade");
     }
-    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_client_enabled)
+    if ((ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI) && ce->sni_gw_client_enabled)
     {
         /* Unlike the other three modes, plain "sni" has no dedicated
          * validation block above -- but it shares the same activation
