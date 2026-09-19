@@ -2481,6 +2481,25 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
                      "--sni-gateway-client sni-tls-http-path-upgrade or "
                      "sni-http-path-upgrade");
     }
+    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_client_enabled)
+    {
+        /* Unlike the other three modes, plain "sni" has no dedicated
+         * validation block above -- but it shares the same activation
+         * guard in link_socket_init_phase2() (proto tcp-client and a
+         * configured host), so without this check a misconfiguration
+         * silently never sends the SNI routing header instead of erroring
+         * out. */
+        if (!ce->sni_gw_client_host)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni requires --sni-gateway-client-host "
+                         "(the hostname to embed in the SNI routing header)");
+        }
+        if (ce->proto != PROTO_TCP_CLIENT)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni is only valid for a TCP client "
+                         "(--proto tcp-client)");
+        }
+    }
     if (ce->sni_gw_client_enabled && options->sni_gw_server_enabled)
     {
         msg(M_USAGE, "--sni-gateway-client/--sni-gateway-client-host and --sni-gateway-server "
