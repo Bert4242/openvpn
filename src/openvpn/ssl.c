@@ -4065,31 +4065,30 @@ tls_pre_decrypt(struct tls_multi *multi, const struct link_socket_actual *from, 
         /* Extract the packet ID from the packet */
         if (reliable_ack_read_packet_id(buf, &id))
         {
-            /* A hard reset always is the first packet of a session, so it
-             * always must use packet id 0. Ignore it if it claims another id.
-             * In a specific existing bug these packets were replays of an
-             * already handled reset, so ignoring it is better than aborting
-             * the connection attempt.
-             */
-            if (is_hard_reset_method2(op) && id != 0)
-            {
-                msg(D_TLS_ERRORS,
-                    "TLS Error: received %s with packet id " packet_id_format
-                    " from %s -- 0 was expected, ignoring packet",
-                    packet_opcode_name(op), (packet_id_print_type)id,
-                    print_link_socket_actual(from, &gc));
-            }
             /* Avoid deadlock by rejecting packet that would de-sequentialize receive buffer */
-            else if (reliable_wont_break_sequentiality(ks->rec_reliable, id))
+            if (reliable_wont_break_sequentiality(ks->rec_reliable, id))
             {
-                /* HARD_RESET packets with pid > 0 are pure ACK vehicles sent by
-                 * a client whose own pid=0 was already acknowledged before it
-                 * could retransmit (e.g. through an SNI TLS-terminating gateway
-                 * that pre-connects to the backend).  They carry no TLS
-                 * ciphertext data and must not occupy a recv-reliable slot that
-                 * the immediately following P_CONTROL_V1 stream also uses.
-                 * Only the initial HARD_RESET (pid==0) belongs in the recv buffer. */
+                /* A hard reset always is the first packet of a session, so it
+                 * always must use packet id 0. A hard reset claiming another id
+                 * is either a bogus replay of an already-handled reset, or --
+                 * in the SNI-gateway pre-connect scenario -- a pure ACK vehicle
+                 * sent by a client whose own pid=0 was already acknowledged
+                 * before it could retransmit (e.g. through an SNI
+                 * TLS-terminating gateway that pre-connects to the backend).
+                 * Either way it carries no TLS ciphertext data and must not
+                 * occupy a recv-reliable slot that the immediately following
+                 * P_CONTROL_V1 stream also uses; only the initial HARD_RESET
+                 * (pid==0) belongs in the recv buffer. We still ACK it below
+                 * so a well-behaved retransmit loop can proceed. */
                 bool add_to_recv = !is_hard_reset_method2(op) || id == 0;
+                if (!add_to_recv)
+                {
+                    msg(D_TLS_ERRORS,
+                        "TLS Error: received %s with packet id " packet_id_format
+                        " from %s -- 0 was expected, not buffering",
+                        packet_opcode_name(op), (packet_id_print_type)id,
+                        print_link_socket_actual(from, &gc));
+                }
                 if (add_to_recv && reliable_not_replay(ks->rec_reliable, id))
                 {
                     /* Save incoming ciphertext packet to reliable buffer */
