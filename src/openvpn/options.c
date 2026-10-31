@@ -666,6 +666,11 @@ static const char usage_message[] =
     "--verify-x509-name name: Accept connections only from a host with X509 subject\n"
     "                  DN name. The remote host must also pass all other tests\n"
     "                  of verification.\n"
+    "--ignore-cert-expiry : INSECURE stopgap: accept expired certificates anywhere\n"
+    "                  in the peer's chain. All other checks still apply.\n"
+    "--ignore-cert-expiry-fingerprint hash : INSECURE stopgap: accept the expired\n"
+    "                  certificate (leaf or CA) with this SHA256 fingerprint.\n"
+    "                  Repeatable, can be inlined. Neither option can be pushed.\n"
 #ifndef ENABLE_CRYPTO_MBEDTLS
     "--ns-cert-type t: (DEPRECATED) Require that peer certificate was signed with \n"
     "                  an explicit nsCertType designation t = 'client' | 'server'.\n"
@@ -2222,6 +2227,8 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         MUST_BE_UNDEF(ns_cert_type, "ns-cert-type");
         MUST_BE_UNDEF(remote_cert_ku[0], "remote-cert-ku");
         MUST_BE_UNDEF(remote_cert_eku, "remote-cert-eku");
+        MUST_BE_UNDEF(ignore_cert_expiry, "ignore-cert-expiry");
+        MUST_BE_UNDEF(ignore_expiry_hashes, "ignore-cert-expiry-fingerprint");
 #ifdef ENABLE_PKCS11
         MUST_BE_UNDEF(pkcs11_providers[0], "pkcs11-providers");
         MUST_BE_UNDEF(pkcs11_private_mode[0], "pkcs11-private-mode");
@@ -2634,6 +2641,21 @@ options_postprocess_verify(const struct options *o)
     }
 
     dns_options_verify(M_FATAL, &o->dns_options);
+
+    if (o->ignore_cert_expiry)
+    {
+        msg(M_WARN, "WARNING: --ignore-cert-expiry is set: expired certificates will be "
+                    "accepted. This is insecure.");
+    }
+    else if (o->ignore_expiry_hashes)
+    {
+        msg(M_WARN, "WARNING: --ignore-cert-expiry-fingerprint is set: the listed "
+                    "certificates will be accepted even when expired. This is insecure.");
+    }
+    else
+    {
+        /* certificate expiry is enforced as usual */
+    }
 
     if (dco_enabled(o))
     {
@@ -7294,6 +7316,37 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
                 listend = listend->next;
             }
             listend->next = newlist;
+        }
+    }
+    else if (streq(p[0], "ignore-cert-expiry") && !p[1])
+    {
+        /* OPT_P_GENERAL only: never accepted from a push (see pull_permission_mask()) */
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->ignore_cert_expiry = true;
+    }
+    else if (streq(p[0], "ignore-cert-expiry-fingerprint") && p[1] && !p[2])
+    {
+        /* OPT_P_GENERAL only: never accepted from a push (see pull_permission_mask()) */
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
+
+        struct verify_hash_list *newlist =
+            parse_hash_fingerprint_multiline(p[1], SHA256_DIGEST_LENGTH, msglevel, &options->gc);
+
+        /* prepend: the order of the list does not matter, any entry may match */
+        if (newlist)
+        {
+            struct verify_hash_list *listend = newlist;
+            while (listend->next)
+            {
+                listend = listend->next;
+            }
+            listend->next = options->ignore_expiry_hashes;
+            options->ignore_expiry_hashes = newlist;
+        }
+        else
+        {
+            msg(msglevel, "--%s: no fingerprint given", p[0]);
+            goto err;
         }
     }
 #if defined(ENABLE_CRYPTOAPI) && defined(HAVE_XKEY_PROVIDER)

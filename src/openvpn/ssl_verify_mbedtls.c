@@ -72,6 +72,22 @@ verify_callback(void *session_obj, mbedtls_x509_crt *cert, int cert_depth, uint3
                                 | MBEDTLS_X509_BADCERT_FUTURE;
         *flags = *flags & ~flags_ignore;
     }
+    else
+    {
+        /* CA-based verification: date and trust errors are reported below */
+    }
+
+    /* --ignore-cert-expiry(-fingerprint): clear only the "expired" flag, any
+     * other flag still makes the certificate fail below */
+    if ((*flags & MBEDTLS_X509_BADCERT_EXPIRED)
+        && verify_cert_expiry_ignored(session, cert, cert_depth, &cert_fingerprint))
+    {
+        *flags &= ~MBEDTLS_X509_BADCERT_EXPIRED;
+    }
+    else
+    {
+        /* not expired, or expiry not to be ignored: flags stay as they are */
+    }
 
     /* did peer present cert which was signed by our root cert? */
     if (*flags != 0)
