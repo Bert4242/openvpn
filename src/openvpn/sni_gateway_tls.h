@@ -151,7 +151,7 @@ ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd,
  * or dropping OpenVPN packets.
  */
 ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd,
-                         struct buffer *buf);
+                         const struct buffer *buf);
 
 /*
  * Returns true while encrypted bytes are waiting for the socket to become

@@ -879,7 +879,7 @@ sni_gw_tls_read_pending(const struct sni_gw_tls *t)
  * returns -1 so the caller tears the connection down.
  */
 ssize_t
-sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf)
+sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, const struct buffer *buf)
 {
     const int plaintext_len = BLEN(buf);
 
@@ -892,7 +892,7 @@ sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *bu
     /* 2. Encrypt the new plaintext. */
     if (plaintext_len > 0)
     {
-        int w = SSL_write(t->ssl, BPTR(buf), plaintext_len);
+        int w = SSL_write(t->ssl, CBPTR(buf), plaintext_len);
         if (w <= 0)
         {
             int err = SSL_get_error(t->ssl, w);

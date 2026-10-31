@@ -313,7 +313,7 @@ struct link_socket
  * pulling in sni_gateway_tls.h (which itself includes socket.h). */
 struct sni_gw_tls;
 ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
-ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
+ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, const struct buffer *buf);
 bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
 bool sni_gw_tls_write_pending(const struct sni_gw_tls *t);
 bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
