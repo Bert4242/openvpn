@@ -26,6 +26,16 @@
 
 set -eu
 
+# The checkout is reset to $BASE below, which removes or replaces this very
+# file while bash is still reading it: run from a copy in the git directory.
+if [ -z "${REBUILD_MY_MASTER_COPY:-}" ]; then
+    copy="$(git rev-parse --git-dir)/rebuild-my-master.sh"
+    cp "$0" "$copy"
+    REBUILD_MY_MASTER_COPY=1 exec bash "$copy" "$@"
+else
+    : # already running from the copy
+fi
+
 BASE=origin/master
 # merge order matters: multi-listener-2 is built on sni-gateway-modes-6
 TOPICS=(
@@ -40,7 +50,7 @@ push=1
 for arg in "$@"; do
     case "$arg" in
         --no-push) push=0 ;;
-        -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+        -h|--help) sed -n '2,25p' "$0"; exit 0 ;; # $0 is the copy: same text
         *) echo "unknown argument: $arg" >&2; exit 2 ;;
     esac
 done
