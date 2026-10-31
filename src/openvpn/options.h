@@ -99,11 +99,54 @@ struct options_pre_connect
 #error "At least one of OpenSSL or mbed TLS needs to be defined."
 #endif
 
+/**
+ * Per-listener socket-level options, set in a <listener> block.  All fields
+ * start zeroed (= "inherit from the global option").  The _defined booleans
+ * guard fields whose zero value is ambiguous (e.g. mark 0 is valid).
+ * options_postprocess_mutate_le() resolves every field against the global
+ * options, so socket.c can read them unconditionally.
+ */
+struct listener_socket_opts
+{
+    /* Socket buffer sizes (rcvbuf/sndbuf directives) */
+    bool rcvbuf_defined;
+    int rcvbuf;
+    bool sndbuf_defined;
+    int sndbuf;
+    /* SO_MARK for policy routing (mark directive, Linux only) */
+    bool mark_defined;
+    int mark;
+    /* Bind to a specific network interface (bind-dev, Linux only) */
+    const char *bind_dev;
+    /* Socket flags: per-listener additions, OR'd with the global sockflags */
+    unsigned int sockflags;
+    /* bind-ipv6-only directive */
+    bool bind_ipv6_only_defined;
+    bool bind_ipv6_only;
+    /* Path MTU discovery type (mtu-disc directive) */
+    bool mtu_discover_type_defined;
+    int mtu_discover_type;
+    /* SNI gateway server (sni-gateway-server* directives), same meaning as
+     * the global struct options fields of the same name */
+    bool sni_gw_server_defined;
+    bool sni_gw_server_enabled;
+    enum sni_gw_mode sni_gw_server_mode;
+    const char **sni_gw_server_host_list;
+    int sni_gw_server_host_count;
+    bool sni_gw_server_ignore_alpn;
+    const char **sni_gw_server_http_path_list;
+    int sni_gw_server_http_path_count;
+    const char *sni_gw_server_http_upgrade_token;
+};
+
 struct local_entry
 {
     const char *local;
     const char *port;
     int proto;
+    sa_family_t af;            /**< from a <listener> proto (tcp4, udp6, ...), AF_UNSPEC otherwise */
+    const char *listener_spec; /**< the <listener> argument, for messages; NULL for --local */
+    struct listener_socket_opts opts;
 };
 
 struct connection_entry
