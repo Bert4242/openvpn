@@ -61,6 +61,7 @@ dist_noinst_DATA = \
 	openvpn-examples.5.rst \
 	README.man \
 	README.plugins \
+	sni-gateway-testing.rst \
 	tls-crypt-v2.txt \
 	$(openvpn_sections) \
 	$(openvpn_examples_sections) \

@@ -65,6 +65,7 @@
 #include "mbuf.h"
 #include "check_file_access.h"
 #include "resolve.h"
+#include "sni_gateway_http.h"
 
 #include <ctype.h>
 
@@ -655,6 +656,106 @@ static const char usage_message[] =
     "                  client-supplied tls-crypt-v2 client key\n"
     "--tls-crypt-v2-max-age n : Only accept tls-crypt-v2 client keys that have a\n"
     "                  timestamp which is at most n days old.\n"
+    "--sni-gateway-client <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade> :\n"
+    "                  (Client) Select the SNI gateway mode used for this TCP\n"
+    "                  connection.\n"
+    "                  'sni' prepends a fake SNI routing header (ClientHello)\n"
+    "                  so that SNI-aware proxies (e.g. Traefik passthrough)\n"
+    "                  route the stream to the right backend by hostname, then\n"
+    "                  discards it on the server; no extra encryption is added.\n"
+    "                  'sni-tls' opens a genuine TLS session to a\n"
+    "                  TLS-terminating gateway (Traefik) that forwards the\n"
+    "                  decrypted OpenVPN stream to the backend.\n"
+    "                  'sni-tls-http-path-upgrade' does the same TLS session\n"
+    "                  then performs an HTTP/1.1 Upgrade on --sni-gateway-client-http-path\n"
+    "                  so the gateway routes by path.\n"
+    "                  sni-tls/sni-tls-http-path-upgrade need a TCP client and\n"
+    "                  an OpenSSL build.  The server must have\n"
+    "                  --sni-gateway-server set.\n"
+    "                  'sni-http-path-upgrade' does the same HTTP/1.1 Upgrade\n"
+    "                  as sni-tls-http-path-upgrade, but over a PLAIN TCP\n"
+    "                  socket with no TLS at all -- for testing/deployment\n"
+    "                  directly against --sni-gateway-server\n"
+    "                  sni-http-path-upgrade/auto with no TLS-terminating\n"
+    "                  proxy in front, or behind a plain (non-TLS) HTTP\n"
+    "                  router.  Needs a TCP client but no OpenSSL build, and\n"
+    "                  is not excluded on Windows.\n"
+    "--sni-gateway-client-host name : (Client) The hostname the proxy must route to\n"
+    "                  this OpenVPN server; embedded in the SNI routing header\n"
+    "                  (sni/sni-tls/sni-tls-http-path-upgrade) or the HTTP\n"
+    "                  Host: header (sni-http-path-upgrade).\n"
+    "--sni-gateway-alpn name : (Client and Server) Append an ALPN token to\n"
+    "                  the SNI routing header.  May be repeated to offer\n"
+    "                  multiple tokens.  Set on the client to advertise its\n"
+    "                  ALPN list, and on the server (same option name, no\n"
+    "                  '-server-' prefix) to restrict which ALPN values\n"
+    "                  --sni-gateway-server sni/auto accepts -- see\n"
+    "                  --sni-gateway-server-ignore-alpn to skip the server\n"
+    "                  check entirely instead.  Can be set globally or per\n"
+    "                  <connection> block; a per-connection list replaces\n"
+    "                  (not adds to) the global list.  Default when no\n"
+    "                  --sni-gateway-alpn is given: hacky-sni-passthrough/1.\n"
+    "                  Must match between client and server.  Meaningless\n"
+    "                  (and rejected) with --sni-gateway-client sni-http-path-upgrade.\n"
+    "--sni-gateway-client-http-path path : (Client) HTTP request path for\n"
+    "                  --sni-gateway-client sni-tls-http-path-upgrade or\n"
+    "                  sni-http-path-upgrade (must start with '/').  Required\n"
+    "                  in those modes.\n"
+    "--sni-gateway-client-http-upgrade-token token : (Client) HTTP Upgrade: header token\n"
+    "                  for --sni-gateway-client sni-tls-http-path-upgrade or\n"
+    "                  sni-http-path-upgrade (1-64 bytes of RFC 7230 token\n"
+    "                  characters).  Must match the server's\n"
+    "                  --sni-gateway-server-http-upgrade-token.  Default: \"openvpn\".\n"
+    "--sni-gateway-client-tls-ca file : (Client) CA bundle to verify the gateway\n"
+    "                  certificate in --sni-gateway-client sni-tls/\n"
+    "                  sni-tls-http-path-upgrade mode (default: system trust\n"
+    "                  store).\n"
+    "--sni-gateway-client-tls-ca-no-verify : (Client) Skip gateway certificate\n"
+    "                  verification in --sni-gateway-client sni-tls/\n"
+    "                  sni-tls-http-path-upgrade mode (insecure).\n"
+    "--sni-gateway-server <sni|sni-http-path-upgrade|auto> : (Server)\n"
+    "                  Enable server-side SNI gateway handling.  'sni' detects\n"
+    "                  and discards the SNI routing header sent by clients\n"
+    "                  using --sni-gateway-client sni, then proceeds with the OpenVPN\n"
+    "                  protocol. Openvpn clients (no routing header) are\n"
+    "                  detected by peeking the first byte and handled normally\n"
+    "                  -- this also transparently accepts --sni-gateway-client\n"
+    "                  sni-tls clients, which look identical at this point.\n"
+    "                  'sni-http-path-upgrade' consumes the inbound plaintext\n"
+    "                  HTTP/1.1 Upgrade request -- forwarded by a\n"
+    "                  TLS-terminating gateway for --sni-gateway-client\n"
+    "                  sni-tls-http-path-upgrade clients, or sent directly by\n"
+    "                  --sni-gateway-client sni-http-path-upgrade clients (no proxy\n"
+    "                  needed for those) -- and replies 101 Switching\n"
+    "                  Protocols before OpenVPN.  The server never\n"
+    "                  terminates TLS itself either way, which is why this\n"
+    "                  mode's name has no 'tls' in it (unlike the\n"
+    "                  sni-tls-http-path-upgrade CLIENT mode name).\n"
+    "                  'auto' accepts sni, sni-tls, and\n"
+    "                  sni-tls-http-path-upgrade/sni-http-path-upgrade client\n"
+    "                  connections on the same port: the first bytes of each\n"
+    "                  connection are inspected at accept time to tell them\n"
+    "                  apart before any OpenVPN protocol processing begins.\n"
+    "--sni-gateway-server-host name : (Server) Accept only routing\n"
+    "                  headers whose SNI extension matches <name> (case-insensitive).\n"
+    "                  May be repeated; any one match is sufficient.  When not\n"
+    "                  set, any hostname (or no SNI) is accepted.  (sni and\n"
+    "                  auto modes)\n"
+    "--sni-gateway-server-ignore-alpn : (Server) Skip ALPN matching.\n"
+    "                  Accept any valid ClientHello regardless of ALPN content.\n"
+    "                  Wins over --sni-gateway-alpn if both are set.  (sni and\n"
+    "                  auto modes)\n"
+    "--sni-gateway-server-http-path path : (Server) In --sni-gateway-server\n"
+    "                  sni-http-path-upgrade or auto mode, require the\n"
+    "                  client's request path to match <path> exactly (must\n"
+    "                  start with '/').  May be repeated; any one match is\n"
+    "                  sufficient.  Default: accept any path.\n"
+    "--sni-gateway-server-http-upgrade-token token : (Server) In\n"
+    "                  --sni-gateway-server sni-http-path-upgrade or auto\n"
+    "                  mode, require the client's HTTP Upgrade: header token\n"
+    "                  to match <token> (1-64 bytes of RFC 7230 token\n"
+    "                  characters).  Must match the client's\n"
+    "                  --sni-gateway-client-http-upgrade-token.  Default: \"openvpn\".\n"
     "--askpass [file]: Get PEM password from controlling tty before we daemonize.\n"
     "--auth-nocache  : Don't cache --askpass or --auth-user-pass passwords.\n"
     "--crl-verify crl ['dir']: Check peer certificate against a CRL.\n"
@@ -2239,6 +2340,173 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
         msg(M_USAGE, "--auth-user-pass requires --pull");
     }
 
+    /*
+     * SNI gateway (--sni-gateway-client) validation.
+     *
+     * "sni" mode is the original SNI passthrough decoy behaviour.
+     * "sni-tls" mode opens a genuine TLS session to a TLS-terminating
+     * gateway (client side only).  "sni-tls-http-path-upgrade" additionally
+     * performs an HTTP/1.1 Upgrade on a path.
+     *
+     * The sni-tls/sni-tls-http-path-upgrade-only knobs
+     * (--sni-gateway-client-tls-ca/-tls-ca-no-verify) and the
+     * sni-tls-http-path-upgrade/sni-http-path-upgrade-only knobs
+     * (--sni-gateway-client-http-path/-http-upgrade-token) are meaningless
+     * in sni mode and are rejected there to avoid silently ignoring them.
+     */
+    if (sni_gw_client_mode_wraps_tls(ce->sni_gw_client_mode))
+    {
+        /* Both sni-tls and sni-tls-http-path-upgrade open a genuine userspace
+         * TLS session to the gateway, so they share the same backend /
+         * platform requirements. */
+        const char *modename =
+            (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE) ? "sni-tls-http-path-upgrade" : "sni-tls";
+#if !(defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL))
+        msg(M_USAGE, "--sni-gateway-client %s requires an OpenSSL build "
+                     "(not available with this crypto backend)",
+            modename);
+#endif
+#ifdef _WIN32
+        msg(M_USAGE, "--sni-gateway-client %s is not yet supported on Windows", modename);
+#endif
+        if (!ce->sni_gw_client_host)
+        {
+            msg(M_USAGE, "--sni-gateway-client %s requires --sni-gateway-client-host "
+                         "(used for SNI and certificate verification)",
+                modename);
+        }
+        if (ce->proto != PROTO_TCP_CLIENT)
+        {
+            msg(M_USAGE, "--sni-gateway-client %s is only valid for a TCP client "
+                         "(--proto tcp-client)",
+                modename);
+        }
+        if (ce->sni_gw_client_tls_ca_no_verify && ce->sni_gw_client_tls_ca)
+        {
+            msg(M_WARN, "--sni-gateway-client-tls-ca-no-verify makes --sni-gateway-client-tls-ca "
+                        "have no effect");
+        }
+
+        if (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE)
+        {
+            /* sni-tls-http-path-upgrade mode adds the HTTP/1.1 Upgrade over
+             * the tunnel and requires a request path to route on. */
+            if (!ce->sni_gw_client_http_path)
+            {
+                msg(M_USAGE, "--sni-gateway-client sni-tls-http-path-upgrade requires "
+                             "--sni-gateway-client-http-path (the HTTP path the gateway routes on)");
+            }
+            else if (ce->sni_gw_client_http_path[0] != '/')
+            {
+                msg(M_USAGE, "--sni-gateway-client-http-path must start with '/'");
+            }
+            if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_client_http_upgrade_token))
+            {
+                msg(M_USAGE, "--sni-gateway-client-http-upgrade-token must be 1-%d bytes of "
+                             "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+                    SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
+            }
+        }
+        else /* SNI_GW_CLIENT_TLS */
+        {
+            if (ce->sni_gw_client_http_path)
+            {
+                msg(M_USAGE, "--sni-gateway-client-http-path is only meaningful with "
+                             "--sni-gateway-client sni-tls-http-path-upgrade");
+            }
+            if (ce->sni_gw_client_http_upgrade_token)
+            {
+                msg(M_USAGE, "--sni-gateway-client-http-upgrade-token is only meaningful with "
+                             "--sni-gateway-client sni-tls-http-path-upgrade or "
+                             "sni-http-path-upgrade");
+            }
+        }
+    }
+    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_HTTP_UPGRADE)
+    {
+        /* sni-http-path-upgrade: plain-socket HTTP/1.1 Upgrade, no TLS at
+         * all -- unlike SNI_GW_CLIENT_TLS/SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+         * above, this needs no OpenSSL-build requirement and is not
+         * excluded on Windows: it's a one-shot blocking exchange before
+         * the raw OpenVPN stream begins, not a steady-state userspace
+         * wrapper (same category as plain "sni" mode). */
+        if (!ce->sni_gw_client_host)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni-http-path-upgrade requires --sni-gateway-client-host "
+                         "(used only for the HTTP Host: header, not TLS/SNI/cert "
+                         "verification)");
+        }
+        if (ce->proto != PROTO_TCP_CLIENT)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni-http-path-upgrade is only valid for a "
+                         "TCP client (--proto tcp-client)");
+        }
+        if (!ce->sni_gw_client_http_path)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni-http-path-upgrade requires "
+                         "--sni-gateway-client-http-path (the HTTP path the server routes on)");
+        }
+        else if (ce->sni_gw_client_http_path[0] != '/')
+        {
+            msg(M_USAGE, "--sni-gateway-client-http-path must start with '/'");
+        }
+        if (ce->sni_gw_client_tls_ca || ce->sni_gw_client_tls_ca_no_verify)
+        {
+            msg(M_USAGE, "--sni-gateway-client-tls-ca and --sni-gateway-client-tls-ca-no-verify are "
+                         "meaningless with --sni-gateway-client sni-http-path-upgrade (there "
+                         "is no TLS session to verify)");
+        }
+        if (ce->sni_gw_alpn_defined)
+        {
+            msg(M_USAGE, "--sni-gateway-alpn is meaningless with --sni-gateway-client "
+                         "sni-http-path-upgrade (there is no ClientHello to carry it)");
+        }
+        if (!sni_gw_http_upgrade_token_is_valid(ce->sni_gw_client_http_upgrade_token))
+        {
+            msg(M_USAGE, "--sni-gateway-client-http-upgrade-token must be 1-%d bytes of "
+                         "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+                SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
+        }
+    }
+    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI
+        && (ce->sni_gw_client_http_path || ce->sni_gw_client_tls_ca || ce->sni_gw_client_tls_ca_no_verify))
+    {
+        msg(M_USAGE, "--sni-gateway-client-http-path, --sni-gateway-client-tls-ca and "
+                     "--sni-gateway-client-tls-ca-no-verify are only meaningful with "
+                     "--sni-gateway-client sni-tls or sni-tls-http-path-upgrade");
+    }
+    if (ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI && ce->sni_gw_client_http_upgrade_token)
+    {
+        msg(M_USAGE, "--sni-gateway-client-http-upgrade-token is only meaningful with "
+                     "--sni-gateway-client sni-tls-http-path-upgrade or "
+                     "sni-http-path-upgrade");
+    }
+    if ((ce->sni_gw_client_mode == SNI_GW_CLIENT_SNI) && ce->sni_gw_client_enabled)
+    {
+        /* Unlike the other three modes, plain "sni" has no dedicated
+         * validation block above -- but it shares the same activation
+         * guard in link_socket_init_phase2() (proto tcp-client and a
+         * configured host), so without this check a misconfiguration
+         * silently never sends the SNI routing header instead of erroring
+         * out. */
+        if (!ce->sni_gw_client_host)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni requires --sni-gateway-client-host "
+                         "(the hostname to embed in the SNI routing header)");
+        }
+        if (ce->proto != PROTO_TCP_CLIENT)
+        {
+            msg(M_USAGE, "--sni-gateway-client sni is only valid for a TCP client "
+                         "(--proto tcp-client)");
+        }
+    }
+    if (ce->sni_gw_client_enabled && options->sni_gw_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway-client/--sni-gateway-client-host and --sni-gateway-server "
+                     "are mutually exclusive -- a single OpenVPN process cannot "
+                     "be both an SNI gateway client and an SNI gateway server");
+    }
+
     uninit_options(&defaults);
 }
 
@@ -2399,6 +2667,18 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
     {
         msg(M_WARN, "NOTICE: --explicit-exit-notify ignored for --proto tcp");
         ce->explicit_exit_notification = 0;
+    }
+
+    /* --sni-gateway-client-http-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN when
+     * unset, but only for the two modes that actually perform an HTTP
+     * Upgrade -- left NULL otherwise so options_postprocess_verify_ce()'s
+     * "meaningless in this mode" checks below can still tell "never set" from
+     * "defaulted", exactly like --sni-gateway-client-http-path does today. */
+    if (!ce->sni_gw_client_http_upgrade_token
+        && (ce->sni_gw_client_mode == SNI_GW_CLIENT_TLS_HTTP_UPGRADE
+            || ce->sni_gw_client_mode == SNI_GW_CLIENT_HTTP_UPGRADE))
+    {
+        ce->sni_gw_client_http_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
     }
 }
 
@@ -2615,6 +2895,20 @@ options_postprocess_mutate_invariant(struct options *options)
         options->pkcs11_providers[0] = DEFAULT_PKCS11_MODULE;
     }
 #endif
+
+    /* --sni-gateway-server-http-upgrade-token defaults to SNI_GW_HTTP_UPGRADE_TOKEN
+     * when unset, but only when the server is actually enabled in one of the
+     * two modes that perform an HTTP Upgrade -- left NULL otherwise so
+     * options_postprocess_verify()'s "meaningless"/"requires" checks below can
+     * still tell "never set" from "defaulted", exactly like
+     * --sni-gateway-server-http-path does today. */
+    if (!options->sni_gw_server_http_upgrade_token
+        && options->sni_gw_server_enabled
+        && (options->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE
+            || options->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
+    {
+        options->sni_gw_server_http_upgrade_token = SNI_GW_HTTP_UPGRADE_TOKEN;
+    }
 }
 
 static void
@@ -2634,6 +2928,83 @@ options_postprocess_verify(const struct options *o)
     }
 
     dns_options_verify(M_FATAL, &o->dns_options);
+
+    /*
+     * SNI gateway server-side validation (--sni-gateway-server).
+     * Accepts "sni", "sni-http-path-upgrade", or "auto" (the server never
+     * terminates TLS itself, so there is no "sni-tls" server mode, and no
+     * "-tls-" in any server mode string -- "sni-http-path-upgrade" accepts
+     * the plaintext HTTP/1.1 Upgrade regardless of whether it was forwarded
+     * by a TLS-terminating proxy for --sni-gateway-client sni-tls-http-path-upgrade
+     * clients, or sent directly by --sni-gateway-client sni-http-path-upgrade
+     * clients).
+     * Deliberately NOT extended to SNI_GW_SERVER_AUTO below: under "auto"
+     * both the sni-mode host/ALPN filters and the http-mode path filter are
+     * simultaneously meaningful (any client mode may arrive on the same
+     * port), so neither "ignored" warning should fire.
+     */
+    if (o->sni_gw_server_enabled && o->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE)
+    {
+        /* The sni-mode ALPN/SNI filters are ClientHello matchers -- meaningless
+         * when the client speaks HTTP.  Warn and ignore rather than hard-error. */
+        if (o->sni_gw_server_host_count > 0)
+        {
+            msg(M_WARN, "--sni-gateway-server-host is ignored with "
+                        "--sni-gateway-server sni-http-path-upgrade (it filters "
+                        "the decoy ClientHello used by sni mode)");
+        }
+        if (o->sni_gw_server_ignore_alpn)
+        {
+            msg(M_WARN, "--sni-gateway-server-ignore-alpn is ignored with "
+                        "--sni-gateway-server sni-http-path-upgrade "
+                        "(it only affects sni mode)");
+        }
+    }
+    if (o->sni_gw_server_http_path_count > 0 && !o->sni_gw_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway-server-http-path requires "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    if (o->sni_gw_server_http_path_count > 0
+        && o->sni_gw_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
+        && o->sni_gw_server_mode != SNI_GW_SERVER_AUTO)
+    {
+        msg(M_USAGE, "--sni-gateway-server-http-path is only meaningful with "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    for (int i = 0; i < o->sni_gw_server_http_path_count; i++)
+    {
+        if (o->sni_gw_server_http_path_list[i][0] != '/')
+        {
+            msg(M_USAGE, "--sni-gateway-server-http-path must start with '/'");
+            break;
+        }
+    }
+    if (o->sni_gw_server_http_upgrade_token && !o->sni_gw_server_enabled)
+    {
+        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token requires "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    if (o->sni_gw_server_http_upgrade_token
+        && o->sni_gw_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
+        && o->sni_gw_server_mode != SNI_GW_SERVER_AUTO)
+    {
+        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token is only meaningful with "
+                     "--sni-gateway-server sni-http-path-upgrade or auto");
+    }
+    if (o->sni_gw_server_http_upgrade_token
+        && !sni_gw_http_upgrade_token_is_valid(o->sni_gw_server_http_upgrade_token))
+    {
+        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token must be 1-%d bytes of "
+                     "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+            SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
+    }
+    if (!o->sni_gw_server_enabled
+        && (o->sni_gw_server_host_count > 0 || o->sni_gw_server_ignore_alpn))
+    {
+        msg(M_USAGE, "--sni-gateway-server-host and --sni-gateway-server-ignore-alpn "
+                     "require --sni-gateway-server to be set");
+    }
 
     if (dco_enabled(o))
     {
@@ -4153,6 +4524,47 @@ key_is_external(const struct options *options)
     return ret;
 }
 
+/**
+ * Append an ALPN token to the SNI gateway ALPN list of the given
+ * connection entry (--sni-gateway-alpn).
+ *
+ * Replace semantics: the first --sni-gateway-alpn seen inside a
+ * <connection> block starts a fresh list, discarding whatever was
+ * inherited from the global connection entry.  Subsequent values in the
+ * same block (or further global declarations) are appended.
+ *
+ * @param ce               connection entry to update
+ * @param val              ALPN token to append
+ * @param gc               gc_arena used to (re)allocate the list
+ * @param inside_connection true if called while parsing inside a
+ *                          <connection> block (i.e. options->connection_list
+ *                          is NULL at that point)
+ */
+static void
+sni_gw_alpn_append(struct connection_entry *ce, const char *val,
+                   struct gc_arena *gc, bool inside_connection)
+{
+    if (inside_connection && !ce->sni_gw_alpn_block_owns_list)
+    {
+        /* First entry in this connection block – start from scratch,
+         * discarding anything inherited from the global connection entry. */
+        ce->sni_gw_alpn_list = NULL;
+        ce->sni_gw_alpn_count = 0;
+        ce->sni_gw_alpn_block_owns_list = true;
+        ce->sni_gw_alpn_defined = true;
+    }
+    else if (!ce->sni_gw_alpn_defined)
+    {
+        /* Global scope, first entry. */
+        ce->sni_gw_alpn_defined = true;
+    }
+    int n = ce->sni_gw_alpn_count;
+    ce->sni_gw_alpn_list =
+        gc_realloc(ce->sni_gw_alpn_list, (size_t)(n + 1) * sizeof(const char *), gc);
+    ce->sni_gw_alpn_list[n] = val;
+    ce->sni_gw_alpn_count = n + 1;
+}
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-compare"
@@ -4593,6 +5005,9 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 
             init_options(&sub);
             sub.ce = options->ce;
+            /* This block hasn't overridden the inherited ALPN list yet --
+             * see sni_gw_alpn_block_owns_list's doc comment in options.h. */
+            sub.ce.sni_gw_alpn_block_owns_list = false;
             read_config_string("[CONNECTION-OPTIONS]", &sub, p[1], msglevel, OPT_P_CONNECTION,
                                option_types_found, es);
             if (!sub.ce.remote)
@@ -7698,6 +8113,119 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         {
             goto err;
         }
+    }
+    else if (streq(p[0], "sni-gateway-client") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        int mode = sni_gw_client_mode_from_string(p[1]);
+        if (mode < 0)
+        {
+            msg(msglevel,
+                "--sni-gateway-client: unknown mode '%s' "
+                "(expected sni, sni-tls, sni-tls-http-path-upgrade, or "
+                "sni-http-path-upgrade)",
+                p[1]);
+            goto err;
+        }
+        if (mode == SNI_GW_SERVER_AUTO)
+        {
+            msg(msglevel, "--sni-gateway-client: mode 'auto' is only valid for "
+                          "--sni-gateway-server (there is no client-side auto mode)");
+            goto err;
+        }
+        options->ce.sni_gw_client_mode = (enum sni_gw_mode)mode;
+        options->ce.sni_gw_client_defined = true;
+        options->ce.sni_gw_client_enabled = true;
+    }
+    else if (streq(p[0], "sni-gateway-client-host") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gw_client_host = p[1];
+        options->ce.sni_gw_client_enabled = true;
+    }
+    else if (streq(p[0], "sni-gateway-alpn") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        sni_gw_alpn_append(&options->ce, p[1], &options->gc,
+                           options->connection_list == NULL);
+    }
+    else if (streq(p[0], "sni-gateway-client-http-path") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gw_client_http_path = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-client-http-upgrade-token") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gw_client_http_upgrade_token = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-client-tls-ca") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gw_client_tls_ca = p[1];
+    }
+    else if (streq(p[0], "sni-gateway-client-tls-ca-no-verify") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        options->ce.sni_gw_client_tls_ca_no_verify = true;
+    }
+    else if (streq(p[0], "sni-gateway-server") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        if (streq(p[1], "sni-tls") || streq(p[1], "sni-tls-http-path-upgrade"))
+        {
+            /* Both are the same mistake: there is no TLS on the server, in
+             * any mode -- one unified error rather than a dedicated message
+             * for one TLS-flavored string and a generic "unknown mode" for
+             * the other. */
+            msg(msglevel,
+                "--sni-gateway-server: '%s' is not a valid mode -- the server "
+                "never terminates TLS itself, in any mode; use 'sni' or "
+                "'sni-http-path-upgrade' instead",
+                p[1]);
+            goto err;
+        }
+        int mode = sni_gw_server_mode_from_string(p[1]);
+        if (mode < 0)
+        {
+            msg(msglevel,
+                "--sni-gateway-server: unknown mode '%s' "
+                "(expected sni, sni-http-path-upgrade, or auto)",
+                p[1]);
+            goto err;
+        }
+        options->sni_gw_server_enabled = true;
+        options->sni_gw_server_mode = (enum sni_gw_mode)mode;
+    }
+    else if (streq(p[0], "sni-gateway-server-host") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        int n = options->sni_gw_server_host_count;
+        options->sni_gw_server_host_list =
+            gc_realloc(options->sni_gw_server_host_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        options->sni_gw_server_host_list[n] = p[1];
+        options->sni_gw_server_host_count = n + 1;
+    }
+    else if (streq(p[0], "sni-gateway-server-ignore-alpn") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_gw_server_ignore_alpn = true;
+    }
+    else if (streq(p[0], "sni-gateway-server-http-path") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        int n = options->sni_gw_server_http_path_count;
+        options->sni_gw_server_http_path_list =
+            gc_realloc(options->sni_gw_server_http_path_list,
+                       (size_t)(n + 1) * sizeof(const char *), &options->gc);
+        options->sni_gw_server_http_path_list[n] = p[1];
+        options->sni_gw_server_http_path_count = n + 1;
+    }
+    else if (streq(p[0], "sni-gateway-server-http-upgrade-token") && p[1] && !p[2])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL);
+        options->sni_gw_server_http_upgrade_token = p[1];
     }
     else if (streq(p[0], "x509-track") && p[1] && !p[2])
     {
