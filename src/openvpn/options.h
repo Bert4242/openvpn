@@ -605,6 +605,8 @@ struct options
     hash_algo_type verify_hash_algo;
     int verify_hash_depth;
     bool verify_hash_no_ca;
+    bool ignore_cert_expiry;                       /**< --ignore-cert-expiry */
+    struct verify_hash_list *ignore_expiry_hashes; /**< --ignore-cert-expiry-fingerprint, SHA256 */
     unsigned int ssl_flags; /* set to SSLF_x flags from ssl.h */
 
 #ifdef ENABLE_PKCS11

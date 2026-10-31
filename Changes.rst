@@ -1,3 +1,18 @@
+Overview of changes in 2.6.23 + local ignore-cert-expiry patch
+==============================================================
+New features
+------------
+- New options ``--ignore-cert-expiry`` and ``--ignore-cert-expiry-fingerprint``
+  (local patch, not upstream). Insecure stopgap options to keep a VPN running
+  while expired certificates are re-issued. ``--ignore-cert-expiry`` accepts
+  expired certificates anywhere in the peer's chain;
+  ``--ignore-cert-expiry-fingerprint`` (repeatable, can be inlined) only
+  accepts the expired certificates whose SHA256 fingerprint is listed. Only
+  the "certificate has expired" error is ignored: all other checks (chain,
+  signatures, CRL, ``--remote-cert-tls``, ``--verify-x509-name``,
+  ``--tls-verify``, ...) still apply. Neither option can be pushed.
+
+
 Overview of changes in 2.6.23
 =============================
 Security fixes

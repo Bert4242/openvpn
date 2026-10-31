@@ -3330,6 +3330,8 @@ do_init_crypto_tls(struct context *c, const unsigned int flags)
     to.verify_hash_algo = options->verify_hash_algo;
     to.verify_hash_depth = options->verify_hash_depth;
     to.verify_hash_no_ca = options->verify_hash_no_ca;
+    to.ignore_cert_expiry = options->ignore_cert_expiry;
+    to.ignore_expiry_hashes = options->ignore_expiry_hashes;
 #ifdef ENABLE_X509ALTUSERNAME
     memcpy(to.x509_username_field, options->x509_username_field, sizeof(to.x509_username_field));
 #else

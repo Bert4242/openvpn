@@ -70,6 +70,24 @@ result_t verify_cert(struct tls_session *session, openvpn_x509_cert_t *cert, int
 void cert_hash_remember(struct tls_session *session, const int cert_depth,
                         const struct buffer *cert_hash);
 
+/**
+ * Decide whether the expiry of \c cert may be ignored because of
+ * \c --ignore-cert-expiry or a matching \c --ignore-cert-expiry-fingerprint,
+ * and log a warning naming the certificate when it may.
+ *
+ * Only the caller's "certificate has expired" error may be overridden based on
+ * this result; every other verification error must stay fatal.
+ *
+ * @param session       TLS Session associated with this tunnel
+ * @param cert          The expired certificate
+ * @param cert_depth    Depth of the certificate in the chain
+ * @param cert_hash     SHA256 fingerprint of \c cert
+ *
+ * @return              \c true if the expiry is to be ignored
+ */
+bool verify_cert_expiry_ignored(struct tls_session *session, openvpn_x509_cert_t *cert,
+                                int cert_depth, const struct buffer *cert_hash);
+
 /*
  * Library-specific functions.
  *
