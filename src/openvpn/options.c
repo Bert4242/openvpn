@@ -3342,18 +3342,16 @@ options_postprocess_verify(const struct options *o)
     dns_options_verify(M_FATAL, &o->dns_options);
 
     /*
-     * SNI gateway server-side validation (--sni-gateway-server).
+     * SNI gateway server-side validation (--sni-gateway-server), for the
+     * global settings and for each <listener> block's resolved settings.
      * Accepts "sni", "sni-http-path-upgrade", or "auto" (the server never
      * terminates TLS itself, so there is no "sni-tls" server mode, and no
      * "-tls-" in any server mode string -- "sni-http-path-upgrade" accepts
      * the plaintext HTTP/1.1 Upgrade regardless of whether it was forwarded
      * by a TLS-terminating proxy for --sni-gateway-client sni-tls-http-path-upgrade
      * clients, or sent directly by --sni-gateway-client sni-http-path-upgrade
-     * clients).
-     * Deliberately NOT extended to SNI_GW_SERVER_AUTO below: under "auto"
-     * both the sni-mode host/ALPN filters and the http-mode path filter are
-     * simultaneously meaningful (any client mode may arrive on the same
-     * port), so neither "ignored" warning should fire.
+     * clients).  See sni_gw_server_verify() for why "auto" warns about neither
+     * filter.
      */
     sni_gw_server_verify("", o->sni_gw_server_enabled, o->sni_gw_server_mode,
                          o->sni_gw_server_host_count, o->sni_gw_server_ignore_alpn,
