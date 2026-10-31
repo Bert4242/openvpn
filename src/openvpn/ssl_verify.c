@@ -211,6 +211,52 @@ cert_hash_remember(struct tls_session *session, const int error_depth,
     }
 }
 
+bool
+verify_cert_expiry_ignored(struct tls_session *session, openvpn_x509_cert_t *cert, int cert_depth,
+                           const struct buffer *cert_hash)
+{
+    const struct tls_options *opt = session->opt;
+    const char *reason = NULL;
+
+    if (opt->ignore_cert_expiry)
+    {
+        reason = "--ignore-cert-expiry";
+    }
+    else if (opt->ignore_expiry_hashes && (BLEN(cert_hash) == SHA256_DIGEST_LENGTH))
+    {
+        for (const struct verify_hash_list *h = opt->ignore_expiry_hashes; h; h = h->next)
+        {
+            if (memcmp_constant_time(h->hash, CBPTR(cert_hash), SHA256_DIGEST_LENGTH) == 0)
+            {
+                reason = "--ignore-cert-expiry-fingerprint";
+                break;
+            }
+            else
+            {
+                /* no match, try the next listed fingerprint */
+            }
+        }
+    }
+    else
+    {
+        /* neither option set (or no usable hash): expiry stays fatal */
+    }
+
+    if (reason)
+    {
+        struct gc_arena gc = gc_new();
+        const char *subject = x509_get_subject(cert, &gc);
+        msg(M_WARN, "WARNING: accepting EXPIRED certificate at depth=%d: %s (%s)", cert_depth,
+            subject ? subject : "(Failed to retrieve certificate subject)", reason);
+        gc_free(&gc);
+        return true;
+    }
+    else
+    {
+        return false;
+    }
+}
+
 void
 cert_hash_free(struct cert_hash_set *chs)
 {
