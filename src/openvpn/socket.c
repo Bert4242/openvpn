@@ -1056,42 +1056,77 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     sock->socks_proxy = c->c1.socks_proxy;
     sock->bind_local = o->ce.bind_local;
     sock->resolve_retry_seconds = o->resolve_retry_seconds;
-    sock->mtu_discover_type = o->ce.mtu_discover_type;
+
+    /* The listen entry, with its per-listener options: a TCP child takes its
+     * listening socket's entry (its own index is always 0, whichever
+     * listener accepted it). */
+    if (c->mode == CM_CHILD_TCP)
+    {
+        sock->local_entry = c->c2.accept_from->local_entry;
+    }
+    else
+    {
+        sock->local_entry = o->ce.local_list->array[sock_index];
+    }
+    const struct listener_socket_opts *lo = &sock->local_entry->opts;
+
+    /* Every per-listener value falls back to the global (or current
+     * connection entry) value when the listener did not set it. */
+    sock->mtu_discover_type =
+        lo->mtu_discover_type_defined ? lo->mtu_discover_type : o->ce.mtu_discover_type;
 
 #ifdef ENABLE_DEBUG
     sock->gremlin = o->gremlin;
 #endif
 
-    sock->socket_buffer_sizes.rcvbuf = o->rcvbuf;
-    sock->socket_buffer_sizes.sndbuf = o->sndbuf;
+    sock->socket_buffer_sizes.rcvbuf = lo->rcvbuf_defined ? lo->rcvbuf : o->rcvbuf;
+    sock->socket_buffer_sizes.sndbuf = lo->sndbuf_defined ? lo->sndbuf : o->sndbuf;
 
-    sock->sockflags = o->sockflags;
+    sock->sockflags = o->sockflags | lo->sockflags;
 
 #if PORT_SHARE
     if (o->port_share_host && o->port_share_port)
     {
         sock->sockflags |= SF_PORT_SHARE;
     }
+    else
+    {
+        /* no port sharing */
+    }
 #endif
-    if (o->sni_gw_server_enabled
-        && (o->sni_gw_server_mode == SNI_GW_SERVER_SNI || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
+    /* lo->sni_gw_server_* are already resolved against the global settings
+     * (options_postprocess_mutate_le()) */
+    if (lo->sni_gw_server_enabled
+        && ((lo->sni_gw_server_mode == SNI_GW_SERVER_SNI)
+            || (lo->sni_gw_server_mode == SNI_GW_SERVER_AUTO)))
     {
         sock->sockflags |= SF_SNI_GW_SERVER_PASSTHROUGH;
     }
-    if (o->sni_gw_server_enabled
-        && (o->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE || o->sni_gw_server_mode == SNI_GW_SERVER_AUTO))
+    else
+    {
+        /* no ClientHello peek on this socket */
+    }
+    if (lo->sni_gw_server_enabled
+        && ((lo->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE)
+            || (lo->sni_gw_server_mode == SNI_GW_SERVER_AUTO)))
     {
         sock->sockflags |= SF_SNI_GW_SERVER_HTTP;
     }
+    else
+    {
+        /* no HTTP Upgrade handling on this socket */
+    }
 
-    sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    sock->mark = lo->mark_defined ? lo->mark : o->mark;
+    sock->bind_dev = lo->bind_dev ? lo->bind_dev : o->bind_dev;
     ASSERT(proto >= 0 && proto < PROTO_N);
     sock->info.proto = (uint8_t)proto;
-    sock->info.af = o->ce.af;
+    /* a <listener> proto like tcp4/udp6 implies the address family */
+    sock->info.af = (sock->local_entry->af != AF_UNSPEC) ? sock->local_entry->af : o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
     sock->info.lsa = &c->c1.link_socket_addrs[sock_index];
-    sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
+    sock->info.bind_ipv6_only =
+        lo->bind_ipv6_only_defined ? lo->bind_ipv6_only : o->ce.bind_ipv6_only;
     sock->info.ipchange_command = o->ipchange;
     sock->info.plugins = c->plugins;
     sock->server_poll_timeout = &c->c2.server_poll_interval;
@@ -1392,17 +1427,15 @@ link_socket_init_phase2(struct context *c, struct link_socket *sock)
 
     sock->stream_buf.sni_gw_alpn_list = (const char **)c->options.ce.sni_gw_alpn_list;
     sock->stream_buf.sni_gw_alpn_count = c->options.ce.sni_gw_alpn_count;
-    sock->stream_buf.sni_gw_server_host_list =
-        (const char **)c->options.sni_gw_server_host_list;
-    sock->stream_buf.sni_gw_server_host_count =
-        c->options.sni_gw_server_host_count;
-    sock->stream_buf.sni_gw_server_ignore_alpn =
-        c->options.sni_gw_server_ignore_alpn;
-    sock->stream_buf.sni_gw_http_require_path_list =
-        (const char **)c->options.sni_gw_server_http_path_list;
-    sock->stream_buf.sni_gw_http_require_path_count =
-        c->options.sni_gw_server_http_path_count;
-    sock->stream_buf.sni_gw_http_upgrade_token = c->options.sni_gw_server_http_upgrade_token;
+    /* per-listener SNI gateway server settings, already resolved against
+     * the global ones (options_postprocess_mutate_le()) */
+    const struct listener_socket_opts *lo = &sock->local_entry->opts;
+    sock->stream_buf.sni_gw_server_host_list = lo->sni_gw_server_host_list;
+    sock->stream_buf.sni_gw_server_host_count = lo->sni_gw_server_host_count;
+    sock->stream_buf.sni_gw_server_ignore_alpn = lo->sni_gw_server_ignore_alpn;
+    sock->stream_buf.sni_gw_http_require_path_list = lo->sni_gw_server_http_path_list;
+    sock->stream_buf.sni_gw_http_require_path_count = lo->sni_gw_server_http_path_count;
+    sock->stream_buf.sni_gw_http_upgrade_token = lo->sni_gw_server_http_upgrade_token;
 
     /* Second chance to resolv/create socket */
     resolve_remote(sock, 2, sig_info);
