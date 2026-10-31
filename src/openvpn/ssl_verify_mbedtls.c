@@ -77,16 +77,19 @@ verify_callback(void *session_obj, mbedtls_x509_crt *cert, int cert_depth, uint3
         /* CA-based verification: date and trust errors are reported below */
     }
 
-    /* --ignore-cert-expiry(-fingerprint): clear only the "expired" flag, any
-     * other flag still makes the certificate fail below */
-    if ((*flags & MBEDTLS_X509_BADCERT_EXPIRED)
+    /* --ignore-cert-expiry(-fingerprint): clear the "expired" flag only when
+     * it is the sole problem with this certificate. mbed TLS reports all
+     * problems of a certificate at once, so a cert that is also e.g. revoked
+     * or untrusted keeps all its flags, fails below, and is not logged as an
+     * accepted expired certificate. */
+    if ((*flags == MBEDTLS_X509_BADCERT_EXPIRED)
         && verify_cert_expiry_ignored(session, cert, cert_depth, &cert_fingerprint))
     {
-        *flags &= ~MBEDTLS_X509_BADCERT_EXPIRED;
+        *flags = 0;
     }
     else
     {
-        /* not expired, or expiry not to be ignored: flags stay as they are */
+        /* not (only) expired, or expiry not to be ignored: flags stay as they are */
     }
 
     /* did peer present cert which was signed by our root cert? */
