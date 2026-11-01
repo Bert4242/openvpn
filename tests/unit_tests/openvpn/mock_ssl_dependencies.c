@@ -64,3 +64,12 @@ verify_cert(struct tls_session *session, openvpn_x509_cert_t *cert, int cert_dep
 {
     return FAILURE;
 }
+
+bool
+verify_cert_expiry_ignored(struct tls_session *session, openvpn_x509_cert_t *cert, int cert_depth,
+                           const struct buffer *cert_hash)
+{
+    /* Dummy function to get the linker happy, should never be called */
+    assert_false(true);
+    return false;
+}

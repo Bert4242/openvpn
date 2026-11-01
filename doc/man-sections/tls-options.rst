@@ -216,6 +216,60 @@ certificates and keys: https://github.com/OpenVPN/easy-rsa
   The ``--hand-window`` parameter also controls the amount of time that
   the OpenVPN client repeats the pull request until it times out.
 
+--ignore-cert-expiry
+  **INSECURE, intended only as a stopgap** until expired certificates are
+  re-issued. Accept a peer certificate chain even when a certificate in it
+  (the peer's certificate or any CA certificate) has expired.
+
+  Only the "certificate has expired" verification error is ignored. All other
+  checks still apply exactly as without this option: the chain must still
+  lead to a trusted CA with valid signatures, and ``--crl-verify``,
+  ``--remote-cert-tls``, ``--remote-cert-ku``, ``--remote-cert-eku``,
+  ``--verify-x509-name``, ``--tls-verify``, ``--peer-fingerprint`` etc.
+  still reject a certificate they would otherwise reject. Certificates that
+  are *not yet* valid are still rejected, and so is an expired CRL.
+
+  A warning is logged at startup and every time an expired certificate is
+  accepted. Prefer the narrower ``--ignore-cert-expiry-fingerprint``.
+
+  This option can only be set in the local configuration or on the command
+  line; a server cannot push it to a client.
+
+  Supported with both the OpenSSL and the mbed TLS backends.
+
+--ignore-cert-expiry-fingerprint args
+  **INSECURE, intended only as a stopgap.** Like ``--ignore-cert-expiry``,
+  but expiry is ignored only for the certificates whose SHA256 fingerprint is
+  listed. The fingerprint is matched against every certificate of the peer's
+  chain, so listing an expired CA certificate lets that CA keep validating
+  the certificates it signed (which must themselves be unexpired, or be
+  listed too).
+
+  The format is the same as for ``--peer-fingerprint``: colon-separated hex,
+  case-insensitive. The fingerprint of a certificate can be obtained with
+  ::
+
+     openssl x509 -in cert.crt -noout -fingerprint -sha256
+
+  Valid syntax:
+  ::
+
+    ignore-cert-expiry-fingerprint AD:B0:95:D8:09:...
+
+  The option can be repeated, or inlined:
+  ::
+
+    <ignore-cert-expiry-fingerprint>
+    # server certificate
+    00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff
+    # client certificate
+    11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00:11:22:33:44:55:66:77:88:99:aa:bb:cc:dd:ee:ff:00
+    </ignore-cert-expiry-fingerprint>
+
+  Matching is by fingerprint only, never by subject or common name. Like
+  ``--ignore-cert-expiry``, this option cannot be pushed, and every accepted
+  expired certificate is logged with a warning.
+
 --key file|uri
   Local peer's private key in .pem format or a URI. Use the private key
   which was generated when you built your peer's certificate (see
