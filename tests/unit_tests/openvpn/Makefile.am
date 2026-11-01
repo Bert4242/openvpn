@@ -439,6 +439,7 @@ sni_testdriver_LDFLAGS = @TEST_LDFLAGS@
 sni_testdriver_SOURCES = test_sni.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -454,6 +455,7 @@ sni_openssl_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
 sni_openssl_testdriver_SOURCES = test_sni.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -474,6 +476,7 @@ sni_compat_testdriver_SOURCES = test_sni_compat.c \
 	sni_alt_impl.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -489,6 +492,7 @@ sni_gw_http_testdriver_LDFLAGS = @TEST_LDFLAGS@
 sni_gw_http_testdriver_SOURCES = test_sni_gw_http.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -504,6 +508,7 @@ sni_gw_accept_testdriver_LDFLAGS = @TEST_LDFLAGS@
 sni_gw_accept_testdriver_SOURCES = test_sni_gw_accept.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
@@ -523,6 +528,7 @@ sni_gw_tls_burst_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS) -lp
 sni_gw_tls_burst_testdriver_SOURCES = test_sni_gw_tls_burst.c \
 	mock_msg.c mock_msg.h test_common.h \
 	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
 	$(top_srcdir)/src/openvpn/buffer.c \
 	$(top_srcdir)/src/openvpn/platform.c \
 	$(top_srcdir)/src/openvpn/win32-util.c \
