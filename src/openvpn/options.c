@@ -1507,6 +1507,234 @@ alloc_local_entry(struct connection_entry *ce, const msglvl_t msglevel, struct g
     return e;
 }
 
+/**
+ * Parse a listener spec "proto:[addr:]port" or "proto:[addr]:port" (bracket
+ * notation for IPv6 literals: tcp6:[::1]:443) into \c le.
+ */
+static bool
+parse_listener_spec(struct local_entry *le, const char *spec, msglvl_t msglevel,
+                    struct gc_arena *gc)
+{
+    const char *colon = strchr(spec, ':');
+    if (!colon)
+    {
+        msg(msglevel, "--listener: missing ':' in '%s', expected proto:[addr:]port", spec);
+        return false;
+    }
+    else
+    {
+        /* proto:rest */
+    }
+
+    size_t proto_len = (size_t)(colon - spec);
+    char *proto_str = gc_malloc(proto_len + 1, false, gc);
+    memcpy(proto_str, spec, proto_len);
+    proto_str[proto_len] = '\0';
+
+    int proto = ascii2proto(proto_str);
+    if (proto < 0)
+    {
+        msg(msglevel, "--listener: unknown protocol '%s'", proto_str);
+        return false;
+    }
+    else
+    {
+        le->proto = proto;
+        le->af = ascii2af(proto_str);
+    }
+
+    const char *rest = colon + 1;
+    if (*rest == '[')
+    {
+        /* IPv6 literal: [addr]:port */
+        const char *end_bracket = strchr(rest, ']');
+        if (!end_bracket || (end_bracket[1] != ':'))
+        {
+            msg(msglevel, "--listener: malformed IPv6 address in '%s'", spec);
+            return false;
+        }
+        else
+        {
+            size_t addr_len = (size_t)(end_bracket - rest - 1);
+            char *addr = gc_malloc(addr_len + 1, false, gc);
+            memcpy(addr, rest + 1, addr_len);
+            addr[addr_len] = '\0';
+            le->local = addr;
+            le->port = end_bracket + 2;
+        }
+    }
+    else
+    {
+        const char *last_colon = strrchr(rest, ':');
+        if (last_colon)
+        {
+            /* addr:port */
+            size_t addr_len = (size_t)(last_colon - rest);
+            char *addr = gc_malloc(addr_len + 1, false, gc);
+            memcpy(addr, rest, addr_len);
+            addr[addr_len] = '\0';
+            le->local = addr;
+            le->port = last_colon + 1;
+        }
+        else
+        {
+            /* just a port: wildcard address */
+            le->local = NULL;
+            le->port = rest;
+        }
+    }
+
+    if (!le->port || !le->port[0])
+    {
+        msg(msglevel, "--listener: missing port in '%s'", spec);
+        return false;
+    }
+    else
+    {
+        le->listener_spec = spec;
+        return true;
+    }
+}
+
+static void
+append_string_list(const char ***list, int *count, const char *item, struct gc_arena *gc)
+{
+    int n = *count;
+    *list = gc_realloc(*list, (size_t)(n + 1) * sizeof(const char *), gc);
+    (*list)[n] = item;
+    *count = n + 1;
+}
+
+/**
+ * Parse the body of a <listener> block, line by line.  Only the directives
+ * handled here are accepted; anything else is an error.
+ */
+static bool
+parse_listener_block_body(struct local_entry *le, const char *body, msglvl_t msglevel,
+                          struct gc_arena *gc)
+{
+    struct buffer buf = string_alloc_buf(body, gc);
+    char line[OPTION_LINE_SIZE];
+    int line_num = 0;
+    struct listener_socket_opts *lo = &le->opts;
+
+    while (buf_parse(&buf, '\n', line, sizeof(line)))
+    {
+        ++line_num;
+        chomp(line);
+
+        char *p[MAX_PARMS + 1];
+        CLEAR(p);
+        if (!parse_line(line, p, MAX_PARMS, "<listener>", line_num, msglevel, gc) || !p[0])
+        {
+            continue; /* empty or comment line */
+        }
+        else if (streq(p[0], "sni-gateway-server") && p[1] && !p[2])
+        {
+            int mode = sni_gw_server_mode_from_string(p[1]);
+            if (mode < 0)
+            {
+                msg(msglevel,
+                    "<listener %s>: unknown sni-gateway-server mode '%s' "
+                    "(expected sni, sni-http-path-upgrade, or auto)",
+                    le->listener_spec, p[1]);
+                return false;
+            }
+            else
+            {
+                lo->sni_gw_server_defined = true;
+                lo->sni_gw_server_enabled = true;
+                lo->sni_gw_server_mode = (enum sni_gw_mode)mode;
+            }
+        }
+        else if (streq(p[0], "sni-gateway-server-host") && p[1] && !p[2])
+        {
+            append_string_list(&lo->sni_gw_server_host_list, &lo->sni_gw_server_host_count, p[1],
+                               gc);
+        }
+        else if (streq(p[0], "sni-gateway-server-ignore-alpn") && !p[1])
+        {
+            lo->sni_gw_server_ignore_alpn = true;
+        }
+        else if (streq(p[0], "sni-gateway-server-http-path") && p[1] && !p[2])
+        {
+            append_string_list(&lo->sni_gw_server_http_path_list,
+                               &lo->sni_gw_server_http_path_count, p[1], gc);
+        }
+        else if (streq(p[0], "sni-gateway-server-http-upgrade-token") && p[1] && !p[2])
+        {
+            lo->sni_gw_server_http_upgrade_token = p[1];
+        }
+        else if (streq(p[0], "rcvbuf") && p[1] && !p[2])
+        {
+            lo->rcvbuf = positive_atoi(p[1], msglevel);
+            lo->rcvbuf_defined = true;
+        }
+        else if (streq(p[0], "sndbuf") && p[1] && !p[2])
+        {
+            lo->sndbuf = positive_atoi(p[1], msglevel);
+            lo->sndbuf_defined = true;
+        }
+        else if (streq(p[0], "mark") && p[1] && !p[2])
+        {
+#if defined(TARGET_LINUX)
+            lo->mark = atoi_warn(p[1], msglevel);
+            lo->mark_defined = true;
+#else
+            msg(msglevel, "<listener>: 'mark' is not supported on this platform");
+            return false;
+#endif
+        }
+        else if (streq(p[0], "bind-dev") && p[1] && !p[2])
+        {
+#ifdef TARGET_LINUX
+            lo->bind_dev = p[1];
+#else
+            msg(msglevel, "<listener>: 'bind-dev' is not supported on this platform");
+            return false;
+#endif
+        }
+        else if (streq(p[0], "socket-flags"))
+        {
+            for (int j = 1; (j < MAX_PARMS) && p[j]; j++)
+            {
+                if (streq(p[j], "TCP_NODELAY"))
+                {
+                    lo->sockflags |= SF_TCP_NODELAY;
+                }
+                else
+                {
+                    msg(msglevel, "<listener>: unknown socket flag '%s'", p[j]);
+                    return false;
+                }
+            }
+        }
+        else if (streq(p[0], "port-share"))
+        {
+            /* OpenVPN runs a single port-share proxy with a single target */
+            msg(msglevel, "<listener>: 'port-share' cannot be set per listener; set it "
+                          "globally, it then applies to every TCP listener");
+            return false;
+        }
+        else if (streq(p[0], "bind-ipv6-only") && !p[1])
+        {
+            lo->bind_ipv6_only = true;
+            lo->bind_ipv6_only_defined = true;
+        }
+        else if (streq(p[0], "mtu-disc") && p[1] && !p[2])
+        {
+            lo->mtu_discover_type = translate_mtu_discover_type_name(p[1]);
+            lo->mtu_discover_type_defined = true;
+        }
+        else
+        {
+            msg(msglevel, "<listener>: unknown or malformed option '%s'", p[0]);
+            return false;
+        }
+    }
+    return true;
+}
+
 static struct connection_list *
 alloc_connection_list_if_undef(struct options *options)
 {
@@ -2683,18 +2911,93 @@ options_postprocess_mutate_ce(struct options *o, struct connection_entry *ce)
 }
 
 static void
-options_postprocess_mutate_le(const struct connection_entry *ce, struct local_entry *le, int mode)
+options_postprocess_mutate_le(const struct connection_entry *ce, struct local_entry *le,
+                              const struct options *o)
 {
     /* use the global port if none is specified */
     if (!le->port)
     {
         le->port = ce->local_port;
     }
+    else
+    {
+        /* the entry has its own port */
+    }
     /* use the global proto if none is specified and
      * allow proto bindings on server mode only */
-    if (!le->proto || mode == MODE_POINT_TO_POINT)
+    if (!le->proto || (o->mode == MODE_POINT_TO_POINT))
     {
         le->proto = ce->proto;
+    }
+    else
+    {
+        /* server mode entry with its own proto */
+    }
+
+    /*
+     * Resolve the SNI gateway server settings of this entry against the
+     * global ones, so socket.c and the validation can use them as-is.  The
+     * other per-listener socket options are not resolved here: socket.c falls
+     * back to the global (or current connection entry) value itself when a
+     * listener did not set one.
+     */
+    struct listener_socket_opts *lo = &le->opts;
+    if (!lo->sni_gw_server_defined)
+    {
+        lo->sni_gw_server_enabled = o->sni_gw_server_enabled;
+        lo->sni_gw_server_mode = o->sni_gw_server_mode;
+    }
+    else
+    {
+        /* the <listener> block chose its own mode */
+    }
+
+    const bool sni_mode =
+        lo->sni_gw_server_enabled
+        && ((lo->sni_gw_server_mode == SNI_GW_SERVER_SNI) || (lo->sni_gw_server_mode == SNI_GW_SERVER_AUTO));
+    const bool http_mode =
+        lo->sni_gw_server_enabled
+        && ((lo->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE)
+            || (lo->sni_gw_server_mode == SNI_GW_SERVER_AUTO));
+
+    /* Inherit a global filter only where this entry's mode uses it, so a
+     * global "auto" setup does not make an "sni" listener fail validation
+     * with the inherited http-only settings. */
+    if (sni_mode && (lo->sni_gw_server_host_count == 0))
+    {
+        lo->sni_gw_server_host_list = o->sni_gw_server_host_list;
+        lo->sni_gw_server_host_count = o->sni_gw_server_host_count;
+    }
+    else
+    {
+        /* own host list, or a mode that does not filter on hosts */
+    }
+    if (sni_mode && !lo->sni_gw_server_ignore_alpn)
+    {
+        lo->sni_gw_server_ignore_alpn = o->sni_gw_server_ignore_alpn;
+    }
+    else
+    {
+        /* set by the listener, or a mode that does not look at ALPN */
+    }
+    if (http_mode && (lo->sni_gw_server_http_path_count == 0))
+    {
+        lo->sni_gw_server_http_path_list = o->sni_gw_server_http_path_list;
+        lo->sni_gw_server_http_path_count = o->sni_gw_server_http_path_count;
+    }
+    else
+    {
+        /* own path list, or a mode that does not filter on paths */
+    }
+    if (http_mode && !lo->sni_gw_server_http_upgrade_token)
+    {
+        lo->sni_gw_server_http_upgrade_token = o->sni_gw_server_http_upgrade_token
+                                                   ? o->sni_gw_server_http_upgrade_token
+                                                   : SNI_GW_HTTP_UPGRADE_TOKEN;
+    }
+    else
+    {
+        /* own token, or a mode that does not perform the HTTP Upgrade */
     }
 }
 
@@ -2911,6 +3214,115 @@ options_postprocess_mutate_invariant(struct options *options)
     }
 }
 
+/**
+ * Validate one set of --sni-gateway-server settings: the global one
+ * (\c where is "") or the resolved settings of one <listener> block
+ * (\c where names the listener).
+ *
+ * Under "auto" both the sni-mode host/ALPN filters and the http-mode path
+ * filter are meaningful (any client mode may arrive on the same port), so
+ * neither "ignored" warning fires for it.
+ */
+static void
+sni_gw_server_verify(const char *where, bool enabled, enum sni_gw_mode mode, int host_count,
+                     bool ignore_alpn, const char *const *path_list, int path_count,
+                     const char *token)
+{
+    const bool http_mode = ((mode == SNI_GW_SERVER_HTTP_UPGRADE) || (mode == SNI_GW_SERVER_AUTO));
+
+    if (enabled && (mode == SNI_GW_SERVER_HTTP_UPGRADE))
+    {
+        /* The sni-mode ALPN/SNI filters are ClientHello matchers -- meaningless
+         * when the client speaks HTTP.  Warn and ignore rather than hard-error. */
+        if (host_count > 0)
+        {
+            msg(M_WARN, "%s--sni-gateway-server-host is ignored with "
+                        "--sni-gateway-server sni-http-path-upgrade (it filters "
+                        "the decoy ClientHello used by sni mode)",
+                where);
+        }
+        else
+        {
+            /* no host filter set: nothing to warn about */
+        }
+        if (ignore_alpn)
+        {
+            msg(M_WARN, "%s--sni-gateway-server-ignore-alpn is ignored with "
+                        "--sni-gateway-server sni-http-path-upgrade "
+                        "(it only affects sni mode)",
+                where);
+        }
+        else
+        {
+            /* ALPN filter not touched: nothing to warn about */
+        }
+    }
+    else
+    {
+        /* sni or auto mode, or disabled: both filters are meaningful or checked below */
+    }
+    if ((path_count > 0) && !enabled)
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-http-path requires "
+                     "--sni-gateway-server sni-http-path-upgrade or auto",
+            where);
+    }
+    else if ((path_count > 0) && !http_mode)
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-http-path is only meaningful with "
+                     "--sni-gateway-server sni-http-path-upgrade or auto",
+            where);
+    }
+    else
+    {
+        /* no path filter, or one in a mode that uses it */
+    }
+    for (int i = 0; i < path_count; i++)
+    {
+        if (path_list[i][0] != '/')
+        {
+            msg(M_USAGE, "%s--sni-gateway-server-http-path must start with '/'", where);
+            break;
+        }
+        else
+        {
+            /* well-formed path */
+        }
+    }
+    if (token && !enabled)
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-http-upgrade-token requires "
+                     "--sni-gateway-server sni-http-path-upgrade or auto",
+            where);
+    }
+    else if (token && !http_mode)
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-http-upgrade-token is only meaningful with "
+                     "--sni-gateway-server sni-http-path-upgrade or auto",
+            where);
+    }
+    else if (token && !sni_gw_http_upgrade_token_is_valid(token))
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-http-upgrade-token must be 1-%d bytes of "
+                     "RFC 7230 token characters (no spaces, commas, or CR/LF)",
+            where, SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
+    }
+    else
+    {
+        /* no token, or a valid one in a mode that uses it */
+    }
+    if (!enabled && ((host_count > 0) || ignore_alpn))
+    {
+        msg(M_USAGE, "%s--sni-gateway-server-host and --sni-gateway-server-ignore-alpn "
+                     "require --sni-gateway-server to be set",
+            where);
+    }
+    else
+    {
+        /* filters only set together with an enabled server */
+    }
+}
+
 static void
 options_postprocess_verify(const struct options *o)
 {
@@ -2930,80 +3342,49 @@ options_postprocess_verify(const struct options *o)
     dns_options_verify(M_FATAL, &o->dns_options);
 
     /*
-     * SNI gateway server-side validation (--sni-gateway-server).
+     * SNI gateway server-side validation (--sni-gateway-server), for the
+     * global settings and for each <listener> block's resolved settings.
      * Accepts "sni", "sni-http-path-upgrade", or "auto" (the server never
      * terminates TLS itself, so there is no "sni-tls" server mode, and no
      * "-tls-" in any server mode string -- "sni-http-path-upgrade" accepts
      * the plaintext HTTP/1.1 Upgrade regardless of whether it was forwarded
      * by a TLS-terminating proxy for --sni-gateway-client sni-tls-http-path-upgrade
      * clients, or sent directly by --sni-gateway-client sni-http-path-upgrade
-     * clients).
-     * Deliberately NOT extended to SNI_GW_SERVER_AUTO below: under "auto"
-     * both the sni-mode host/ALPN filters and the http-mode path filter are
-     * simultaneously meaningful (any client mode may arrive on the same
-     * port), so neither "ignored" warning should fire.
+     * clients).  See sni_gw_server_verify() for why "auto" warns about neither
+     * filter.
      */
-    if (o->sni_gw_server_enabled && o->sni_gw_server_mode == SNI_GW_SERVER_HTTP_UPGRADE)
+    sni_gw_server_verify("", o->sni_gw_server_enabled, o->sni_gw_server_mode,
+                         o->sni_gw_server_host_count, o->sni_gw_server_ignore_alpn,
+                         (const char *const *)o->sni_gw_server_http_path_list,
+                         o->sni_gw_server_http_path_count, o->sni_gw_server_http_upgrade_token);
+    if (o->ce.local_list)
     {
-        /* The sni-mode ALPN/SNI filters are ClientHello matchers -- meaningless
-         * when the client speaks HTTP.  Warn and ignore rather than hard-error. */
-        if (o->sni_gw_server_host_count > 0)
+        for (int i = 0; i < o->ce.local_list->len; i++)
         {
-            msg(M_WARN, "--sni-gateway-server-host is ignored with "
-                        "--sni-gateway-server sni-http-path-upgrade (it filters "
-                        "the decoy ClientHello used by sni mode)");
-        }
-        if (o->sni_gw_server_ignore_alpn)
-        {
-            msg(M_WARN, "--sni-gateway-server-ignore-alpn is ignored with "
-                        "--sni-gateway-server sni-http-path-upgrade "
-                        "(it only affects sni mode)");
-        }
-    }
-    if (o->sni_gw_server_http_path_count > 0 && !o->sni_gw_server_enabled)
-    {
-        msg(M_USAGE, "--sni-gateway-server-http-path requires "
-                     "--sni-gateway-server sni-http-path-upgrade or auto");
-    }
-    if (o->sni_gw_server_http_path_count > 0
-        && o->sni_gw_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
-        && o->sni_gw_server_mode != SNI_GW_SERVER_AUTO)
-    {
-        msg(M_USAGE, "--sni-gateway-server-http-path is only meaningful with "
-                     "--sni-gateway-server sni-http-path-upgrade or auto");
-    }
-    for (int i = 0; i < o->sni_gw_server_http_path_count; i++)
-    {
-        if (o->sni_gw_server_http_path_list[i][0] != '/')
-        {
-            msg(M_USAGE, "--sni-gateway-server-http-path must start with '/'");
-            break;
+            const struct local_entry *le = o->ce.local_list->array[i];
+            if (le->listener_spec)
+            {
+                struct gc_arena gc = gc_new();
+                struct buffer where = alloc_buf_gc(strlen(le->listener_spec) + 16, &gc);
+                buf_printf(&where, "<listener %s>: ", le->listener_spec);
+                const struct listener_socket_opts *lo = &le->opts;
+                sni_gw_server_verify(BSTR(&where), lo->sni_gw_server_enabled,
+                                     lo->sni_gw_server_mode, lo->sni_gw_server_host_count,
+                                     lo->sni_gw_server_ignore_alpn,
+                                     (const char *const *)lo->sni_gw_server_http_path_list,
+                                     lo->sni_gw_server_http_path_count,
+                                     lo->sni_gw_server_http_upgrade_token);
+                gc_free(&gc);
+            }
+            else
+            {
+                /* --local entry: uses the global settings verified above */
+            }
         }
     }
-    if (o->sni_gw_server_http_upgrade_token && !o->sni_gw_server_enabled)
+    else
     {
-        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token requires "
-                     "--sni-gateway-server sni-http-path-upgrade or auto");
-    }
-    if (o->sni_gw_server_http_upgrade_token
-        && o->sni_gw_server_mode != SNI_GW_SERVER_HTTP_UPGRADE
-        && o->sni_gw_server_mode != SNI_GW_SERVER_AUTO)
-    {
-        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token is only meaningful with "
-                     "--sni-gateway-server sni-http-path-upgrade or auto");
-    }
-    if (o->sni_gw_server_http_upgrade_token
-        && !sni_gw_http_upgrade_token_is_valid(o->sni_gw_server_http_upgrade_token))
-    {
-        msg(M_USAGE, "--sni-gateway-server-http-upgrade-token must be 1-%d bytes of "
-                     "RFC 7230 token characters (no spaces, commas, or CR/LF)",
-            SNI_GW_HTTP_UPGRADE_TOKEN_MAXLEN);
-    }
-    if (!o->sni_gw_server_enabled
-        && (o->sni_gw_server_host_count > 0 || o->sni_gw_server_ignore_alpn))
-    {
-        msg(M_USAGE, "--sni-gateway-server-host and --sni-gateway-server-ignore-alpn "
-                     "require --sni-gateway-server to be set");
+        /* no listen list yet (built later for the implicit listener) */
     }
 
     if (dco_enabled(o))
@@ -3534,7 +3915,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
     {
         for (int i = 0; i < o->ce.local_list->len; i++)
         {
-            options_postprocess_mutate_le(&o->ce, o->ce.local_list->array[i], o->mode);
+            options_postprocess_mutate_le(&o->ce, o->ce.local_list->array[i], o);
         }
 
         for (int i = 0; i < o->ce.local_list->len; i++)
@@ -3557,6 +3938,7 @@ options_postprocess_mutate(struct options *o, struct env_set *es)
         ASSERT(e);
         e->port = o->ce.local_port;
         e->proto = o->ce.proto;
+        options_postprocess_mutate_le(&o->ce, e, o);
     }
 
     /* use the same listen list for every outgoing connection */
@@ -4988,6 +5370,43 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         if (p[3])
         {
             e->proto = ascii2proto(p[3]);
+        }
+    }
+    else if (streq(p[0], "listener") && p[1] && !p[3])
+    {
+        /*
+         * listener proto:[addr:]port          -- one-line form, no options
+         *
+         * <listener proto:[addr:]port>        -- block form, with
+         * sni-gateway-server auto                per-listener options
+         * ...
+         * </listener>
+         */
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
+
+        if (p[2] && !is_inline)
+        {
+            msg(msglevel, "--listener takes a single proto:[addr:]port argument");
+            goto err;
+        }
+        else
+        {
+            /* one-line form, or block form with its body in p[2] */
+        }
+
+        struct local_entry *e = alloc_local_entry(&options->ce, msglevel, &options->gc);
+        if (!e || !parse_listener_spec(e, p[1], msglevel, &options->gc))
+        {
+            goto err;
+        }
+        else if (is_inline && p[2]
+                 && !parse_listener_block_body(e, p[2], msglevel, &options->gc))
+        {
+            goto err;
+        }
+        else
+        {
+            /* listener entry complete */
         }
     }
     else if (streq(p[0], "remote-random") && !p[1])
