@@ -23,6 +23,16 @@
   the characters mentioned above were already escaped. However, the behavior of
   Mbed TLS is slightly different from OpenSSL in that it also escapes "=".
 
+* **New options `--ignore-cert-expiry` and `--ignore-cert-expiry-fingerprint`**
+
+  Insecure stopgap options to keep a VPN running while expired certificates
+  are re-issued. `--ignore-cert-expiry` accepts expired certificates anywhere
+  in the peer's chain; `--ignore-cert-expiry-fingerprint` (repeatable, can be
+  inlined) only accepts the expired certificates whose SHA256 fingerprint is
+  listed. Only the "certificate has expired" error is ignored: all other
+  checks (chain, signatures, CRL, `--remote-cert-tls`, `--verify-x509-name`,
+  `--tls-verify`, ...) still apply. Neither option can be pushed.
+
 ## Maintainer-visible changes
 
 - The configure-time option `--enable-debug` is no longer  available
