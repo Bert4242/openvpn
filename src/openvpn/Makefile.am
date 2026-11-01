@@ -122,6 +122,11 @@ openvpn_SOURCES = \
 	proto.c proto.h \
 	proxy.c proxy.h \
 	ps.c ps.h \
+	sni_gateway.h \
+	sni_gateway_accept.c sni_gateway_accept.h \
+	sni_gateway_passthrough.c sni_gateway_passthrough.h \
+	sni_gateway_tls.c sni_gateway_tls.h \
+	sni_gateway_http.c sni_gateway_http.h \
 	push.c push_util.c push.h \
 	pushlist.h \
 	reflect_filter.c reflect_filter.h \

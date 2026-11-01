@@ -49,6 +49,13 @@ if HAVE_SITNL
 check_PROGRAMS += networking_testdriver
 endif
 
+check_PROGRAMS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
+	sni_gw_http_testdriver sni_gw_accept_testdriver sni_gw_tls_burst_testdriver
+if !CROSS_COMPILING
+TESTS += sni_testdriver sni_openssl_testdriver sni_compat_testdriver \
+	sni_gw_http_testdriver sni_gw_accept_testdriver sni_gw_tls_burst_testdriver
+endif
+
 argv_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
 argv_testdriver_LDFLAGS = @TEST_LDFLAGS@ -L$(top_srcdir)/src/openvpn
 argv_testdriver_SOURCES = test_argv.c \
@@ -420,6 +427,113 @@ push_update_msg_testdriver_SOURCES = test_push_update_msg.c \
 	$(top_srcdir)/src/openvpn/otime.c \
 	$(top_srcdir)/src/openvpn/list.c \
 	$(top_srcdir)/src/openvpn/ssl_util.c
+
+# SNI passthrough – generic byte-scan path (no OpenSSL dependency)
+sni_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DSNI_GW_PASSTHROUGH_TEST_ALTERNATIVE_PATH \
+	@TEST_CFLAGS@
+
+sni_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+sni_testdriver_SOURCES = test_sni.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
+
+# SNI passthrough – OpenSSL client_hello_cb path (or generic path on non-OpenSSL)
+sni_openssl_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_openssl_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
+
+sni_openssl_testdriver_SOURCES = test_sni.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
+
+# SNI passthrough – cross-path compatibility test
+# Links sni_gateway_passthrough.c (normal path) alongside sni_alt_impl.c (forced generic
+# path, all public symbols renamed) so all four builder × checker
+# combinations can be exercised in a single binary.
+sni_compat_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DUNIT_TESTING \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_compat_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS)
+
+sni_compat_testdriver_SOURCES = test_sni_compat.c \
+	sni_alt_impl.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_passthrough.c
+
+# SNI gateway http – request builder + server consume state machine
+sni_gw_http_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@
+
+sni_gw_http_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+sni_gw_http_testdriver_SOURCES = test_sni_gw_http.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_http.c
+
+# SNI gateway auto – accept-time classifier (pure decision function)
+sni_gw_accept_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	@TEST_CFLAGS@
+
+sni_gw_accept_testdriver_LDFLAGS = @TEST_LDFLAGS@
+
+sni_gw_accept_testdriver_SOURCES = test_sni_gw_accept.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_accept.c
+
+# SNI gateway tls -- real-TLS handshake + steady-state read path stress test
+# (coalesced/bursty gateway delivery, see test_sni_gw_tls_burst.c). Uses real
+# OpenSSL client+server over a socketpair, so it needs the OpenSSL crypto
+# backend (same guard sni_gateway_tls.c itself uses) and pthread.
+sni_gw_tls_burst_testdriver_CFLAGS = \
+	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \
+	-DUNIT_TEST_SOURCEDIR=\"$(srcdir)\" \
+	@TEST_CFLAGS@ $(OPTIONAL_CRYPTO_CFLAGS)
+
+sni_gw_tls_burst_testdriver_LDFLAGS = @TEST_LDFLAGS@ $(OPTIONAL_CRYPTO_LIBS) -lpthread
+
+sni_gw_tls_burst_testdriver_SOURCES = test_sni_gw_tls_burst.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/win32-util.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_tls.c \
+	$(top_srcdir)/src/openvpn/sni_gateway_http.c
 
 socket_testdriver_CFLAGS  = \
 	-I$(top_srcdir)/include -I$(top_srcdir)/src/compat -I$(top_srcdir)/src/openvpn \

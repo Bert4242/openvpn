@@ -25,6 +25,9 @@
 #endif
 
 #include "syshead.h"
+#include "buffer.h"
+#include "ssl_pkt.h"
+#include "ps.h"
 
 #if PORT_SHARE
 
@@ -33,7 +36,6 @@
 #include "fdmisc.h"
 #include "crypto.h"
 #include "resolve.h"
-#include "ps.h"
 
 #include "memdbg.h"
 
@@ -949,6 +951,22 @@ port_share_abort(struct port_share *ps)
 }
 
 /*
+ * Called from the foreground process.  Send a message to the background process that it
+ * should proxy the TCP client on sd to the host/port defined in the initial port_share_open
+ * call.
+ */
+void
+port_share_redirect(const struct port_share *ps, const struct buffer *head, socket_descriptor_t sd)
+{
+    if (ps)
+    {
+        port_share_sendmsg(ps->foreground_fd, COMMAND_REDIRECT, head, sd);
+    }
+}
+
+#endif /* if PORT_SHARE */
+
+/*
  * Given either the first 2 or 3 bytes of an initial client -> server
  * data payload, return true if the protocol is that of an OpenVPN
  * client attempting to connect with an OpenVPN server.
@@ -998,19 +1016,3 @@ is_openvpn_protocol(const struct buffer *buf)
         return true;
     }
 }
-
-/*
- * Called from the foreground process.  Send a message to the background process that it
- * should proxy the TCP client on sd to the host/port defined in the initial port_share_open
- * call.
- */
-void
-port_share_redirect(const struct port_share *ps, const struct buffer *head, socket_descriptor_t sd)
-{
-    if (ps)
-    {
-        port_share_sendmsg(ps->foreground_fd, COMMAND_REDIRECT, head, sd);
-    }
-}
-
-#endif /* if PORT_SHARE */
