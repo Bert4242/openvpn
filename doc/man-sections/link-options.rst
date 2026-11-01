@@ -110,6 +110,53 @@ the local and the remote host.
   is not reliable. It is recommended to set tun-mtu with enough headroom
   instead.
 
+--listener args
+  Add one listening socket, like ``--local`` but with the protocol in the
+  argument and, in block form, with its own socket options. Server mode
+  only; can be repeated, and mixed with ``--local``.
+
+  Valid syntax:
+  ::
+
+     listener proto:[addr:]port
+
+     <listener proto:[addr:]port>
+     option ...
+     </listener>
+
+  ``proto`` is any ``--proto`` value (``udp``, ``tcp``, ``udp4``,
+  ``tcp6``, ...); a ``4``/``6`` suffix also sets the address family of the
+  socket. ``addr`` is optional (all interfaces when omitted); write IPv6
+  literals in brackets, e.g. ``tcp6:[::1]:443``.
+
+  Inside a ``<listener>`` block only these options are accepted, and they
+  apply to that listener only, overriding the global setting:
+  ``sni-gateway-server``, ``sni-gateway-server-host``,
+  ``sni-gateway-server-ignore-alpn``, ``sni-gateway-server-http-path``,
+  ``sni-gateway-server-http-upgrade-token``, ``rcvbuf``, ``sndbuf``,
+  ``mark``, ``bind-dev``, ``socket-flags`` (added to the global flags),
+  ``bind-ipv6-only`` and ``mtu-disc``. Anything not set in the block is
+  taken from the global option. The global ``sni-gateway-server-host`` and
+  ``-ignore-alpn`` are only inherited by a listener whose mode uses them
+  (``sni``/``auto``), and ``-http-path`` / ``-http-upgrade-token`` only by
+  one in ``sni-http-path-upgrade``/``auto``.
+
+  ``port-share`` cannot be set per listener: OpenVPN runs a single
+  port-share proxy, so set it globally; it applies to every TCP listener.
+
+  Example:
+  ::
+
+     <listener tcp4:443>
+     sni-gateway-server auto
+     sni-gateway-server-host vpn.example.com
+     </listener>
+     <listener tcp4:8443>
+     sni-gateway-server sni-http-path-upgrade
+     sni-gateway-server-http-path /vpn-upgrade
+     </listener>
+     listener udp6:1194
+
 --local args
 
   Valid syntax:

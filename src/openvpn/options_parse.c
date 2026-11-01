@@ -318,6 +318,43 @@ check_inline_file(const struct in_src *is, char *p[], struct gc_arena *gc)
             p[2] = NULL;
             free_buf(&close_tag);
         }
+        else
+        {
+            /* a plain one-word option, not an inline block */
+        }
+    }
+    else if (p[0] && p[1] && !p[2])
+    {
+        /* <tag arg> block (e.g. <listener tcp4:443>): the tag and its
+         * argument are two tokens, p[0] starts with '<' and p[1] ends with '>'.
+         * Leaves p[] as [tag, arg, body, NULL]. */
+        char *tag = p[0];
+        char *arg = p[1];
+        size_t tag_len = strlen(tag);
+        size_t arg_len = strlen(arg);
+
+        if ((tag[0] == '<') && (tag[tag_len - 1] != '>') && (arg_len > 0)
+            && (arg[arg_len - 1] == '>'))
+        {
+            struct buffer close_tag;
+
+            arg[arg_len - 1] = '\0';
+            p[0] = string_alloc(tag + 1, gc);
+            p[1] = string_alloc(arg, gc);
+            close_tag = alloc_buf(strlen(p[0]) + 4);
+            buf_printf(&close_tag, "</%s>", p[0]);
+            p[2] = read_inline_file(is, BSTR(&close_tag), &num_inline_lines, gc);
+            p[3] = NULL;
+            free_buf(&close_tag);
+        }
+        else
+        {
+            /* a plain two-word option, not an inline block */
+        }
+    }
+    else
+    {
+        /* three or more words: never an inline block */
     }
     return num_inline_lines;
 }
