@@ -366,6 +366,8 @@ struct tls_options
     int verify_hash_depth;
     bool verify_hash_no_ca;
     hash_algo_type verify_hash_algo;
+    bool ignore_cert_expiry;                             /**< --ignore-cert-expiry */
+    const struct verify_hash_list *ignore_expiry_hashes; /**< --ignore-cert-expiry-fingerprint */
     char *x509_username_field[MAX_PARMS];
 
     /* struct crypto_option flags */

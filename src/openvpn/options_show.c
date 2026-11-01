@@ -567,6 +567,21 @@ show_settings(const struct options *o)
         }
         gc_free(&gc);
     }
+    SHOW_BOOL(ignore_cert_expiry);
+    if (o->ignore_expiry_hashes)
+    {
+        struct gc_arena gc = gc_new();
+        for (const struct verify_hash_list *hl = o->ignore_expiry_hashes; hl; hl = hl->next)
+        {
+            char *s = format_hex_ex(hl->hash, SHA256_DIGEST_LENGTH, 0, 1, ":", &gc);
+            SHOW_PARM(ignore_expiry_hashes, s, "%s");
+        }
+        gc_free(&gc);
+    }
+    else
+    {
+        /* no --ignore-cert-expiry-fingerprint given: nothing to list */
+    }
     SHOW_UINT(ssl_flags);
 
     SHOW_INT(tls_timeout);

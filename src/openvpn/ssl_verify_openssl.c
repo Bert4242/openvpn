@@ -85,6 +85,24 @@ verify_callback(int preverify_ok, X509_STORE_CTX *ctx)
             ret = 1;
             goto cleanup;
         }
+        /* --ignore-cert-expiry(-fingerprint): only this one error is
+         * overridden. OpenSSL reports each error in its own callback, so any
+         * other problem with this cert still arrives here and is rejected
+         * below. verify_cert() is not called here: like for the CRL case
+         * above, OpenSSL calls us again with preverify_ok == 1 for this cert
+         * once all its checks are done, and verify_cert() runs then. */
+        else if ((X509_STORE_CTX_get_error(ctx) == X509_V_ERR_CERT_HAS_EXPIRED)
+                 && verify_cert_expiry_ignored(session, current_cert,
+                                               X509_STORE_CTX_get_error_depth(ctx), &cert_hash))
+        {
+            X509_STORE_CTX_set_error(ctx, X509_V_OK);
+            ret = 1;
+            goto cleanup;
+        }
+        else
+        {
+            /* any other error: fatal, reported below */
+        }
 
         /* Remote site specified a certificate, but it's not correct */
         msg(D_TLS_ERRORS, "VERIFY ERROR: depth=%d, error=%s: %s, serial=%s",
