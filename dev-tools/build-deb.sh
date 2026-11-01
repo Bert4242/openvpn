@@ -115,8 +115,29 @@ mkdir -p "$out"
 git clone -q --shared --no-checkout "$top" "$out/src"
 git -C "$out/src" checkout -q -B "$branch" "$sha"
 
+# --- template: the distribution's own package --------------------------------
+# the newest version a repository offers; not just "openvpn", which means the
+# installed version, i.e. an earlier local build once this .deb is installed
+tver=$(apt-cache madison openvpn | awk -F'|' 'NR == 1 { gsub(/ /, "", $2); print $2 }')
+if [ -z "$tver" ]; then
+    echo "no openvpn package in the configured apt repositories (apt-get update?)" >&2
+    exit 1
+else
+    : # found
+fi
+mkdir -p "$out/template"
+(cd "$out/template" && apt-get download "openvpn=$tver" >/dev/null)
+tdeb=$(ls "$out/template"/openvpn_*.deb)
+echo "template: $(basename "$tdeb")"
+
 # --- build ------------------------------------------------------------------
+log="$out/build.log"
+echo "compiling (log: $log)"
+# set -e does not apply inside a subshell that is an "if" condition:
+# run it plainly, with errexit off around it, and test its status after
+set +e
 (
+    set -e
     cd "$out/src"
     autoreconf -fi >/dev/null 2>&1
     # the options of Debian's package (see "openvpn --version" there)
@@ -135,19 +156,22 @@ git -C "$out/src" checkout -q -B "$branch" "$sha"
     else
         : # not asked for
     fi
-    make -s install DESTDIR="$out/stage" >/dev/null
-)
+    make -s install DESTDIR="$out/stage"
+) >"$log" 2>&1
+rc=$?
+set -e
+if [ "$rc" != 0 ]; then
+    tail -30 "$log" >&2
+    echo "build failed, see $log" >&2
+    exit 1
+else
+    : # built
+fi
 "$out/stage/usr/sbin/openvpn" --version | head -1
 
-# --- template: the distribution's own package --------------------------------
-mkdir -p "$out/template"
-(cd "$out/template" && apt-get download openvpn >/dev/null)
-tdeb=$(ls "$out/template"/openvpn_*.deb)
+# --- replace binaries, plugins, headers and man pages ------------------------
 dpkg-deb -R "$tdeb" "$out/pkg"
 pkg="$out/pkg"
-echo "template: $(basename "$tdeb")"
-
-# --- replace binaries, plugins, headers and man pages ------------------------
 install -m 0755 "$out/stage/usr/sbin/openvpn" "$pkg/usr/sbin/openvpn"
 plugdir="usr/lib/$multiarch/openvpn/plugins"
 mkdir -p "$pkg/$plugdir"
