@@ -42,6 +42,7 @@
 #include "clinat.h"
 #include "crypto_backend.h"
 #include "dns.h"
+#include "sni_gateway.h"
 
 
 /*
@@ -179,6 +180,67 @@ struct connection_entry
 
     /* Allow only client that support resending the wrapped client key */
     bool tls_crypt_v2_force_cookie;
+
+    /** SNI gateway mode for this connection
+     *  (--sni-gateway-client <sni|sni-tls|sni-tls-http-path-upgrade|sni-http-path-upgrade>).
+     *  Defaults to SNI_GW_CLIENT_SNI, CLI value "sni" (the original
+     *  passthrough-decoy behaviour). */
+    enum sni_gw_mode sni_gw_client_mode;
+
+    /** True once --sni-gateway-client has been seen for this connection entry. */
+    bool sni_gw_client_defined;
+
+    /** True once --sni-gateway-client or --sni-gateway-client-host
+     *  (client-role-only options) has been seen for this connection entry.
+     *  Deliberately NOT set by --sni-gateway-alpn, which is dual-use (also
+     *  set on the server to restrict its accepted ALPN list).  Used by
+     *  options_postprocess_verify_ce() to reject a connection entry that
+     *  is also part of a --sni-gateway-server config: a single process
+     *  cannot be both an SNI gateway client and an SNI gateway server. */
+    bool sni_gw_client_enabled;
+
+    /** Hostname to embed in the SNI routing header (--sni-gateway-client-host).
+     *  NULL means the SNI gateway is inactive for this connection.
+     *  Set globally to apply to all connections; override per <connection> block.
+     *  Once set globally, cannot be cleared per connection. */
+    const char *sni_gw_client_host;
+
+    /** ALPN token(s) for the SNI routing header (--sni-gateway-alpn).
+     *  If alpn_count == 0, the built-in default "hacky-sni-passthrough/1" is used.
+     *  Per-connection list replaces (not adds to) the global list. */
+    const char **sni_gw_alpn_list;
+    int sni_gw_alpn_count;
+    /** True once ALPN is configured for this entry, whether declared
+     *  locally or inherited from the global connection entry. Used by
+     *  options_postprocess_verify_ce() to flag it as meaningless when
+     *  combined with an incompatible client mode. */
+    bool sni_gw_alpn_defined;
+    /** True once THIS <connection> block has replaced its (possibly
+     *  inherited) alpn list with its own. Explicitly cleared for each new
+     *  block -- unlike sni_gw_alpn_defined above, it must not survive the
+     *  `sub.ce = options->ce` inheriting copy, or a block's first
+     *  sni-gateway-alpn would append to the inherited global list instead
+     *  of replacing it. */
+    bool sni_gw_alpn_block_owns_list;
+
+    /** Used by the sni-tls-http-path-upgrade and sni-http-path-upgrade
+     *  gateway modes (--sni-gateway-client-http-path). */
+    const char *sni_gw_client_http_path;
+    /** HTTP Upgrade: header token (--sni-gateway-client-http-upgrade-token), used by the
+     *  sni-tls-http-path-upgrade and sni-http-path-upgrade gateway modes
+     *  only. Must match the server's --sni-gateway-server-http-upgrade-token.
+     *  NULL until options_postprocess_mutate_ce() resolves it to
+     *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only for the two
+     *  modes above; stays NULL (meaningless) otherwise. */
+    const char *sni_gw_client_http_upgrade_token;
+    /** CA bundle to verify the gateway's outer TLS certificate
+     *  (--sni-gateway-client-tls-ca).  Used by sni-tls/sni-tls-http-path-upgrade
+     *  only -- meaningless (and rejected) in sni-http-path-upgrade, which
+     *  has no TLS session to verify. */
+    const char *sni_gw_client_tls_ca;
+    /** Skip gateway certificate verification (--sni-gateway-client-tls-ca-no-verify).
+     *  Same applicability as sni_gw_client_tls_ca above. */
+    bool sni_gw_client_tls_ca_no_verify;
 };
 
 struct remote_entry
@@ -678,6 +740,47 @@ struct options
     const char *tls_crypt_v2_verify_script;
 
     int tls_crypt_v2_max_age;
+
+    /** Enable server-side SNI gateway handling
+     *  (--sni-gateway-server <sni|sni-http-path-upgrade|auto>).
+     *  In "sni" mode, peeks the first byte: 0x16 = routing header present
+     *  (discard it); anything else = openvpn client (proceed normally, full
+     *  backwards compat) -- this also transparently accepts sni-tls traffic.
+     *  In "auto" mode, the first bytes of each accepted connection are
+     *  classified (sni_gateway_accept.h) to additionally accept
+     *  sni-tls-http-path-upgrade/sni-http-path-upgrade clients on the same
+     *  port; both the sni-mode host/ALPN filters and the http-mode path
+     *  filter are simultaneously meaningful under "auto". */
+    bool sni_gw_server_enabled;
+    enum sni_gw_mode sni_gw_server_mode;
+
+    /** Accepted SNI hostnames (--sni-gateway-server-host, repeatable).
+     *  When empty, any hostname (or no SNI) is accepted.  Case-insensitive.
+     *  Meaningful in "sni" and "auto" server modes. */
+    const char **sni_gw_server_host_list;
+    int sni_gw_server_host_count;
+
+    /** Skip ALPN matching entirely (--sni-gateway-server-ignore-alpn).
+     *  When true, the ALPN extension is ignored regardless of content.
+     *  Mutually exclusive with --sni-gateway-alpn on the server;
+     *  if both are set, ignore_alpn wins (with a warning).
+     *  Meaningful in "sni" and "auto" server modes. */
+    bool sni_gw_server_ignore_alpn;
+
+    /** Accepted request paths to enforce in --sni-gateway-server
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-path,
+     *  repeatable).  When empty, any path is accepted (the gateway is
+     *  expected to gate the path).  Any one match is sufficient. */
+    const char **sni_gw_server_http_path_list;
+    int sni_gw_server_http_path_count;
+
+    /** HTTP Upgrade: header token to require in --sni-gateway-server
+     *  sni-http-path-upgrade or auto mode (--sni-gateway-server-http-upgrade-token).
+     *  Must match the client's --sni-gateway-client-http-upgrade-token. NULL until
+     *  options_postprocess_mutate_invariant() resolves it to
+     *  SNI_GW_HTTP_UPGRADE_TOKEN ("openvpn") by default -- only when the
+     *  server is enabled in one of those two modes; stays NULL otherwise. */
+    const char *sni_gw_server_http_upgrade_token;
 
     /* Allow only one session */
     bool single_session;

@@ -126,6 +126,39 @@ struct stream_buf
 #define PS_FOREIGN  2
     int port_share_state;
 #endif
+#define SNI_GW_PASSTHROUGH_DISABLED 0 /* SNI gateway passthrough not active */
+#define SNI_GW_PASSTHROUGH_PENDING  1 /* SNI gateway waiting to inspect first byte */
+#define SNI_GW_PASSTHROUGH_SUCCESS  2 /* SNI gateway routing header was consumed */
+    int sni_gw_passthrough_state;
+    /* SNI gateway client ALPN list (sent in its routing header) */
+    const char **sni_gw_alpn_list;
+    int sni_gw_alpn_count;
+    /* SNI gateway server-side routing filters */
+    const char **sni_gw_server_host_list;
+    int sni_gw_server_host_count;
+    bool sni_gw_server_ignore_alpn;
+
+    /* --sni-gateway-server sni-http-path-upgrade: state machine that consumes the inbound
+     * HTTP/1.1 Upgrade request (plaintext -- either forwarded by a
+     * TLS-terminating gateway, or sent directly by an sni-http-path-upgrade
+     * client) and triggers the 101 reply.  Parallel to sni_gw_passthrough_state
+     * above. */
+#define SNI_GW_HTTP_DISABLED 0                  /* not active / done */
+#define SNI_GW_HTTP_PENDING  1                  /* waiting for / parsing the Upgrade request */
+#define SNI_GW_HTTP_SUCCESS  2                  /* request consumed; 101 owed / sent */
+    int sni_gw_http_state;
+    bool sni_gw_http_101_sent;                  /* the 101 response has been emitted */
+    const char **sni_gw_http_require_path_list; /* accepted paths; empty = any */
+    int sni_gw_http_require_path_count;
+    const char *sni_gw_http_upgrade_token;      /* required Upgrade: header token */
+    /* Resumable CRLFCRLF-terminator scan cursor for
+     * sni_gw_http_check_and_consume_request(): how many bytes of sb->buf
+     * have already been scanned (with no terminator found) as of the last
+     * call, so the next call can resume the scan there (minus a 3-byte
+     * overlap) instead of rescanning from offset 0 every time bytes
+     * trickle in.  Only meaningful while sni_gw_http_state ==
+     * SNI_GW_HTTP_PENDING; unused/stale otherwise. */
+    int sni_gw_http_scan_cursor;
 };
 
 /*
@@ -146,6 +179,21 @@ struct socket_buffer_size
  */
 void socket_set_buffers(socket_descriptor_t fd, const struct socket_buffer_size *sbs,
                         bool reduce_size);
+
+#if defined(ENABLE_CRYPTO_OPENSSL)
+/* LIBRESSL_VERSION_NUMBER is only defined once a file that includes an
+ * actual OpenSSL/LibreSSL header has been seen in this translation unit.
+ * Most .c files that include socket.h never do so before this point, which
+ * left the sni_gw_tls guard inside struct link_socket below always taking
+ * the "true" branch regardless of whether LibreSSL was in use -- except in
+ * the one file that happened to include openssl_compat.h first, giving
+ * that translation unit a different, ODR-violating view of struct
+ * link_socket's size/layout than every other one. Include
+ * openssl_compat.h here (at file scope, before the struct -- NOT inside
+ * it: that pulls in real declarations, which corrupts the struct body if
+ * spliced into its middle) so every translation unit agrees. */
+#include "openssl_compat.h"
+#endif
 
 /*
  * This is the main socket structure used by OpenVPN.  The SOCKET_
@@ -196,14 +244,16 @@ struct link_socket
 
     int mtu; /* OS discovered MTU, or 0 if unknown */
 
-#define SF_USE_IP_PKTINFO    (1 << 0)
-#define SF_TCP_NODELAY       (1 << 1) /* unused: flag always enabled */
-#define SF_PORT_SHARE        (1 << 2)
-#define SF_HOST_RANDOMIZE    (1 << 3)
-#define SF_GETADDRINFO_DGRAM (1 << 4)
-#define SF_DCO_WIN           (1 << 5)
-#define SF_PREPEND_SA        (1 << 6)
-#define SF_PKTINFO_COPY_IIF  (1 << 7)
+#define SF_USE_IP_PKTINFO            (1 << 0)
+#define SF_TCP_NODELAY               (1 << 1) /* unused: flag always enabled */
+#define SF_PORT_SHARE                (1 << 2)
+#define SF_HOST_RANDOMIZE            (1 << 3)
+#define SF_GETADDRINFO_DGRAM         (1 << 4)
+#define SF_DCO_WIN                   (1 << 5)
+#define SF_PREPEND_SA                (1 << 6)
+#define SF_PKTINFO_COPY_IIF          (1 << 7)
+#define SF_SNI_GW_SERVER_PASSTHROUGH (1 << 8)
+#define SF_SNI_GW_SERVER_HTTP        (1 << 9)
     unsigned int sockflags;
     int mark;
     const char *bind_dev;
@@ -212,6 +262,12 @@ struct link_socket
     struct stream_buf stream_buf;
     struct buffer stream_buf_data;
     bool stream_reset;
+
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
+    /* --sni-gateway-client sni-tls: userspace TLS wrapper around the OpenVPN TCP stream
+     * to a TLS-terminating gateway (client side only).  NULL unless active. */
+    struct sni_gw_tls *sni_gw_tls;
+#endif
 
     /* HTTP proxy */
     struct http_proxy_info *http_proxy;
@@ -249,6 +305,18 @@ struct link_socket
 
 #ifndef MSG_NOSIGNAL
 #define MSG_NOSIGNAL 0
+#endif
+
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
+/* --sni-gateway-client sni-tls steady-state I/O (defined in sni_gateway_tls.c).  Forward
+ * declared here so the inline TCP read/write paths can delegate to them without
+ * pulling in sni_gateway_tls.h (which itself includes socket.h). */
+struct sni_gw_tls;
+ssize_t sni_gw_tls_read(struct sni_gw_tls *t, socket_descriptor_t sd, struct buffer *buf);
+ssize_t sni_gw_tls_write(struct sni_gw_tls *t, socket_descriptor_t sd, const struct buffer *buf);
+bool sni_gw_tls_read_pending(const struct sni_gw_tls *t);
+bool sni_gw_tls_write_pending(const struct sni_gw_tls *t);
+bool sni_gw_tls_flush(struct sni_gw_tls *t, socket_descriptor_t sd);
 #endif
 
 #ifdef _WIN32
@@ -716,6 +784,13 @@ link_socket_write_udp_posix(const struct link_socket *sock, const struct buffer 
 static inline ssize_t
 link_socket_write_tcp_posix(const struct link_socket *sock, const struct buffer *buf)
 {
+#if defined(ENABLE_CRYPTO_OPENSSL) && !defined(LIBRESSL_VERSION_NUMBER) && !defined(ENABLE_CRYPTO_WOLFSSL)
+    if (sock->sni_gw_tls)
+    {
+        /* --sni-gateway-client sni-tls: tunnel the plaintext through the TLS session. */
+        return sni_gw_tls_write(sock->sni_gw_tls, sock->sd, buf);
+    }
+#endif
     return send(sock->sd, CBPTR(buf), BLENZ(buf), MSG_NOSIGNAL);
 }
 
