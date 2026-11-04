@@ -1,7 +1,9 @@
 # TODO: switch multi-listener-2 from `<listener>` to `<local>` blocks
 
 Status: not started (phase 2 of the plan, kept for a second session).
-Prerequisite: branch `multi-listener-upstream` (phase 1) exists and is tested.
+Prerequisite: done. Branch `multi-listener-upstream` (phase 1) is commit 90a5d3a3,
+pushed, based on upstream/master f1721dc7 (worktree
+`../openvpn-sni-wt-multi-listener-upstream`).
 
 ## Why
 
@@ -76,6 +78,47 @@ whatever upstream decides.
    `<listener SPEC>` must be rewritten as a `<local>` block with a `local` line
    inside.
 
-## Notes from phase 1
+## Notes from phase 1 (2026-11-04)
 
-(Filled in while building `multi-listener-upstream`.)
+- **Shape of the upstream commit (90a5d3a3), single commit:**
+  - `options.h`: `struct local_socket_opts` (rcvbuf/sndbuf -1 = not set, mark 0,
+    bind_dev NULL, mtu_discover_type -1, bind_ipv6_only ORed), and
+    `local_entry.has_opts` + `.opts`; `OPT_P_LOCAL (1ull << 33)`.
+  - `options.c`: `add_local_block()` (just above `add_option()`), dispatched by
+    `streq(p[0], "local") && is_inline` **before** the plain `local` handler.
+    `OPT_P_LOCAL` is on local, rcvbuf, sndbuf, mark, bind-dev, mtu-disc and bind.
+    A server-only check sits next to "multiple --local statements only allowed".
+  - `socket.c` phase1: `le`, the `tmp_sock->local_entry` child fix, `lo`, and the
+    per-field ternaries; `socket.h`: `struct link_socket.local_entry`.
+  - `options_show.c`: one extra `<local> ...` line per block entry.
+- **For the SNI commit**, the SNI options follow the same pattern:
+  - add `OPT_P_LOCAL` to their handlers;
+  - copy `sub.sni_gw_server_*` in `add_local_block()`. The SNI lists
+    (host/path) are arrays allocated in sub's gc, which `gc_transfer()` moves
+    along; a "defined" flag is needed for `sni-gateway-server` itself
+    (`sub.sni_gw_server_enabled`);
+  - `options_postprocess_mutate_le()` exists upstream too (port/proto
+    defaults); the SNI inheritance from multi-listener-2 goes in there.
+- **`socket-flags`** is a no-op upstream now (only TCP_NODELAY, and it has no
+  effect), so it is not a per-socket option. multi-listener-2's per-listener
+  `sockflags` field goes away.
+- **No unit test** can cover `add_local_block()`: no unit test links the real
+  `options.c`. Tests are live: `scratch/srv.conf` (two TCP blocks + a UDP plain
+  local) and the error configs `scratch/logs/e-*.conf` in the upstream
+  worktree.
+- **strace** (installed) is the way to see per-socket options:
+  `sudo strace -f -e trace=accept,setsockopt,bind openvpn --config ...`. `ss`
+  in this container does not show the fwmark. SO_MARK needs root.
+- **Test pitfalls:**
+  - several clients sharing `cli-valid.crt` need `duplicate-cn` on the
+    server, or the server keeps dropping the older one;
+  - kill test servers with `pkill -f '^/full/path/openvpn'`. A pattern that
+    is also in your own bash command line kills the shell itself.
+- **Formatting:** upstream now uses clang-format (`.clang-format`, ColumnLimit
+  0). Run `git diff -U0 | clang-format-diff -p1 -i -binary clang-format`
+  (installed).
+- **Base drift:** `multi-listener-upstream` sits on upstream/master f1721dc7,
+  which is newer than `sni-gateway-modes-6`'s base. Cherry-picking it onto
+  sni-6 may conflict in context lines. Alternatively, run
+  `rebuild-my-master.sh --sync --rebase-topics` first, so that sni-6 sits on
+  current master.
