@@ -156,6 +156,10 @@ struct link_socket
 {
     struct link_socket_info info;
 
+    /** the --local / \<local\> entry this socket listens on; for an
+     *  accepted TCP connection, the one of the listening socket */
+    const struct local_entry *local_entry;
+
     struct event_arg ev_arg; /**< this struct will store a pointer to either mi or
                               * link_socket, depending on the event type, to keep
                               * it accessible it's placed within the same struct

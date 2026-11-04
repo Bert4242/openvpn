@@ -259,9 +259,21 @@ show_connection_entry(const struct connection_entry *o)
     msg(D_SHOW_PARMS, "  Local Sockets:");
     for (int i = 0; i < o->local_list->len; i++)
     {
-        msg(D_SHOW_PARMS, "    [%s]:%s-%s", o->local_list->array[i]->local,
-            o->local_list->array[i]->port,
-            proto2ascii(o->local_list->array[i]->proto, o->af, false));
+        const struct local_entry *le = o->local_list->array[i];
+        msg(D_SHOW_PARMS, "    [%s]:%s-%s", le->local, le->port, proto2ascii(le->proto, o->af, false));
+        if (le->has_opts)
+        {
+            const struct local_socket_opts *lo = &le->opts;
+            msg(D_SHOW_PARMS,
+                "      <local> rcvbuf = %d, sndbuf = %d, mark = %d, bind_dev = '%s', "
+                "mtu_discover_type = %d, bind_ipv6_only = %s",
+                lo->rcvbuf, lo->sndbuf, lo->mark, np(lo->bind_dev), lo->mtu_discover_type,
+                lo->bind_ipv6_only ? "ENABLED" : "DISABLED");
+        }
+        else
+        {
+            /* plain --local: the global socket options apply */
+        }
     }
     SHOW_STR(remote);
     SHOW_STR(remote_port);

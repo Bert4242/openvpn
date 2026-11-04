@@ -98,11 +98,27 @@ struct options_pre_connect
 #error "At least one of OpenSSL or mbed TLS needs to be defined."
 #endif
 
+/**
+ * Settings of one listening socket, from a \<local\> block.  A field left
+ * "not set" falls back to the global option of the same name.
+ */
+struct local_socket_opts
+{
+    int rcvbuf;            /**< --rcvbuf; -1 = not set */
+    int sndbuf;            /**< --sndbuf; -1 = not set */
+    int mark;              /**< --mark; 0 = not set */
+    const char *bind_dev;  /**< --bind-dev; NULL = not set */
+    int mtu_discover_type; /**< --mtu-disc; -1 = not set */
+    bool bind_ipv6_only;   /**< --bind ipv6only; added to the global one */
+};
+
 struct local_entry
 {
     const char *local;
     const char *port;
     int proto;
+    bool has_opts;                 /**< declared by a \<local\> block */
+    struct local_socket_opts opts; /**< only meaningful if has_opts */
 };
 
 struct connection_entry
@@ -775,6 +791,7 @@ struct options
 #define OPT_P_PUSH_MTU        (1u << 30)
 #define OPT_P_ROUTE_TABLE     (1u << 31)
 #define OPT_P_ACC             (1ull << 32)
+#define OPT_P_LOCAL           (1ull << 33) /**< allowed in a <local> block */
 
 /* Options allowed in the normal configuration file (vs pushed options or in ccd files) */
 #define OPT_P_DEFAULT (~(OPT_P_INSTANCE | OPT_P_PULL_MODE | OPT_P_PEER_ID | OPT_P_ACC))

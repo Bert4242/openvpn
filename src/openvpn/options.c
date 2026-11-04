@@ -1618,9 +1618,26 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
      * Sanity check on Client mode
      */
 
-    if (options->mode != MODE_SERVER && ce->local_list->len > 1)
+    if ((options->mode != MODE_SERVER) && (ce->local_list->len > 1))
     {
         msg(M_USAGE, "multiple --local statements only allowed in --server mode");
+    }
+    else
+    {
+        /* server mode, or a single local */
+    }
+
+    for (int i = 0; i < ce->local_list->len; i++)
+    {
+        if ((options->mode != MODE_SERVER) && ce->local_list->array[i]->has_opts)
+        {
+            msg(M_USAGE, "<local> blocks are only allowed in --mode server; "
+                         "use --local and the global socket options instead");
+        }
+        else
+        {
+            /* plain --local, or server mode */
+        }
     }
 
     if (options->lladdr && dev != DEV_TYPE_TAP)
@@ -4156,6 +4173,61 @@ key_is_external(const struct options *options)
     return ret;
 }
 
+/**
+ * Parse the body of a \<local\> block: exactly one --local line plus the
+ * socket options that may differ between listening sockets.  The body is read
+ * like a \<connection\> block, into a temporary options struct, with only the
+ * options marked OPT_P_LOCAL allowed.
+ *
+ * @return true if a local entry was added to options->ce.local_list
+ */
+static bool
+add_local_block(struct options *options, const char *body, const msglvl_t msglevel,
+                uint64_t *option_types_found, struct env_set *es)
+{
+    struct options sub;
+    bool ok = false;
+
+    init_options(&sub);
+    /* "not set" markers: positive_atoi() never returns -1 */
+    sub.rcvbuf = -1;
+    sub.sndbuf = -1;
+    read_config_string("[LOCAL-OPTIONS]", &sub, body, msglevel, OPT_P_LOCAL,
+                       option_types_found, es);
+
+    if ((sub.ce.local_list == NULL) || (sub.ce.local_list->len != 1))
+    {
+        msg(msglevel, "Each <local> block must contain exactly one 'local' directive");
+    }
+    else
+    {
+        const struct local_entry *le = sub.ce.local_list->array[0];
+        struct local_entry *e = alloc_local_entry(&options->ce, msglevel, &options->gc);
+        if (e)
+        {
+            e->local = le->local;
+            e->port = le->port;
+            e->proto = le->proto;
+            e->has_opts = true;
+            e->opts.rcvbuf = sub.rcvbuf;
+            e->opts.sndbuf = sub.sndbuf;
+            e->opts.mark = sub.mark;
+            e->opts.bind_dev = sub.bind_dev;
+            e->opts.mtu_discover_type = sub.ce.mtu_discover_type;
+            e->opts.bind_ipv6_only = sub.ce.bind_ipv6_only;
+            /* the strings above live in sub's arena */
+            gc_transfer(&options->gc, &sub.gc);
+            ok = true;
+        }
+        else
+        {
+            /* alloc_local_entry() has reported the error */
+        }
+    }
+    uninit_options(&sub);
+    return ok;
+}
+
 #if defined(__GNUC__) || defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsign-compare"
@@ -4554,11 +4626,24 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
+    else if (streq(p[0], "local") && is_inline && p[1] && !p[2])
+    {
+        /* <local> block: one listening socket with its own socket options */
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
+        if (!add_local_block(options, p[1], msglevel, option_types_found, es))
+        {
+            goto err;
+        }
+        else
+        {
+            /* entry added */
+        }
+    }
     else if (streq(p[0], "local") && p[1] && !p[4])
     {
         struct local_entry *e;
 
-        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION | OPT_P_LOCAL);
 
         e = alloc_local_entry(&options->ce, M_USAGE, &options->gc);
         ASSERT(e);
@@ -5065,7 +5150,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 #endif /* ifdef ENABLE_FRAGMENT */
     else if (streq(p[0], "mtu-disc") && p[1] && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_MTU | OPT_P_CONNECTION);
+        VERIFY_PERMISSION(OPT_P_MTU | OPT_P_CONNECTION | OPT_P_LOCAL);
         options->ce.mtu_discover_type = translate_mtu_discover_type_name(p[1]);
     }
     else if (streq(p[0], "mtu-test") && !p[1])
@@ -5080,18 +5165,18 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "rcvbuf") && p[1] && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_SOCKBUF);
+        VERIFY_PERMISSION(OPT_P_SOCKBUF | OPT_P_LOCAL);
         options->rcvbuf = positive_atoi(p[1], msglevel);
     }
     else if (streq(p[0], "sndbuf") && p[1] && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_SOCKBUF);
+        VERIFY_PERMISSION(OPT_P_SOCKBUF | OPT_P_LOCAL);
         options->sndbuf = positive_atoi(p[1], msglevel);
     }
     else if (streq(p[0], "mark") && p[1] && !p[2])
     {
 #if defined(TARGET_LINUX)
-        VERIFY_PERMISSION(OPT_P_GENERAL);
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_LOCAL);
         options->mark = atoi_warn(p[1], msglevel);
 #endif
     }
@@ -5112,7 +5197,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 #ifdef TARGET_LINUX
     else if (streq(p[0], "bind-dev") && p[1])
     {
-        VERIFY_PERMISSION(OPT_P_SOCKFLAGS);
+        VERIFY_PERMISSION(OPT_P_SOCKFLAGS | OPT_P_LOCAL);
         if (strlen(p[1]) < IFNAMSIZ)
         {
             options->bind_dev = p[1];
@@ -5165,7 +5250,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     }
     else if (streq(p[0], "bind") && !p[2])
     {
-        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION);
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_CONNECTION | OPT_P_LOCAL);
         options->ce.bind_defined = true;
         if (p[1] && streq(p[1], "ipv6only"))
         {

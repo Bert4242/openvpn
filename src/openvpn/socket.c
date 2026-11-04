@@ -982,9 +982,10 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     struct options *o = &c->options;
     ASSERT(sock);
 
-    const char *host = o->ce.local_list->array[sock_index]->local;
-    const char *port = o->ce.local_list->array[sock_index]->port;
-    int proto = o->ce.local_list->array[sock_index]->proto;
+    const struct local_entry *le = o->ce.local_list->array[sock_index];
+    const char *host = le->local;
+    const char *port = le->port;
+    int proto = le->proto;
     const char *remote_host = o->ce.remote;
     const char *remote_port = o->ce.remote_port;
 
@@ -1000,22 +1001,40 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
         port = o->ce.local_port;
     }
 
-    if (c->mode == CM_CHILD_TCP || c->mode == CM_CHILD_UDP)
+    if ((c->mode == CM_CHILD_TCP) || (c->mode == CM_CHILD_UDP))
     {
         struct link_socket *tmp_sock = NULL;
         if (c->mode == CM_CHILD_TCP)
         {
             tmp_sock = (struct link_socket *)c->c2.accept_from;
         }
-        else if (c->mode == CM_CHILD_UDP)
+        else
         {
+            /* CM_CHILD_UDP, the only other mode of the enclosing condition */
             tmp_sock = c->c2.link_sockets[0];
         }
 
         host = tmp_sock->local_host;
         port = tmp_sock->local_port;
         proto = tmp_sock->info.proto;
+        /* a child's sock_index is always 0: take the socket options of the
+         * listening socket the connection came in on, not of the first one */
+        if (tmp_sock->local_entry)
+        {
+            le = tmp_sock->local_entry;
+        }
+        else
+        {
+            /* parent without an entry: keep local_list[sock_index] */
+        }
     }
+    else
+    {
+        /* top-level socket: le is local_list[sock_index] */
+    }
+    sock->local_entry = le;
+    /* per-socket settings of a <local> block; the global ones otherwise */
+    const struct local_socket_opts *lo = le->has_opts ? &le->opts : NULL;
 
     sock->local_host = host;
     sock->local_port = port;
@@ -1026,14 +1045,15 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     sock->socks_proxy = c->c1.socks_proxy;
     sock->bind_local = o->ce.bind_local;
     sock->resolve_retry_seconds = o->resolve_retry_seconds;
-    sock->mtu_discover_type = o->ce.mtu_discover_type;
+    sock->mtu_discover_type = (lo && (lo->mtu_discover_type != -1)) ? lo->mtu_discover_type
+                                                                    : o->ce.mtu_discover_type;
 
 #ifdef ENABLE_DEBUG
     sock->gremlin = o->gremlin;
 #endif
 
-    sock->socket_buffer_sizes.rcvbuf = o->rcvbuf;
-    sock->socket_buffer_sizes.sndbuf = o->sndbuf;
+    sock->socket_buffer_sizes.rcvbuf = (lo && (lo->rcvbuf != -1)) ? lo->rcvbuf : o->rcvbuf;
+    sock->socket_buffer_sizes.sndbuf = (lo && (lo->sndbuf != -1)) ? lo->sndbuf : o->sndbuf;
 
     sock->sockflags = o->sockflags;
 
@@ -1044,14 +1064,14 @@ link_socket_init_phase1(struct context *c, int sock_index, int mode)
     }
 #endif
 
-    sock->mark = o->mark;
-    sock->bind_dev = o->bind_dev;
+    sock->mark = (lo && (lo->mark != 0)) ? lo->mark : o->mark;
+    sock->bind_dev = (lo && lo->bind_dev) ? lo->bind_dev : o->bind_dev;
     ASSERT(proto >= 0 && proto < PROTO_N);
     sock->info.proto = (uint8_t)proto;
     sock->info.af = o->ce.af;
     sock->info.remote_float = o->ce.remote_float;
     sock->info.lsa = &c->c1.link_socket_addrs[sock_index];
-    sock->info.bind_ipv6_only = o->ce.bind_ipv6_only;
+    sock->info.bind_ipv6_only = o->ce.bind_ipv6_only || (lo && lo->bind_ipv6_only);
     sock->info.ipchange_command = o->ipchange;
     sock->info.plugins = c->plugins;
     sock->server_poll_timeout = &c->c2.server_poll_interval;

@@ -130,6 +130,41 @@ the local and the remote host.
   "all IPv4 addresses" use "0.0.0.0", for "all IPv6 addresses" use '::'.
   ``--local`` implies ``--bind``.
 
+  In ``--mode server``, a listening socket can have its own socket options by
+  declaring it in a ``<local>`` block instead of a plain ``--local`` line. The
+  block contains exactly one ``local`` directive, plus any of these options,
+  which then apply to that socket only:
+
+  * ``--rcvbuf`` and ``--sndbuf``
+  * ``--mark``
+  * ``--bind-dev``
+  * ``--mtu-disc``
+  * ``--bind ipv6only``
+
+  Example: a TCP socket on port 443 with larger buffers, bound to ``eth1``
+  and marked, next to a UDP socket that uses the global options:
+  ::
+
+     sndbuf 131072
+
+     <local>
+     local 0.0.0.0 443 tcp
+     sndbuf 393216
+     rcvbuf 393216
+     mark 42
+     bind-dev eth1
+     </local>
+
+     local 0.0.0.0 1194 udp
+
+  An option not set in a ``<local>`` block falls back to the global option of
+  the same name, wherever that appears in the configuration (in the example,
+  the UDP socket uses ``sndbuf 131072``). ``--bind ipv6only`` in a block adds
+  to a global ``--bind ipv6only`` and cannot turn it off. A TCP connection
+  accepted on a ``<local>`` socket uses the settings of that socket.
+  Other options are rejected inside a ``<local>`` block, and ``<local>`` blocks
+  are rejected outside ``--mode server`` and inside ``<connection>`` blocks.
+
 --lport port
   Set default TCP/UDP port number. Cannot be used together with
   ``--nobind`` option.  A port number of ``0`` is only honoured to

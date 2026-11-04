@@ -1,5 +1,15 @@
 # Overview of changes in 2.8
 
+## New features
+
+* **Per-socket options for listening sockets: `<local>` blocks**
+
+  A server that listens on several sockets (several `--local` lines) can now
+  give a socket its own `--rcvbuf`, `--sndbuf`, `--mark`, `--bind-dev`,
+  `--mtu-disc` or `--bind ipv6only`, by declaring it in a `<local>` block that
+  contains its `local` line. Options not set in the block fall back to the
+  global ones. Plain `--local` lines behave as before.
+
 ## User-visible Changes
 
 * **Parsing Distinguished Names in certificates**
