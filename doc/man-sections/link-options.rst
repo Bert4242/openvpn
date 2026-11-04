@@ -165,6 +165,17 @@ the local and the remote host.
   Other options are rejected inside a ``<local>`` block, and ``<local>`` blocks
   are rejected outside ``--mode server`` and inside ``<connection>`` blocks.
 
+  ``<listener>`` is another name for a ``<local>`` block, with the same
+  contents (including its ``local`` line) and the same rules. It makes clear
+  that the block configures a server's listening socket, unlike the ``--local``
+  of a client.
+  ::
+
+     <listener>
+     local 0.0.0.0 443 tcp
+     mark 42
+     </listener>
+
 --lport port
   Set default TCP/UDP port number. Cannot be used together with
   ``--nobind`` option.  A port number of ``0`` is only honoured to

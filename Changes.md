@@ -8,7 +8,8 @@
   give a socket its own `--rcvbuf`, `--sndbuf`, `--mark`, `--bind-dev`,
   `--mtu-disc` or `--bind ipv6only`, by declaring it in a `<local>` block that
   contains its `local` line. Options not set in the block fall back to the
-  global ones. Plain `--local` lines behave as before.
+  global ones. Plain `--local` lines behave as before. The block can also be
+  written `<listener>`, to mark it as a server's listening socket.
 
 ## User-visible Changes
 

@@ -1631,7 +1631,7 @@ options_postprocess_verify_ce(const struct options *options, const struct connec
     {
         if ((options->mode != MODE_SERVER) && ce->local_list->array[i]->has_opts)
         {
-            msg(M_USAGE, "<local> blocks are only allowed in --mode server; "
+            msg(M_USAGE, "<local> and <listener> blocks are only allowed in --mode server; "
                          "use --local and the global socket options instead");
         }
         else
@@ -4179,11 +4179,17 @@ key_is_external(const struct options *options)
  * like a \<connection\> block, into a temporary options struct, with only the
  * options marked OPT_P_LOCAL allowed.
  *
+ * \<listener\> is another name for the same block.  It says that the block is
+ * about a server's listening socket, not the --local of a client, in case the
+ * two ever need to differ.
+ *
+ * @param tag  the block's name as written in the configuration, "local" or
+ *             "listener", for the messages
  * @return true if a local entry was added to options->ce.local_list
  */
 static bool
-add_local_block(struct options *options, const char *body, const msglvl_t msglevel,
-                uint64_t *option_types_found, struct env_set *es)
+add_local_block(struct options *options, const char *tag, const char *body,
+                const msglvl_t msglevel, uint64_t *option_types_found, struct env_set *es)
 {
     struct options sub;
     bool ok = false;
@@ -4192,12 +4198,12 @@ add_local_block(struct options *options, const char *body, const msglvl_t msglev
     /* "not set" markers: positive_atoi() never returns -1 */
     sub.rcvbuf = -1;
     sub.sndbuf = -1;
-    read_config_string("[LOCAL-OPTIONS]", &sub, body, msglevel, OPT_P_LOCAL,
-                       option_types_found, es);
+    read_config_string(streq(tag, "listener") ? "[LISTENER-OPTIONS]" : "[LOCAL-OPTIONS]",
+                       &sub, body, msglevel, OPT_P_LOCAL, option_types_found, es);
 
     if ((sub.ce.local_list == NULL) || (sub.ce.local_list->len != 1))
     {
-        msg(msglevel, "Each <local> block must contain exactly one 'local' directive");
+        msg(msglevel, "Each <%s> block must contain exactly one 'local' directive", tag);
     }
     else
     {
@@ -4626,11 +4632,12 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
         VERIFY_PERMISSION(OPT_P_UP);
         options->ifconfig_nowarn = true;
     }
-    else if (streq(p[0], "local") && is_inline && p[1] && !p[2])
+    else if ((streq(p[0], "local") || streq(p[0], "listener")) && is_inline && p[1] && !p[2])
     {
-        /* <local> block: one listening socket with its own socket options */
+        /* <local> block, or its other name <listener>: one listening socket
+         * with its own socket options */
         VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INLINE);
-        if (!add_local_block(options, p[1], msglevel, option_types_found, es))
+        if (!add_local_block(options, p[0], p[1], msglevel, option_types_found, es))
         {
             goto err;
         }
