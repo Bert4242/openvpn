@@ -1,9 +1,13 @@
 # TODO: switch multi-listener-2 from `<listener>` to `<local>` blocks
 
 Status: not started (phase 2 of the plan, kept for a second session).
-Prerequisite: done. Branch `multi-listener-upstream` (phase 1) is commit 90a5d3a3,
+Prerequisite: done. Branch `multi-listener-upstream` (phase 1) is two commits,
 pushed, based on upstream/master f1721dc7 (worktree
-`../openvpn-sni-wt-multi-listener-upstream`).
+`../openvpn-sni-wt-multi-listener-upstream`):
+- 90a5d3a3 Add `<local>` blocks: per-socket options for listening sockets;
+- f591598d Accept `<listener>` as another name for a `<local>` block (added
+  2026-11-04 at the user's request, a separate commit so it can be dropped if
+  upstream objects).
 
 ## Why
 
@@ -34,13 +38,27 @@ local 0.0.0.0 1194 udp
 should use the same syntax as the upstream one, so their configs keep working
 whatever upstream decides.
 
+The user then asked for `<listener>` as another name for the block: it marks a
+server's listening socket, apart from a client's `--local`, in case the two
+ever need to differ. It is the same block, with the same `local` line inside:
+
+```
+<listener>
+local 0.0.0.0 443 tcp
+sni-gateway-server sni-http-path-upgrade
+</listener>
+```
+
+So the name `<listener>` stays; what goes away is the argument in its opening
+line, the `proto:host:port` format and the mini-parser.
+
 ## What to do
 
 1. Tag the current tip so the `<listener>` version stays reachable, and push the
    tag: `git tag multi-listener-2-listener-syntax origin/multi-listener-2`.
 2. Rebuild `multi-listener-2` from `origin/sni-gateway-modes-6`:
-   1. cherry-pick the `multi-listener-upstream` commits (the SNI-free `<local>`
-      block);
+   1. cherry-pick both `multi-listener-upstream` commits (the SNI-free `<local>`
+      block, and its `<listener>` name);
    2. add one commit, "allow the sni-gateway-server options in `<local>`":
       - add `OPT_P_LOCAL` to the `VERIFY_PERMISSION` of `sni-gateway-server`,
         `-host`, `-ignore-alpn`, `-http-path` and `-http-upgrade-token`;
@@ -53,9 +71,13 @@ whatever upstream decides.
         - socket.c: the phase-1 `SF_SNI_GW_SERVER_*` flags and the phase-2
           `stream_buf` fields, taken from `sock->local_entry->opts`;
       - man page: list the SNI options as allowed inside `<local>`;
-      - remove `--listener` / `<listener>`, `parse_listener_spec()`,
-        `parse_listener_block_body()` and the `<tag arg>` change in
-        `options_parse.c`.
+      - remove the old `--listener` option, the `<listener SPEC>` form (with an
+        argument), `parse_listener_spec()`, `parse_listener_block_body()` and the
+        `<tag arg>` change in `options_parse.c`. The argument-free `<listener>`
+        from the cherry-picked commit stays. Check that the `listener` handler
+        of the old code is fully gone, so it cannot shadow the cherry-picked
+        `(streq(p[0], "local") || streq(p[0], "listener")) && is_inline`
+        branch.
 3. Force-push `multi-listener-2` with lease. `TOPICS` in
    `dev-tools/rebuild-my-master.sh` stays `multi-listener-2:sni-gateway-modes-6`.
 4. Run `dev-tools/rebuild-my-master.sh`. The recorded rerere resolution for
@@ -67,16 +89,18 @@ whatever upstream decides.
    `../openvpn-sni-wt-multi-listener-2/scratch/cli.sh`, configs in its
    `scratch/logs/*.conf`; PKI in `../openvpn-sni-wt-ignore-cert-expiry/scratch/pki`):
    - two TCP sockets with different `sni-gateway-server-http-path`, each
-     accepting only its own path;
+     accepting only its own path (one written `<listener>`, one `<local>`);
    - a UDP socket on the same port number;
    - inheritance from a global `sni-gateway-server auto`;
    - the 18-case expired-cert suite (`scratch/suite.sh` in the
      ignore-cert-expiry worktree) on the rebuilt my-master;
    - `dev-tools/build-deb.sh` on the result.
 6. Update `dev-tools/README.my-master.md` (the multi-listener-2 row of the
-   table) and the memory notes. Tell the user that configs using
-   `<listener SPEC>` must be rewritten as a `<local>` block with a `local` line
-   inside.
+   table) and the memory notes. Tell the user how to rewrite configs using
+   `<listener SPEC>`: keep `<listener>`, move the address into a `local` line
+   inside, e.g. `<listener tcp4:0.0.0.0:443>` becomes `<listener>` followed by
+   `local 0.0.0.0 443 tcp4`; the rest of the block is unchanged
+   (`[::1]` bracket addresses become `local ::1 PORT tcp6`).
 
 ## Notes from phase 1 (2026-11-04)
 
@@ -102,6 +126,13 @@ whatever upstream decides.
 - **`socket-flags`** is a no-op upstream now (only TCP_NODELAY, and it has no
   effect), so it is not a per-socket option. multi-listener-2's per-listener
   `sockflags` field goes away.
+- **`<listener>` name (f591598d):** `add_local_block()` takes the tag as
+  written, for the messages ("Each <listener> block ...", "[LISTENER-OPTIONS]");
+  the server-only error names both. Live-tested like `<local>`: a server with
+  one `<listener>`, one `<local>` and a plain UDP `local` (strace: per-socket
+  options as before), the error cases (`scratch/logs/ha-*.conf`), a plain
+  `listener` line is "Unrecognized option", nested in `<local>` and in
+  `<connection>` rejected.
 - **No unit test** can cover `add_local_block()`: no unit test links the real
   `options.c`. Tests are live: `scratch/srv.conf` (two TCP blocks + a UDP plain
   local) and the error configs `scratch/logs/e-*.conf` in the upstream
