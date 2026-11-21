@@ -684,6 +684,7 @@ if (BUILD_TESTING)
         "test_buffer"
         "test_crypto"
         "test_dhcp"
+        "test_env_set"
         "test_mbuf"
         "test_misc"
         "test_ncp"
@@ -873,6 +874,13 @@ if (BUILD_TESTING)
         src/openvpn/packet_id.c
         src/openvpn/ssl_util.c
         src/compat/compat-strsep.c
+        )
+
+    target_sources(test_env_set PRIVATE
+        tests/unit_tests/openvpn/mock_get_random.c
+        tests/unit_tests/openvpn/mock_win32_execve.c
+        src/openvpn/env_set.c
+        src/openvpn/run_command.c
         )
 
     target_sources(test_options_parse PRIVATE

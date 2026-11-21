@@ -11,6 +11,7 @@ test_binaries = argv_testdriver \
 	buffer_testdriver \
 	crypto_testdriver \
 	dhcp_testdriver \
+	env_set_testdriver \
 	ncp_testdriver \
 	mbuf_testdriver \
 	misc_testdriver \
@@ -228,6 +229,19 @@ networking_testdriver_SOURCES = test_networking.c mock_msg.c \
 	$(top_srcdir)/src/openvpn/packet_id.c \
 	$(top_srcdir)/src/openvpn/platform.c
 endif
+
+env_set_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
+env_set_testdriver_LDFLAGS = @TEST_LDFLAGS@ -L$(top_srcdir)/src/openvpn
+env_set_testdriver_SOURCES = test_env_set.c \
+	mock_msg.c mock_msg.h test_common.h \
+	mock_get_random.c \
+	mock_win32_execve.c \
+	$(top_srcdir)/src/compat/compat-strlcpy.c \
+	$(top_srcdir)/src/openvpn/buffer.c \
+	$(top_srcdir)/src/openvpn/env_set.c \
+	$(top_srcdir)/src/openvpn/platform.c \
+	$(top_srcdir)/src/openvpn/run_command.c \
+	$(top_srcdir)/src/openvpn/win32-util.c
 
 options_parse_testdriver_CFLAGS  = -I$(top_srcdir)/src/openvpn -I$(top_srcdir)/src/compat @TEST_CFLAGS@
 options_parse_testdriver_LDFLAGS = @TEST_LDFLAGS@ -L$(top_srcdir)/src/openvpn

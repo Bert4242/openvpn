@@ -81,6 +81,18 @@ void env_set_destroy(struct env_set *es);
 
 bool env_set_del(struct env_set *es, const char *str);
 
+/**
+ * Removes all items from the env set for which \c match returns true.
+ * The items are freed if the env set was created without a gc_arena.
+ *
+ * @param es        The env set
+ * @param match     Called with each "name=value" string and \c arg
+ * @param arg       Passed through to \c match
+ * @return          The number of removed items
+ */
+unsigned int env_set_del_if(struct env_set *es, bool (*match)(const char *str, void *arg),
+                            void *arg);
+
 void env_set_add(struct env_set *es, const char *str);
 
 const char *env_set_get(const struct env_set *es, const char *name);

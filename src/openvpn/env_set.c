@@ -188,6 +188,37 @@ env_set_del(struct env_set *es, const char *str)
     return ret;
 }
 
+unsigned int
+env_set_del_if(struct env_set *es, bool (*match)(const char *str, void *arg), void *arg)
+{
+    ASSERT(es);
+    ASSERT(match);
+
+    unsigned int removed = 0;
+    struct env_item **link = &es->list;
+    while (*link)
+    {
+        struct env_item *current = *link;
+        if (match(current->string, arg))
+        {
+            /* unlink, but do not advance: *link is the next item now */
+            *link = current->next;
+            if (es->gc == NULL)
+            {
+                secure_memzero(current->string, strlen(current->string));
+                free(current->string);
+                free(current);
+            }
+            ++removed;
+        }
+        else
+        {
+            link = &current->next;
+        }
+    }
+    return removed;
+}
+
 void
 env_set_add(struct env_set *es, const char *str)
 {
