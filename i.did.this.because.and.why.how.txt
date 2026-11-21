@@ -1,0 +1,73 @@
+android: pass search domains to the UI
+======================================
+
+Branch:   dns-fix/06-android-search-domains   (based on master 3e2d92c)
+Handoff:  handoff/dns/06-android-search-domains.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID
+----------
+In the Android open_tun() (tun.c), after DNSDOMAIN for
+tt->options.domain, send one more DNSDOMAIN per entry of
+tt->options.domain_search_list, skipping an entry equal to the domain.
+Updated doc/android.txt (DNSDOMAIN is sent once per search domain, in
+order) and the --dns-updown paragraph of the man page (Android gets DNS
+servers and search domains; split DNS is not supported there).
+
+
+WHY
+---
+Before:
+  --dns search-domains          -> nothing (only domain_search_list is
+                                   filled on that path, never ->domain)
+  --dhcp-option DOMAIN-SEARCH   -> silently ignored
+  --dhcp-option DOMAIN          -> DNSDOMAIN, the only thing sent
+The man page says "On Android DNS will be passed via management", which
+suggests the domains too.
+
+
+WHY NO NEW COMMAND (this differs from the handoff proposal)
+-----------------------------------------------------------
+The handoff suggested a new DNSSEARCHDOMAIN command. I checked the
+ics-openvpn source (schwabe/ics-openvpn master,
+OpenVpnManagementThread.processNeedCommand()):
+
+    case "DNSDOMAIN":
+        mOpenVPNService.addSearchDomain(extra);   // appends to a list
+    ...
+    default:
+        Log.e(TAG, "Unknown needok command " + argument);
+        return;                                   // NO reply
+
+and management_android_control() waits for the reply. So:
+  - a new command would hang the connection with every current app
+  - the existing DNSDOMAIN is already "add one search domain", and
+    OpenVPNService adds each entry with builder.addSearchDomain()
+Sending DNSDOMAIN several times therefore works with current apps and
+needs no protocol negotiation. A very old app that stores a single
+domain ends up with the last one, which is no worse than today.
+
+
+HOW IT WAS TESTED
+-----------------
+- Compiled with -DTARGET_ANDROID (-fsyntax-only); no new errors (the
+  remaining "tun_p2p" error is the same on master and comes from
+  building the Android code with a Linux config.h).
+- Not run on Android: I had no device or emulator.
+- Fix dns-fix/04 matters here too: with it, all 10 search domains and 4
+  servers per family get through tuntap_options_postprocess_dns().
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- Ask Arne Schwabe (ics-openvpn maintainer) to confirm that DNSDOMAIN
+  is meant to be repeatable. The current app code says yes.
+- Manual test: ics-openvpn with a profile that has
+  "dns server 0 address 10.0.0.1" and "dns search-domains a.example
+  b.example". Before: the management log has no DNSDOMAIN. After:
+  DNSDOMAIN a.example and DNSDOMAIN b.example; Android's VPN details
+  show both search domains.
+- resolve-domains (split DNS) still has no Android equivalent; left out
+  on purpose.
+- Add your Signed-off-by: the commit has none.
