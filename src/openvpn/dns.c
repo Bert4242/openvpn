@@ -186,6 +186,115 @@ dns_server_priority_parse(long *priority, const char *str, bool pulled)
     return true;
 }
 
+bool
+dns_option_parse(struct dns_options *o, char *p[], const msglvl_t msglevel, bool pulled)
+{
+    if (streq(p[1], "search-domains") && p[2])
+    {
+        if (!dns_domain_list_append(&o->search_domains, &p[2],
+                                    &o->gc))
+        {
+            msg(msglevel, "--dns %s contain invalid characters", p[1]);
+            return false;
+        }
+    }
+    else if (streq(p[1], "server") && p[2] && p[3] && p[4])
+    {
+        long priority;
+        if (!dns_server_priority_parse(&priority, p[2], pulled))
+        {
+            msg(msglevel, "--dns server: invalid priority value '%s'", p[2]);
+            return false;
+        }
+
+        struct dns_server *server =
+            dns_server_get(&o->servers, priority, &o->gc);
+
+        if (streq(p[3], "address"))
+        {
+            for (int i = 4; p[i]; ++i)
+            {
+                if (!dns_server_addr_parse(server, p[i]))
+                {
+                    msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'",
+                        priority, p[i]);
+                    return false;
+                }
+            }
+        }
+        else if (streq(p[3], "resolve-domains"))
+        {
+            if (!dns_domain_list_append(&server->domains, &p[4], &o->gc))
+            {
+                msg(msglevel, "--dns server %ld: %s contain invalid characters", priority, p[3]);
+                return false;
+            }
+        }
+        else if (streq(p[3], "dnssec") && !p[5])
+        {
+            if (streq(p[4], "yes"))
+            {
+                server->dnssec = DNS_SECURITY_YES;
+            }
+            else if (streq(p[4], "no"))
+            {
+                server->dnssec = DNS_SECURITY_NO;
+            }
+            else if (streq(p[4], "optional"))
+            {
+                server->dnssec = DNS_SECURITY_OPTIONAL;
+            }
+            else
+            {
+                msg(msglevel, "--dns server %ld: malformed dnssec value '%s'", priority, p[4]);
+                return false;
+            }
+        }
+        else if (streq(p[3], "transport") && !p[5])
+        {
+            if (streq(p[4], "plain"))
+            {
+                server->transport = DNS_TRANSPORT_PLAIN;
+            }
+            else if (streq(p[4], "DoH"))
+            {
+                server->transport = DNS_TRANSPORT_HTTPS;
+            }
+            else if (streq(p[4], "DoT"))
+            {
+                server->transport = DNS_TRANSPORT_TLS;
+            }
+            else
+            {
+                msg(msglevel, "--dns server %ld: malformed transport value '%s'", priority, p[4]);
+                return false;
+            }
+        }
+        else if (streq(p[3], "sni") && !p[5])
+        {
+            if (!validate_domain(p[4]))
+            {
+                msg(msglevel, "--dns server %ld: %s contains invalid characters", priority, p[3]);
+                return false;
+            }
+            server->sni = p[4];
+        }
+        else
+        {
+            msg(msglevel,
+                "--dns server %ld: unknown option type '%s' or missing or unknown parameter",
+                priority, p[3]);
+            return false;
+        }
+    }
+    else
+    {
+        msg(msglevel, "--dns: unknown option type '%s' or missing or unknown parameter", p[1]);
+        return false;
+    }
+    return true;
+}
+
 struct dns_server *
 dns_server_get(struct dns_server **entry, long priority, struct gc_arena *gc)
 {
@@ -283,6 +392,72 @@ dns_options_preprocess_pull(struct dns_options *o)
 {
     o->servers_prepull = o->servers;
     o->servers = NULL;
+}
+
+const char **
+dns_options_to_dhcp_options(const struct dns_options *o, struct gc_arena *gc)
+{
+    /* first server that a plain --dhcp-option DNS/DNS6 can express */
+    const struct dns_server *s = o->servers;
+    for (; s; s = s->next)
+    {
+        bool standard_port = true;
+        for (size_t i = 0; i < s->addr_count; ++i)
+        {
+            if (s->addr[i].port && s->addr[i].port != 53)
+            {
+                standard_port = false;
+            }
+        }
+        if ((s->transport == DNS_TRANSPORT_UNSET || s->transport == DNS_TRANSPORT_PLAIN)
+            && (s->dnssec == DNS_SECURITY_UNSET || s->dnssec == DNS_SECURITY_NO)
+            && standard_port)
+        {
+            break;
+        }
+    }
+    if (!s)
+    {
+        return NULL;
+    }
+
+    size_t n = s->addr_count;
+    for (const struct dns_domain *d = o->search_domains; d; d = d->next)
+    {
+        n++;
+    }
+
+    const char **list;
+    ALLOC_ARRAY_CLEAR_GC(list, const char *, n + 1, gc);
+    size_t i = 0;
+
+    for (size_t j = 0; j < s->addr_count; ++j)
+    {
+        struct buffer b = alloc_buf_gc(80, gc);
+        if (s->addr[j].family == AF_INET)
+        {
+            buf_printf(&b, "dhcp-option DNS %s",
+                       print_in_addr_t(s->addr[j].in.a4.s_addr, IA_NET_ORDER, gc));
+        }
+        else
+        {
+            buf_printf(&b, "dhcp-option DNS6 %s", print_in6_addr(s->addr[j].in.a6, 0, gc));
+        }
+        list[i++] = BSTR(&b);
+    }
+
+    /* The first search domain doubles as the connection suffix. Older
+     * clients and scripts know DOMAIN, newer ones also DOMAIN-SEARCH. */
+    bool first = true;
+    for (const struct dns_domain *d = o->search_domains; d; d = d->next)
+    {
+        struct buffer b = alloc_buf_gc(strlen(d->name) + 32, gc);
+        buf_printf(&b, "dhcp-option %s %s", first ? "DOMAIN" : "DOMAIN-SEARCH", d->name);
+        list[i++] = BSTR(&b);
+        first = false;
+    }
+
+    return list;
 }
 
 void

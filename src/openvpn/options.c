@@ -3886,110 +3886,7 @@ check_route6_option(struct options *options, char *p[], const msglvl_t msglevel,
 static bool
 check_dns_option(struct options *options, char *p[], const msglvl_t msglevel, bool pull_mode)
 {
-    if (streq(p[1], "search-domains") && p[2])
-    {
-        if (!dns_domain_list_append(&options->dns_options.search_domains, &p[2],
-                                    &options->dns_options.gc))
-        {
-            msg(msglevel, "--dns %s contain invalid characters", p[1]);
-            return false;
-        }
-    }
-    else if (streq(p[1], "server") && p[2] && p[3] && p[4])
-    {
-        long priority;
-        if (!dns_server_priority_parse(&priority, p[2], pull_mode))
-        {
-            msg(msglevel, "--dns server: invalid priority value '%s'", p[2]);
-            return false;
-        }
-
-        struct dns_server *server =
-            dns_server_get(&options->dns_options.servers, priority, &options->dns_options.gc);
-
-        if (streq(p[3], "address"))
-        {
-            for (int i = 4; p[i]; ++i)
-            {
-                if (!dns_server_addr_parse(server, p[i]))
-                {
-                    msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'",
-                        priority, p[i]);
-                    return false;
-                }
-            }
-        }
-        else if (streq(p[3], "resolve-domains"))
-        {
-            if (!dns_domain_list_append(&server->domains, &p[4], &options->dns_options.gc))
-            {
-                msg(msglevel, "--dns server %ld: %s contain invalid characters", priority, p[3]);
-                return false;
-            }
-        }
-        else if (streq(p[3], "dnssec") && !p[5])
-        {
-            if (streq(p[4], "yes"))
-            {
-                server->dnssec = DNS_SECURITY_YES;
-            }
-            else if (streq(p[4], "no"))
-            {
-                server->dnssec = DNS_SECURITY_NO;
-            }
-            else if (streq(p[4], "optional"))
-            {
-                server->dnssec = DNS_SECURITY_OPTIONAL;
-            }
-            else
-            {
-                msg(msglevel, "--dns server %ld: malformed dnssec value '%s'", priority, p[4]);
-                return false;
-            }
-        }
-        else if (streq(p[3], "transport") && !p[5])
-        {
-            if (streq(p[4], "plain"))
-            {
-                server->transport = DNS_TRANSPORT_PLAIN;
-            }
-            else if (streq(p[4], "DoH"))
-            {
-                server->transport = DNS_TRANSPORT_HTTPS;
-            }
-            else if (streq(p[4], "DoT"))
-            {
-                server->transport = DNS_TRANSPORT_TLS;
-            }
-            else
-            {
-                msg(msglevel, "--dns server %ld: malformed transport value '%s'", priority, p[4]);
-                return false;
-            }
-        }
-        else if (streq(p[3], "sni") && !p[5])
-        {
-            if (!validate_domain(p[4]))
-            {
-                msg(msglevel, "--dns server %ld: %s contains invalid characters", priority, p[3]);
-                return false;
-            }
-            server->sni = p[4];
-        }
-        else
-        {
-            msg(msglevel,
-                "--dns server %ld: unknown option type '%s' or missing or unknown parameter",
-                priority, p[3]);
-            return false;
-        }
-    }
-    else
-    {
-        msg(msglevel, "--dns: unknown option type '%s' or missing or unknown parameter", p[1]);
-        return false;
-    }
-    return true;
+    return dns_option_parse(&options->dns_options, p, msglevel, pull_mode);
 }
 
 void
@@ -5878,6 +5775,11 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
     {
         VERIFY_PERMISSION(OPT_P_PUSH);
         push_options(options, &p[1], msglevel, &options->gc);
+    }
+    else if (streq(p[0], "push-dns-compat") && !p[1])
+    {
+        VERIFY_PERMISSION(OPT_P_GENERAL | OPT_P_INSTANCE);
+        options->push_dns_compat = true;
     }
     else if (streq(p[0], "push-reset") && !p[1])
     {

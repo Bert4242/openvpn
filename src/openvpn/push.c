@@ -797,6 +797,95 @@ send_push_reply_auth_token(struct tls_multi *multi)
     gc_free(&gc);
 }
 
+/**
+ * Returns whether a push list has an enabled option starting with prefix.
+ */
+static bool
+push_list_has_prefix(const struct push_list *push_list, const char *prefix)
+{
+    for (const struct push_entry *e = push_list->head; e; e = e->next)
+    {
+        if (e->enable && strncmp(e->option, prefix, strlen(prefix)) == 0)
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool
+push_lists_have_prefix(const struct push_list *a, const struct push_list *b, const char *prefix)
+{
+    return push_list_has_prefix(a, prefix) || push_list_has_prefix(b, prefix);
+}
+
+/**
+ * Parses the pushed "dns" options of a push list into dns_options.
+ */
+static void
+push_list_parse_dns(const struct push_list *push_list, struct dns_options *dns,
+                    struct gc_arena *gc)
+{
+    for (const struct push_entry *e = push_list->head; e; e = e->next)
+    {
+        if (!e->enable || strncmp(e->option, "dns ", 4) != 0)
+        {
+            continue;
+        }
+        char *p[MAX_PARMS + 1];
+        CLEAR(p);
+        if (parse_line(e->option, p, MAX_PARMS, "[push-dns-compat]", 0, D_PUSH_ERRORS, gc))
+        {
+            dns_option_parse(dns, p, D_PUSH_ERRORS, true);
+        }
+    }
+}
+
+/**
+ * With --push-dns-compat, builds --dhcp-option equivalents of the pushed
+ * --dns options for a client that does not support --dns (no
+ * IV_PROTO_DNS_OPTION_V2). Nothing is added if DNS related dhcp-options
+ * are pushed already, so configs that push both are not changed.
+ */
+static void
+prepare_push_dns_compat(struct context *c, const struct push_list *per_client_push_list,
+                        struct push_list *compat, struct gc_arena *gc)
+{
+    const struct push_list *global = &c->options.push_list;
+    const char *peer_info = c->c2.tls_multi ? c->c2.tls_multi->peer_info : NULL;
+
+    if (!c->options.push_dns_compat
+        || (extract_iv_proto(peer_info) & IV_PROTO_DNS_OPTION_V2)
+        || !push_lists_have_prefix(global, per_client_push_list, "dns "))
+    {
+        return;
+    }
+    if (push_lists_have_prefix(global, per_client_push_list, "dhcp-option DNS")
+        || push_lists_have_prefix(global, per_client_push_list, "dhcp-option DOMAIN"))
+    {
+        msg(D_PUSH, "push-dns-compat: DNS related dhcp-options are pushed already");
+        return;
+    }
+
+    struct dns_options dns;
+    CLEAR(dns);
+    push_list_parse_dns(global, &dns, gc);
+    push_list_parse_dns(per_client_push_list, &dns, gc);
+
+    const char **opts = dns_options_to_dhcp_options(&dns, &dns.gc);
+    if (!opts)
+    {
+        msg(M_INFO, "push-dns-compat: no pushed --dns server can be expressed as "
+                    "--dhcp-option for a client without --dns support");
+    }
+    for (; opts && *opts; opts++)
+    {
+        msg(D_PUSH, "push-dns-compat: client without --dns support, adding '%s'", *opts);
+        push_option_fmt(gc, compat, M_WARN, "%s", *opts);
+    }
+    gc_free(&dns.gc);
+}
+
 bool
 send_push_reply(struct context *c, struct push_list *per_client_push_list)
 {
@@ -817,6 +906,14 @@ send_push_reply(struct context *c, struct push_list *per_client_push_list)
 
     /* send client-specific options */
     if (!send_push_options(c, &buf, per_client_push_list, safe_cap, &push_sent, &multi_push))
+    {
+        goto fail;
+    }
+
+    /* --dhcp-option equivalents of --dns for clients that need them */
+    struct push_list compat = { 0 };
+    prepare_push_dns_compat(c, per_client_push_list, &compat, &gc);
+    if (!send_push_options(c, &buf, &compat, safe_cap, &push_sent, &multi_push))
     {
         goto fail;
     }

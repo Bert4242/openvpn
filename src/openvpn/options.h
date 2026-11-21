@@ -485,6 +485,7 @@ struct options
     in_addr_t server_bridge_pool_end;
 
     struct push_list push_list;
+    bool push_dns_compat; /* add --dhcp-option for peers without --dns support */
     bool ifconfig_pool_defined;
     in_addr_t ifconfig_pool_start;
     in_addr_t ifconfig_pool_end;
