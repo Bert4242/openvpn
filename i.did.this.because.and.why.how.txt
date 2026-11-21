@@ -1,0 +1,58 @@
+options: match ADAPTER_DOMAIN_SUFFIX when cleaning up dhcp-option env
+=====================================================================
+
+Branch:   dns-fix/05-adapter-domain-suffix   (based on master 3e2d92c)
+Handoff:  handoff/dns/05-adapter-domain-suffix-spelling.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID
+----------
+In dhcp_options_postprocess_dns() (Unix), the chain of strncmp() calls
+that decides which foreign_option_* entries are DNS related is replaced
+by is_dns_dhcp_option(), driven by one list:
+
+    static const char *const dns_dhcp_option_types[] = {
+        "DNS", "DNS6", "DOMAIN", "DOMAIN-SEARCH", "ADAPTER_DOMAIN_SUFFIX",
+    };
+
+"ADAPTER_DOMAIN_SUFFIX" is spelled the way the parser accepts it and
+the man page documents it (vpn-network-options.rst). The parser code
+has a comment pointing to the list.
+
+
+WHY
+---
+Parser:  streq(p[1], "ADAPTER_DOMAIN_SUFFIX")               (underscore)
+Cleanup: strncmp(item_val + 12, "ADAPTER-DOMAIN-SUFFIX ", 22) (dashes)
+
+With --dns servers (or a user-defined / forced --dns-updown), --dns
+overrides --dhcp-option, so the DNS related foreign_option_* are removed
+from the env. ADAPTER_DOMAIN_SUFFIX never matched, so --up scripts still
+got it, possibly applying a domain the --dns config did not ask for.
+
+
+HOW IT WAS TESTED
+-----------------
+Real server + client (client in a network namespace). Client: --up
+script dumping foreign_option_*, and "dns server 0 address 10.0.0.1".
+Server pushes "dhcp-option ADAPTER_DOMAIN_SUFFIX corp" and
+"dhcp-option NTP 10.0.0.9".
+
+  master: foreign_option_1=dhcp-option ADAPTER_DOMAIN_SUFFIX corp  <- leaked
+          foreign_option_2=dhcp-option NTP 10.0.0.9
+          foreign_option_3=dhcp-option DNS 10.0.0.1
+  fixed:  foreign_option_1=dhcp-option NTP 10.0.0.9                <- kept
+          foreign_option_2=dhcp-option DNS 10.0.0.1
+
+No unit test: the function is static in options.c and is covered by the
+end-to-end run above. Windows build (mingw -fsyntax-only) is unaffected:
+the code is in the non-Windows branch.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- Small, standalone patch; easy to review.
+- The parser cannot use the list directly, because each type has its own
+  handling there, so a comment cross-references the two places.
+- Add your Signed-off-by: the commit has none.
