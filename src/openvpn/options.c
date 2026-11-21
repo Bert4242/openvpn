@@ -1011,35 +1011,33 @@ setenv_foreign_option(struct options *o, const char *option, const char *value, 
     gc_free(&gc);
 }
 
-static void
-delete_all_dhcp_fo(struct options *o, struct env_item **list)
+static bool
+is_dhcp_foreign_option(const char *str, void *arg)
 {
-    struct env_item *current, *prev;
+    static const char name_prefix[] = "foreign_option_";
+    static const char value_prefix[] = "dhcp-option ";
 
-    ASSERT(list);
-
-    for (current = *list, prev = NULL; current != NULL; current = current->next)
+    if (strncmp(str, name_prefix, sizeof(name_prefix) - 1) != 0)
     {
-        if (!strncmp(current->string, "foreign_option_", sizeof("foreign_option_") - 1))
-        {
-            const char *tmp_value = strchr(current->string, '=');
-            if (tmp_value && ++tmp_value)
-            {
-                if (!strncmp(tmp_value, "dhcp-option ", sizeof("dhcp-option ") - 1))
-                {
-                    if (prev)
-                    {
-                        prev->next = current->next;
-                    }
-                    else
-                    {
-                        *list = current->next;
-                    }
-                    o->foreign_option_index--;
-                }
-            }
-        }
-        prev = current;
+        return false;
+    }
+    const char *value = strchr(str, '=');
+    return value && strncmp(value + 1, value_prefix, sizeof(value_prefix) - 1) == 0;
+}
+
+static void
+delete_all_dhcp_fo(struct options *o, struct env_set *es)
+{
+    unsigned int removed = env_set_del_if(es, is_dhcp_foreign_option, NULL);
+    /* the env set can contain foreign_option_* that were not counted,
+     * e.g. from --setenv, so do not go below 0 */
+    if (removed >= (unsigned int)o->foreign_option_index)
+    {
+        o->foreign_option_index = 0;
+    }
+    else
+    {
+        o->foreign_option_index -= (int)removed;
     }
 }
 
@@ -2962,7 +2960,14 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
             buf_clear(&name);
             buf_printf(&name, "foreign_option_%d", i);
             const char *env_str = env_set_get(es, BSTR(&name));
-            const char *item_val = strchr(env_str, '=') + 1;
+            const char *item_val = env_str ? strchr(env_str, '=') : NULL;
+            if (!item_val)
+            {
+                /* should not happen, foreign_option_index out of sync */
+                msg(D_PUSH_ERRORS, "WARNING: %s not found in env", BSTR(&name));
+                continue;
+            }
+            item_val += 1;
             buf_clear(&value);
             buf_printf(&value, "%s", item_val);
 
@@ -3816,7 +3821,7 @@ remove_option(struct context *c, struct options *options, char *p[], bool is_inl
     else if (streq(p[0], "dhcp-option") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
-        delete_all_dhcp_fo(options, &es->list);
+        delete_all_dhcp_fo(options, es);
         reset_dhcp_dns_options(options);
     }
 #endif
@@ -4115,7 +4120,7 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
         if (!(options->push_update_options_found & OPT_P_U_DHCP))
         {
             VERIFY_PERMISSION(OPT_P_DHCPDNS);
-            delete_all_dhcp_fo(options, &es->list);
+            delete_all_dhcp_fo(options, es);
             reset_dhcp_dns_options(options);
             options->push_update_options_found |= OPT_P_U_DHCP;
         }
