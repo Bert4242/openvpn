@@ -89,8 +89,19 @@ dns_server_addr_parse(struct dns_server *server, const char *addr)
     }
     else
     {
-        /* IPv6 address with optional port, e.g. ab::cd or [ab::cd]:853 */
-        if (addr[0] == '[')
+        /* IPv6 address with optional port, e.g. ab::cd, [ab::cd] or [ab::cd]:853 */
+        const size_t addr_len = strlen(addr);
+        if (addr[0] == '[' && addr[addr_len - 1] == ']')
+        {
+            /* brackets without a port */
+            addr += 1;
+            copylen = addr_len - 2;
+            if (copylen == 0)
+            {
+                return false;
+            }
+        }
+        else if (addr[0] == '[')
         {
             addr += 1;
             const char *bracket = last_colon - 1;
@@ -177,8 +188,9 @@ dns_server_priority_parse(long *priority, const char *str, bool pulled)
     char *endptr;
     const long min = pulled ? 0 : INT8_MIN;
     const long max = INT8_MAX;
+    errno = 0;
     long prio = strtol(str, &endptr, 10);
-    if (*endptr != '\0' || prio < min || prio > max)
+    if (endptr == str || *endptr != '\0' || errno || prio < min || prio > max)
     {
         return false;
     }
@@ -208,6 +220,19 @@ dns_server_get(struct dns_server **entry, long priority, struct gc_arena *gc)
     }
 }
 
+void
+dns_server_remove(struct dns_server **entry, const struct dns_server *server)
+{
+    for (; *entry; entry = &(*entry)->next)
+    {
+        if (*entry == server)
+        {
+            *entry = server->next;
+            return;
+        }
+    }
+}
+
 bool
 dns_options_verify(msglvl_t msglevel, const struct dns_options *o)
 {
@@ -219,6 +244,12 @@ dns_options_verify(msglvl_t msglevel, const struct dns_options *o)
             msg(msglevel, "ERROR: dns server %ld does not have an address assigned",
                 server->priority);
             return false;
+        }
+        if (server->sni && server->transport != DNS_TRANSPORT_TLS
+            && server->transport != DNS_TRANSPORT_HTTPS)
+        {
+            msg(M_WARN, "WARNING: dns server %ld: sni is only used with transport DoT or DoH",
+                server->priority);
         }
         server = server->next;
     }

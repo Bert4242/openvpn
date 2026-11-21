@@ -3883,20 +3883,34 @@ check_dns_option(struct options *options, char *p[], const msglvl_t msglevel, bo
             return false;
         }
 
+        bool server_existed = false;
+        for (const struct dns_server *srv = options->dns_options.servers; srv; srv = srv->next)
+        {
+            server_existed |= srv->priority == priority;
+        }
         struct dns_server *server =
             dns_server_get(&options->dns_options.servers, priority, &options->dns_options.gc);
 
         if (streq(p[3], "address"))
         {
+            /* Parse into a copy, so that a bad address does not leave the
+             * addresses before it added */
+            struct dns_server tmp = *server;
             for (int i = 4; p[i]; ++i)
             {
-                if (!dns_server_addr_parse(server, p[i]))
+                if (!dns_server_addr_parse(&tmp, p[i]))
                 {
                     msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'",
                         priority, p[i]);
+                    if (!server_existed)
+                    {
+                        dns_server_remove(&options->dns_options.servers, server);
+                    }
                     return false;
                 }
             }
+            server->addr_count = tmp.addr_count;
+            memcpy(server->addr, tmp.addr, sizeof(server->addr));
         }
         else if (streq(p[3], "resolve-domains"))
         {
