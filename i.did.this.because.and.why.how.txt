@@ -1,0 +1,67 @@
+options: export --dns search domains as DOMAIN and DOMAIN-SEARCH
+================================================================
+
+Branch:   dns-fix/12-up-script-foreign-options   (based on master 3e2d92c)
+Handoff:  handoff/dns/12-up-script-foreign-option-mapping.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID
+----------
+dhcp_options_postprocess_dns() (Unix, --up script defined, --dns-updown
+not user-defined/forced): when --dns is turned into foreign_option_N for
+old --up scripts, the first search domain is exported as
+"dhcp-option DOMAIN" and the others as "dhcp-option DOMAIN-SEARCH".
+Before, every search domain was exported as DOMAIN.
+
+A server with resolve-domains (split DNS) is still exported (its
+addresses become DNS/DNS6, as before), but this is now logged at D_LOW,
+since the split cannot be expressed as a dhcp-option.
+
+The mapping is documented in the --dns-updown paragraph of
+script-options.rst.
+
+
+WHY, AND A CORRECTION TO THE HANDOFF
+------------------------------------
+The handoff said most scripts keep only the last (or first) DOMAIN.
+I read the three common ones:
+  - update-resolv-conf (alfredopalhares/openvpn-update-resolv-conf):
+    DOMAIN and DOMAIN-SEARCH are both appended to the search list
+  - update-systemd-resolved (jonathanio): first DOMAIN = primary domain,
+    further DOMAINs and DOMAIN-SEARCH = search domains
+  - NetworkManager-openvpn helper: collects DOMAIN and DOMAIN-SEARCH
+    separately and puts DOMAIN-SEARCH after DOMAIN
+None of them loses domains today, so the impact is smaller than the
+handoff says. The change is still worth it because:
+  - DOMAIN means "connection suffix" and is given once; the new export
+    is exactly what a server pushing the same config as --dhcp-option
+    would send (and what dns-fix/07 --push-dns-compat generates)
+  - simple hand-written scripts that do "domain=$value" now keep the
+    first (primary) domain instead of the last
+  - the three scripts above produce the same result as before
+
+
+HOW IT WAS TESTED
+-----------------
+Real server + client, client with a --up script dumping
+foreign_option_*. Server pushes "dns server 0 address 10.0.0.1",
+"dns server 0 resolve-domains corp.example", "dns search-domains
+a.example b.example c.example":
+
+  master: DOMAIN a.example, DOMAIN b.example, DOMAIN c.example,
+          DNS 10.0.0.1
+  fixed:  DOMAIN a.example, DOMAIN-SEARCH b.example,
+          DOMAIN-SEARCH c.example, DNS 10.0.0.1
+          + log: "DNS server 0: resolve-domains (split DNS) cannot be
+            passed to --up scripts as --dhcp-option, ..."
+
+The man page builds with rst2html --halt=warning.
+No unit test: the code is static in options.c; covered by the run above.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- This is a user-visible change in what --up scripts receive. Worth a
+  line in Changes.md if accepted.
+- Add your Signed-off-by: the commit has none.
