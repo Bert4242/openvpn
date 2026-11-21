@@ -2862,12 +2862,8 @@ tuntap_options_postprocess_dns(struct options *o)
         tt->domain_search_list_len = 0;
     }
 
-    while (d && tt->domain_search_list_len + 1 < N_SEARCH_LIST_LEN)
-    {
-        tt->domain_search_list[tt->domain_search_list_len++] = d->name;
-        d = d->next;
-    }
-    if (d)
+    if (!dns_domains_copy(d, tt->domain_search_list, &tt->domain_search_list_len,
+                          N_SEARCH_LIST_LEN))
     {
         msg(M_WARN, "WARNING: couldn't copy all --dns search-domains to TUN/TAP");
     }
@@ -2895,23 +2891,8 @@ tuntap_options_postprocess_dns(struct options *o)
         }
         else
         {
-            bool overflow = false;
-            for (size_t i = 0; i < s->addr_count; ++i)
-            {
-                if (s->addr[i].family == AF_INET && tt->dns_len + 1 < N_DHCP_ADDR)
-                {
-                    tt->dns[tt->dns_len++] = ntohl(s->addr[i].in.a4.s_addr);
-                }
-                else if (tt->dns6_len + 1 < N_DHCP_ADDR)
-                {
-                    tt->dns6[tt->dns6_len++] = s->addr[i].in.a6;
-                }
-                else
-                {
-                    overflow = true;
-                }
-            }
-            if (overflow)
+            if (!dns_server_addrs_copy(s, tt->dns, &tt->dns_len, tt->dns6, &tt->dns6_len,
+                                       N_DHCP_ADDR))
             {
                 msg(M_WARN, "WARNING: couldn't copy all --dns server addresses to TUN/TAP");
             }
