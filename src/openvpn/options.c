@@ -2905,6 +2905,42 @@ tuntap_options_postprocess_dns(struct options *o)
 #else  /* if defined(_WIN32) || defined(TARGET_ANDROID) */
 
 /**
+ * The --dhcp-option types that carry DNS settings. These are the names
+ * the parser accepts in add_option(), keep both in sync.
+ */
+static const char *const dns_dhcp_option_types[] = {
+    "DNS",
+    "DNS6",
+    "DOMAIN",
+    "DOMAIN-SEARCH",
+    "ADAPTER_DOMAIN_SUFFIX",
+};
+
+/**
+ * Returns whether a foreign_option_* env value, "dhcp-option TYPE value",
+ * is one of the DNS related dhcp-options, which --dns overrides.
+ */
+static bool
+is_dns_dhcp_option(const char *env_value)
+{
+    static const char prefix[] = "dhcp-option ";
+    if (strncmp(env_value, prefix, sizeof(prefix) - 1) != 0)
+    {
+        return false;
+    }
+    const char *type = env_value + sizeof(prefix) - 1;
+    for (size_t i = 0; i < SIZE(dns_dhcp_option_types); ++i)
+    {
+        const size_t len = strlen(dns_dhcp_option_types[i]);
+        if (strncmp(type, dns_dhcp_option_types[i], len) == 0 && type[len] == ' ')
+        {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * @brief Postprocess DNS related settings
  *
  * Discard existing --dhcp-options from the env if needed and possibly
@@ -2956,12 +2992,7 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
             env_set_del(es, BSTR(&name));
 
             item_val = BSTR(&value);
-            if (strncmp(item_val, "dhcp-option ", 12) != 0
-                || (strncmp(item_val + 12, "ADAPTER-DOMAIN-SUFFIX ", 22) != 0
-                    && strncmp(item_val + 12, "DOMAIN-SEARCH ", 14) != 0
-                    && strncmp(item_val + 12, "DOMAIN ", 7) != 0
-                    && strncmp(item_val + 12, "DNS6 ", 5) != 0
-                    && strncmp(item_val + 12, "DNS ", 4) != 0))
+            if (!is_dns_dhcp_option(item_val))
             {
                 /* Re-set the item with potentially updated name */
                 buf_clear(&name);
@@ -6525,6 +6556,7 @@ add_option(struct options *options, char *p[], bool is_inline, const char *file,
 
         bool dhcp_optional = false;
 
+        /* the DNS related types must match dns_dhcp_option_types[] */
         if ((streq(p[1], "DOMAIN") || streq(p[1], "ADAPTER_DOMAIN_SUFFIX")) && p[2] && !p[3])
         {
             if (!validate_domain(p[2]))
