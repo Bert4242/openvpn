@@ -2856,13 +2856,14 @@ tuntap_options_postprocess_dns(struct options *o)
     }
 #endif          /* if defined(_WIN32) */
 
-    /* Copy --dns options to tuntap_options */
+    /* Copy --dns options to tuntap_options. --dns overrides --dhcp-option,
+     * and values from a previous pull must not stay, e.g. when a
+     * PUSH_UPDATE has no search-domains anymore. */
+    tt->domain = NULL;
+    tt->domain_search_list_len = 0;
+    CLEAR(tt->domain_search_list);
 
     const struct dns_domain *d = dns->search_domains;
-    if (d)
-    {
-        tt->domain_search_list_len = 0;
-    }
 
     while (d && tt->domain_search_list_len + 1 < N_SEARCH_LIST_LEN)
     {
