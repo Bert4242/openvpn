@@ -1992,9 +1992,22 @@ open_tun(const char *dev, const char *dev_type, const char *dev_node, struct tun
                                    print_in_addr_t(tt->options.dns[i], 0, &gc));
     }
 
+    /* The UI adds every DNSDOMAIN to the list of search domains. Send the
+     * domain first, then the search list. Older UIs only kept the last
+     * one. A new command would not work: a UI that does not know it does
+     * not reply, and this call blocks until it does. */
     if (tt->options.domain)
     {
         management_android_control(management, "DNSDOMAIN", tt->options.domain);
+    }
+    for (unsigned int i = 0; i < tt->options.domain_search_list_len && i < N_SEARCH_LIST_LEN; i++)
+    {
+        const char *domain = tt->options.domain_search_list[i];
+        if (tt->options.domain && streq(domain, tt->options.domain))
+        {
+            continue;
+        }
+        management_android_control(management, "DNSDOMAIN", domain);
     }
 
     if (tt->options.http_proxy)

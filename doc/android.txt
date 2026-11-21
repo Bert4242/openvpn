@@ -53,7 +53,11 @@ DNSSERVER IP server address
 DNS6SERVER IPv6 server address
 DNSDOMAIN searchdomain
 
-To set the DNS server and search domain.
+To set the DNS servers and search domains. DNSDOMAIN is sent once per
+search domain: first the --dhcp-option DOMAIN, if any, then the
+--dhcp-option DOMAIN-SEARCH or --dns search-domains entries, in order.
+The UI should add each one to its list of search domains. A UI that only
+keeps one domain will end up with the last one.
 
 The GUI will then respond with a "needok 'command' ok' or "needok
 'command' cancel', e.g. "needok 'IFCONFIG' ok".
