@@ -1,0 +1,71 @@
+win: fix inconsistent DNS suffix and search domain handling
+===========================================================
+
+Branch:   dns-fix/11-windows-domain-handling   (based on master 3e2d92c)
+Handoff:  handoff/dns/11-windows-domain-handling-gaps.md
+Upstream: may explain parts of #326 (no DNS suffix with DCO via
+          openvpn-gui), #1117 (dhcp-option DOMAIN suffix regression since
+          2.6.15) and #1047 (stale NRPT rules; see also dns-fix/01).
+
+!! NOT RUN ON WINDOWS. Everything here compiles with mingw
+!! (-fsyntax-only for tun.c, dns.c, options.c), but I had no Windows
+!! machine. It needs the manual checks listed below before it goes
+!! upstream.
+
+
+WHAT I DID / WHY
+----------------
+11a do_dns_domain_pwsh() (no interactive service): logs a warning when
+    DOMAIN-SEARCH entries exist, because this path can only set
+    DOMAIN as ConnectionSpecificSuffix. Before, they were dropped
+    silently. (Setting them with Set-DnsClientGlobalSetting
+    -SuffixSearchList would be global, need admin rights and undo
+    handling, so I did not do that.)
+
+11b do_dns_domain_service(): sends DOMAIN first, then the DOMAIN-SEARCH
+    entries, skipping one that repeats DOMAIN. Before, a comment said
+    "only use domain when there are no search domains", so with both
+    pushed the suffix was lost. The service (openvpnserv/interactive.c,
+    SetDnsSearchDomains()) treats the string as a search list in both
+    cases, so putting the domain first is the consistent choice.
+    -> THIS IS A BEHAVIOUR DECISION. The handoff says "decide what the
+       intended behaviour is". Ask the Windows maintainers (selvanair,
+       d12fk) if that comment had a reason that is not visible in the
+       code.
+
+11c tuntap_options_postprocess_dns(), --dns path in DHCP mode:
+    tt->domain, the search list and its length are now always reset
+    before copying. Before, they were only reset if new --dns
+    search-domains existed, so after a PUSH_UPDATE without
+    search-domains the old ones were still offered by DHCP (dhcp.c uses
+    domain_search_list_len) and still sent to the service (tun.c walks
+    the array until NULL). The same code runs on Android.
+
+11d run_up_down_service() (NRPT): logs at D_LOW which servers are
+    skipped (DoT/DoH or port != 53), and that "dnssec optional" is not
+    applied. Behaviour unchanged; the docs say only the lowest
+    compatible server is used.
+
+
+HOW TO VERIFY ON WINDOWS
+------------------------
+- 11a: no interactive service, push DOMAIN + DOMAIN-SEARCH. Expect the
+  new warning; Get-DnsClient shows the suffix.
+- 11b: interactive service, push "dhcp-option DOMAIN corp.example" and
+  "dhcp-option DOMAIN-SEARCH a.example". Before: the search list has
+  only a.example. After: corp.example,a.example
+  (Get-DnsClientGlobalSetting / the interface SearchList in the
+  registry).
+- 11c: tap-windows6, ip-win32 dynamic, push "dns server 0 address ..."
+  and "dns search-domains a.example", then push-update-cid
+  "dns server 0 address ..." without search-domains. Before: DHCP still
+  offers a.example (--verb 4 DHCP dump). After: no search list.
+- 11d: push a DoT server 0 and a plain server 1, --verb 3: the skip is
+  logged.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- 11b and 11c conflict textually with dns-fix/04 (same function); the
+  logic combines without trouble.
+- Add your Signed-off-by: the commit has none.
