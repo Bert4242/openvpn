@@ -3008,6 +3008,7 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
 
             struct dns_server *server = dns_server_get(&dns->servers, 0, &dns->gc);
             const size_t max_addrs = SIZE(server->addr);
+            dns->servers_from_dhcp = true;
             for (unsigned int i = 0; i < dhcp->dns_len && server->addr_count < max_addrs; ++i)
             {
                 server->addr[server->addr_count].in.a4.s_addr = htonl(dhcp->dns[i]);
@@ -3651,6 +3652,35 @@ msglevel_forward_compatible(const struct options *options, const msglvl_t msglev
         option_ptr->flags = 0;                 \
     }
 
+/**
+ * Resets the DNS options pulled from the server to the state before the
+ * pull, keeping --dns-updown and the local --dns options.
+ */
+static void
+reset_pulled_dns_options(struct options *options)
+{
+    const struct dns_options *pre_pull =
+        options->pre_connect ? &options->pre_connect->dns_options : NULL;
+    dns_options_reset_pulled(&options->dns_options, pre_pull);
+}
+
+#ifndef _WIN32
+/**
+ * Resets the DNS related --dhcp-option values. If the DNS servers were
+ * derived from them, the pulled DNS options are reset as well, so that
+ * new --dhcp-option values are converted again.
+ */
+static void
+reset_dhcp_dns_options(struct options *options)
+{
+    CLEAR(options->dns_options.from_dhcp);
+    if (options->dns_options.servers_from_dhcp)
+    {
+        reset_pulled_dns_options(options);
+    }
+}
+#endif /* ifndef _WIN32 */
+
 void
 remove_option(struct context *c, struct options *options, char *p[], bool is_inline,
               const char *file, int line, const msglvl_t msglevel,
@@ -3725,8 +3755,7 @@ remove_option(struct context *c, struct options *options, char *p[], bool is_inl
     else if (streq(p[0], "dns") && !p[1])
     {
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
-        gc_free(&options->dns_options.gc);
-        CLEAR(options->dns_options);
+        reset_pulled_dns_options(options);
     }
     else if (streq(p[0], "topology") && !p[1])
     {
@@ -3788,6 +3817,7 @@ remove_option(struct context *c, struct options *options, char *p[], bool is_inl
     {
         VERIFY_PERMISSION(OPT_P_DHCPDNS);
         delete_all_dhcp_fo(options, &es->list);
+        reset_dhcp_dns_options(options);
     }
 #endif
     else
@@ -4039,12 +4069,9 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
         if (!(options->push_update_options_found & OPT_P_U_DNS))
         {
             VERIFY_PERMISSION(OPT_P_DHCPDNS);
-            if (!check_dns_option(options, p, msglevel, pull_mode))
-            {
-                goto err;
-            }
-            gc_free(&options->dns_options.gc);
-            CLEAR(options->dns_options);
+            /* Reset before the option is added (and validated) below, so that
+             * the validation does not see the servers that are replaced. */
+            reset_pulled_dns_options(options);
             options->push_update_options_found |= OPT_P_U_DNS;
         }
     }
@@ -4089,6 +4116,7 @@ update_option(struct context *c, struct options *options, char *p[], bool is_inl
         {
             VERIFY_PERMISSION(OPT_P_DHCPDNS);
             delete_all_dhcp_fo(options, &es->list);
+            reset_dhcp_dns_options(options);
             options->push_update_options_found |= OPT_P_U_DHCP;
         }
     }

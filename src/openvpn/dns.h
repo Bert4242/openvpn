@@ -79,15 +79,6 @@ struct dns_server
     const char *sni;
 };
 
-struct dns_updown_runner_info
-{
-    bool required;
-    int fds[2];
-#if !defined(_WIN32)
-    pid_t pid;
-#endif
-};
-
 #ifndef N_DHCP_ADDR
 #define N_DHCP_ADDR 4u
 #endif
@@ -118,6 +109,24 @@ struct dns_options
     struct gc_arena gc;
     const char *updown;
     enum dns_updown_flags updown_flags;
+    bool servers_from_dhcp; /**< servers were derived from --dhcp-option */
+};
+
+struct dns_updown_runner_info
+{
+    bool required;
+    int fds[2];
+#if !defined(_WIN32)
+    pid_t pid;
+#endif
+    /**
+     * Copy of the DNS options that were in effect when DNS was last brought
+     * up. The "down" action uses this copy, so that it undoes what was
+     * actually applied, even if the options were changed in the meantime
+     * (e.g. by a PUSH_UPDATE). Owns its own gc_arena in applied.gc.
+     */
+    struct dns_options applied;
+    bool applied_valid;
 };
 
 /**
@@ -184,6 +193,21 @@ struct dns_options clone_dns_options(const struct dns_options *o, struct gc_aren
  * @param   o           Pointer to the DNS options to modify
  */
 void dns_options_preprocess_pull(struct dns_options *o);
+
+/**
+ * Resets the DNS options that were pulled from the server, e.g. before
+ * applying the DNS options of a PUSH_UPDATE or when a "-dns" is received.
+ *
+ * Local --dns server and search-domains options are restored from the
+ * pre-pull state. The --dns-updown command and its flags, and the values
+ * collected from --dhcp-option, are kept.
+ *
+ * @param   o           Pointer to the DNS options to reset
+ * @param   pre_pull    Pointer to the DNS options saved before pulling,
+ *                      can be NULL in which case everything but updown and
+ *                      the --dhcp-option values is cleared
+ */
+void dns_options_reset_pulled(struct dns_options *o, const struct dns_options *pre_pull);
 
 /**
  * Merges pulled DNS servers with static ones into an ordered list.
