@@ -186,6 +186,16 @@ struct dns_options clone_dns_options(const struct dns_options *o, struct gc_aren
 void dns_options_preprocess_pull(struct dns_options *o);
 
 /**
+ * Converts the DNS related --dhcp-option values into a --dns server 0
+ * and search domains, for when there are no --dns servers. The
+ * DOMAIN value, if any, becomes the first search domain, followed by the
+ * DOMAIN-SEARCH values. Does nothing if there is no DNS or DNS6 value.
+ *
+ * @param   o           Pointer to the DNS options to modify
+ */
+void dns_options_from_dhcp(struct dns_options *o);
+
+/**
  * Merges pulled DNS servers with static ones into an ordered list.
  *
  * @param   o           Pointer to the DNS options to modify

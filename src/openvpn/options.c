@@ -2987,40 +2987,7 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
 
     if (!dns->servers)
     {
-        /* Copy --dhcp-options to dns_options */
-        struct dhcp_options *dhcp = &dns->from_dhcp;
-
-        if (dhcp->dns_len || dhcp->dns6_len)
-        {
-            struct dns_domain **entry = &dns->search_domains;
-            ALLOC_OBJ_CLEAR_GC(*entry, struct dns_domain, &dns->gc);
-            struct dns_domain *domain = *entry;
-            domain->name = dhcp->domain;
-            entry = &domain->next;
-
-            for (unsigned int i = 0; i < dhcp->domain_search_list_len; ++i)
-            {
-                ALLOC_OBJ_CLEAR_GC(*entry, struct dns_domain, &dns->gc);
-                struct dns_domain *search_domain = *entry;
-                search_domain->name = dhcp->domain_search_list[i];
-                entry = &search_domain->next;
-            }
-
-            struct dns_server *server = dns_server_get(&dns->servers, 0, &dns->gc);
-            const size_t max_addrs = SIZE(server->addr);
-            for (unsigned int i = 0; i < dhcp->dns_len && server->addr_count < max_addrs; ++i)
-            {
-                server->addr[server->addr_count].in.a4.s_addr = htonl(dhcp->dns[i]);
-                server->addr[server->addr_count].family = AF_INET;
-                server->addr_count += 1;
-            }
-            for (unsigned int i = 0; i < dhcp->dns6_len && server->addr_count < max_addrs; ++i)
-            {
-                server->addr[server->addr_count].in.a6 = dhcp->dns6[i];
-                server->addr[server->addr_count].family = AF_INET6;
-                server->addr_count += 1;
-            }
-        }
+        dns_options_from_dhcp(dns);
     }
     else if (o->up_script && !dns_updown_user_set(dns) && !dns_updown_forced(dns))
     {

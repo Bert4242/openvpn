@@ -286,6 +286,55 @@ dns_options_preprocess_pull(struct dns_options *o)
 }
 
 void
+dns_options_from_dhcp(struct dns_options *o)
+{
+    const struct dhcp_options *dhcp = &o->from_dhcp;
+
+    if (!dhcp->dns_len && !dhcp->dns6_len)
+    {
+        return;
+    }
+
+    /* DOMAIN first, if there is one, then the DOMAIN-SEARCH list */
+    struct dns_domain **entry = &o->search_domains;
+    if (dhcp->domain)
+    {
+        ALLOC_OBJ_CLEAR_GC(*entry, struct dns_domain, &o->gc);
+        struct dns_domain *domain = *entry;
+        domain->name = dhcp->domain;
+        entry = &domain->next;
+    }
+
+    for (unsigned int i = 0; i < dhcp->domain_search_list_len; ++i)
+    {
+        if (dhcp->domain && streq(dhcp->domain, dhcp->domain_search_list[i]))
+        {
+            /* already added as DOMAIN */
+            continue;
+        }
+        ALLOC_OBJ_CLEAR_GC(*entry, struct dns_domain, &o->gc);
+        struct dns_domain *search_domain = *entry;
+        search_domain->name = dhcp->domain_search_list[i];
+        entry = &search_domain->next;
+    }
+
+    struct dns_server *server = dns_server_get(&o->servers, 0, &o->gc);
+    const size_t max_addrs = SIZE(server->addr);
+    for (unsigned int i = 0; i < dhcp->dns_len && server->addr_count < max_addrs; ++i)
+    {
+        server->addr[server->addr_count].in.a4.s_addr = htonl(dhcp->dns[i]);
+        server->addr[server->addr_count].family = AF_INET;
+        server->addr_count += 1;
+    }
+    for (unsigned int i = 0; i < dhcp->dns6_len && server->addr_count < max_addrs; ++i)
+    {
+        server->addr[server->addr_count].in.a6 = dhcp->dns6[i];
+        server->addr[server->addr_count].family = AF_INET6;
+        server->addr_count += 1;
+    }
+}
+
+void
 dns_options_postprocess_pull(struct dns_options *o)
 {
     struct dns_server **entry = &o->servers;
