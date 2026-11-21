@@ -64,11 +64,24 @@ function do_resolved_servers {
     resolvectl dns "$dev" $addrs
 }
 
-function do_resolved_domains {
-    local list=""
-    for domain_var in ${!dns_search_domain_*}; do
-        list+="${!domain_var} "
+# Print the search domains in their numeric order, separated by spaces,
+# at most $1 of them if given.
+# ${!dns_search_domain_*} would sort them as text: _1, _10, _11, _2, ...
+function search_domains {
+    local max=${1:-0}
+    local i=1
+    local domain_var
+    while [ "$max" -eq 0 ] || [ "$i" -le "$max" ]; do
+        domain_var=dns_search_domain_${i}
+        [ -n "${!domain_var}" ] || break
+        echo -n "${!domain_var} "
+        i=$((i+1))
     done
+}
+
+function do_resolved_domains {
+    local list
+    list="$(search_domains)"
     local domain_var=dns_server_${n}_resolve_domain_1
     if [ -z "${!domain_var}" ]; then
         resolvectl default-route "$dev" true
@@ -184,10 +197,8 @@ function do_resolvconf {
 
     if [ "$script_type" = "dns-up" ]; then
         echo "setting DNS using resolvconf"
-        local domains=""
-        for domain_var in ${!dns_search_domain_*}; do
-            domains+="${!domain_var} "
-        done
+        local domains
+        domains="$(search_domains)"
         {
             local i=1
             local maxns=3
@@ -225,18 +236,20 @@ function do_resolv_conf_file {
         test -z "${!addr2_var}" || text="${text}nameserver ${!addr2_var}\n"
         test -z "${!addr3_var}" || text="${text}nameserver ${!addr3_var}\n"
 
-        test -z "$dns_search_domain_1" || {
-            for i in $(seq 1 6); do
-                eval domains=\"$domains\$dns_search_domain_${i} \" || break
-            done
-            text="${text}search $domains\n"
-        }
+        local domains
+        domains="$(search_domains 6)"
+        test -z "$domains" || text="${text}search ${domains}\n"
         text="${text}### openvpn ${dev} end ###"
 
-        sed -i "1i${text}" "$conf"
+        local current
+        current="$(cat "$conf")" && printf '%b\n%s\n' "$text" "$current" > "$conf"
     else
         echo "unsetting DNS using resolv.conf file"
-        sed -i "/### openvpn ${dev} begin ###/,/### openvpn ${dev} end ###/d" "$conf"
+        # Write back through the file, so that a symlinked resolv.conf
+        # stays a symlink (sed -i would replace it with a regular file)
+        local remaining
+        remaining="$(sed -e "/### openvpn ${dev} begin ###/,/### openvpn ${dev} end ###/d" "$conf")" \
+            && printf '%s\n' "$remaining" > "$conf"
     fi
 
     return 0
