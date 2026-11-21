@@ -286,6 +286,38 @@ dns_options_preprocess_pull(struct dns_options *o)
 }
 
 void
+dns_options_reset_pulled(struct dns_options *o, const struct dns_options *pre_pull)
+{
+    const char *updown = o->updown;
+    const enum dns_updown_flags updown_flags = o->updown_flags;
+    const struct dhcp_options from_dhcp = o->from_dhcp;
+    struct gc_arena old_gc = o->gc;
+    struct gc_arena gc = gc_new();
+
+    if (pre_pull)
+    {
+        /* Local servers are in servers_prepull, local search domains in
+         * search_domains. Pulled servers are expected in servers, see
+         * dns_options_postprocess_pull(). */
+        *o = clone_dns_options(pre_pull, &gc);
+        o->servers = NULL;
+    }
+    else
+    {
+        CLEAR(*o);
+    }
+
+    o->updown = updown;
+    o->updown_flags = updown_flags;
+    o->from_dhcp = from_dhcp;
+    o->servers_from_dhcp = false;
+    o->gc = gc;
+
+    /* Free only now, the clone above does not reference the old arena */
+    gc_free(&old_gc);
+}
+
+void
 dns_options_postprocess_pull(struct dns_options *o)
 {
     struct dns_server **entry = &o->servers;
@@ -403,10 +435,11 @@ make_domain_list(const char *what, const struct dns_domain *src, bool nrpt_domai
 }
 
 static void
-run_up_down_service(bool add, const struct options *o, const struct tuntap *tt)
+run_up_down_service(bool add, const struct options *o, const struct dns_options *dns,
+                    const struct tuntap *tt)
 {
-    const struct dns_server *server = o->dns_options.servers;
-    const struct dns_domain *search_domains = o->dns_options.search_domains;
+    const struct dns_server *server = dns->servers;
+    const struct dns_domain *search_domains = dns->search_domains;
 
     while (true)
     {
@@ -603,7 +636,7 @@ do_run_up_down_command(bool up, const char *vars_file, const struct dns_options 
 }
 
 static bool
-run_updown_runner(bool up, struct options *o, const struct tuntap *tt,
+run_updown_runner(bool up, const struct dns_options *dns, const struct tuntap *tt,
                   struct dns_updown_runner_info *updown_runner)
 {
     int dns_pipe_fd[2];
@@ -668,7 +701,7 @@ run_updown_runner(bool up, struct options *o, const struct tuntap *tt,
             }
 
             path[sizeof(path) - 1] = '\0';
-            int res = do_run_up_down_command(up, path, &o->dns_options, tt);
+            int res = do_run_up_down_command(up, path, dns, tt);
             platform_unlink(path);
 
             /* Unblock parent process */
@@ -696,10 +729,9 @@ run_updown_runner(bool up, struct options *o, const struct tuntap *tt,
 }
 
 static void
-run_up_down_command(bool up, struct options *o, const struct tuntap *tt,
-                    struct dns_updown_runner_info *updown_runner)
+run_up_down_command(bool up, const struct options *o, const struct dns_options *dns,
+                    const struct tuntap *tt, struct dns_updown_runner_info *updown_runner)
 {
-    const struct dns_options *dns = &o->dns_options;
     if (!dns->updown || (o->up_script && !dns_updown_user_set(dns) && !dns_updown_forced(dns)))
     {
         return;
@@ -717,7 +749,7 @@ run_up_down_command(bool up, struct options *o, const struct tuntap *tt,
         if (updown_runner->pid < 1)
         {
             /* Need to set up privilege preserving child first */
-            if (!run_updown_runner(up, o, tt, updown_runner))
+            if (!run_updown_runner(up, dns, tt, updown_runner))
             {
                 return;
             }
@@ -732,7 +764,7 @@ run_up_down_command(bool up, struct options *o, const struct tuntap *tt,
         }
 
         struct env_set *es = env_set_create(&gc);
-        updown_env_set(up, &o->dns_options, tt, es);
+        updown_env_set(up, dns, tt, es);
         env_set_write_file(dvf, es);
 
         int wfd = updown_runner->fds[1];
@@ -854,12 +886,32 @@ show_dns_options(const struct dns_options *o)
     gc_free(&gc);
 }
 
+static void
+free_applied_dns_options(struct dns_updown_runner_info *duri)
+{
+    gc_free(&duri->applied.gc);
+    CLEAR(duri->applied);
+    duri->applied_valid = false;
+}
+
 void
 run_dns_up_down(bool up, struct options *o, const struct tuntap *tt,
                 struct dns_updown_runner_info *duri)
 {
-    if (!o->dns_options.servers)
+    /* Bring down what was actually brought up, not what the options say
+     * now. They might have been changed by a PUSH_UPDATE since then. */
+    const struct dns_options *dns = up ? &o->dns_options : &duri->applied;
+    if (!up && !duri->applied_valid)
     {
+        return;
+    }
+
+    if (!dns->servers)
+    {
+        if (!up)
+        {
+            free_applied_dns_options(duri);
+        }
         return;
     }
 #ifdef _WIN32
@@ -872,7 +924,7 @@ run_dns_up_down(bool up, struct options *o, const struct tuntap *tt,
 #endif
 
     /* Warn about adding servers of unsupported AF */
-    const struct dns_server *s = o->dns_options.servers;
+    const struct dns_server *s = dns->servers;
     while (up && s)
     {
         size_t bad_count = 0;
@@ -901,9 +953,26 @@ run_dns_up_down(bool up, struct options *o, const struct tuntap *tt,
         s = s->next;
     }
 
+    if (up)
+    {
+        /* Remember what is brought up, so that exactly this is undone later.
+         * A previous copy can exist when the tunnel is kept with --persist-tun. */
+        free_applied_dns_options(duri);
+        struct gc_arena gc = gc_new();
+        duri->applied = clone_dns_options(dns, &gc);
+        duri->applied.gc = gc;
+        duri->applied_valid = true;
+        dns = &duri->applied;
+    }
+
 #ifdef _WIN32
-    run_up_down_service(up, o, tt);
+    run_up_down_service(up, o, dns, tt);
 #else
-    run_up_down_command(up, o, tt, duri);
+    run_up_down_command(up, o, dns, tt, duri);
 #endif /* ifdef _WIN32 */
+
+    if (!up)
+    {
+        free_applied_dns_options(duri);
+    }
 }
