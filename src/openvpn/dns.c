@@ -285,6 +285,51 @@ dns_options_preprocess_pull(struct dns_options *o)
     o->servers = NULL;
 }
 
+bool
+dns_domains_copy(const struct dns_domain *d, const char **list, unsigned int *len,
+                 const unsigned int max_len)
+{
+    while (d && *len < max_len)
+    {
+        list[(*len)++] = d->name;
+        d = d->next;
+    }
+    return d == NULL;
+}
+
+bool
+dns_server_addrs_copy(const struct dns_server *s, in_addr_t *dns, unsigned int *dns_len,
+                      struct in6_addr *dns6, unsigned int *dns6_len, const unsigned int max_len)
+{
+    bool all_copied = true;
+    for (size_t i = 0; i < s->addr_count; ++i)
+    {
+        if (s->addr[i].family == AF_INET)
+        {
+            if (*dns_len < max_len)
+            {
+                dns[(*dns_len)++] = ntohl(s->addr[i].in.a4.s_addr);
+            }
+            else
+            {
+                all_copied = false;
+            }
+        }
+        else
+        {
+            if (*dns6_len < max_len)
+            {
+                dns6[(*dns6_len)++] = s->addr[i].in.a6;
+            }
+            else
+            {
+                all_copied = false;
+            }
+        }
+    }
+    return all_copied;
+}
+
 void
 dns_options_postprocess_pull(struct dns_options *o)
 {

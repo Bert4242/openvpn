@@ -186,6 +186,34 @@ struct dns_options clone_dns_options(const struct dns_options *o, struct gc_aren
 void dns_options_preprocess_pull(struct dns_options *o);
 
 /**
+ * Appends the names of a list of DNS domains to an array of names.
+ *
+ * @param   d           The first domain to copy
+ * @param   list        The array to append to
+ * @param   len         The number of used entries in list, updated
+ * @param   max_len     The number of entries list can hold
+ * @return              True if all domains were copied
+ */
+bool dns_domains_copy(const struct dns_domain *d, const char **list, unsigned int *len,
+                      const unsigned int max_len);
+
+/**
+ * Appends the addresses of a DNS server to arrays of IPv4 (in host byte
+ * order) and IPv6 addresses, like used for the DHCP options.
+ *
+ * @param   s           The server to copy the addresses from
+ * @param   dns         The IPv4 array to append to
+ * @param   dns_len     The number of used entries in dns, updated
+ * @param   dns6        The IPv6 array to append to
+ * @param   dns6_len    The number of used entries in dns6, updated
+ * @param   max_len     The number of entries each array can hold
+ * @return              True if all addresses were copied
+ */
+bool dns_server_addrs_copy(const struct dns_server *s, in_addr_t *dns, unsigned int *dns_len,
+                           struct in6_addr *dns6, unsigned int *dns6_len,
+                           const unsigned int max_len);
+
+/**
  * Merges pulled DNS servers with static ones into an ordered list.
  *
  * @param   o           Pointer to the DNS options to modify
