@@ -534,6 +534,24 @@ fast hardware. SSL/TLS authentication must be used in this mode.
   :code:`push-remove ifconfig`), no substring matching and no matching on
   the IPv4/IPv6 address argument is possible.
 
+--push-dns-compat
+  For clients that do not announce support for the ``--dns`` option (bit 11
+  in :code:`IV_PROTO`, see ``--push-peer-info``), add ``--dhcp-option``\ s
+  equivalent to the pushed ``--dns`` options to the push reply. The pushed
+  ``--dns`` options are still sent unchanged.
+
+  Only the first pushed ``--dns server`` that uses plain transport, the
+  standard port and no DNSSEC is converted, its addresses become
+  ``dhcp-option DNS`` and ``dhcp-option DNS6``. The first ``--dns
+  search-domains`` entry becomes ``dhcp-option DOMAIN``, the others
+  ``dhcp-option DOMAIN-SEARCH``. ``resolve-domains`` (split DNS) cannot be
+  expressed and are dropped. Nothing is added if DNS related
+  ``--dhcp-option``\ s are pushed already.
+
+  This option can also be used in a client specific context, e.g. a
+  ``--client-config-dir`` file. It does not apply to ``PUSH_UPDATE``
+  messages.
+
 --push-reset
   Don't inherit the global push list for a specific client instance.
   Specify this option in a client-specific context such as with a

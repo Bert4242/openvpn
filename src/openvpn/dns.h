@@ -170,6 +170,17 @@ bool dns_domain_list_append(struct dns_domain **entry, char **domains, struct gc
 bool dns_server_addr_parse(struct dns_server *server, const char *addr);
 
 /**
+ * Parses one --dns option line and adds it to the DNS options.
+ *
+ * @param   o           Pointer to the DNS options to add to
+ * @param   p           The option's tokens, p[0] is "dns", NULL terminated
+ * @param   msglevel    The message level to log errors with
+ * @param   pulled      True if the option was pushed by the server
+ * @return              True if the option was valid
+ */
+bool dns_option_parse(struct dns_options *o, char *p[], const msglvl_t msglevel, bool pulled);
+
+/**
  * Checks validity of DNS options
  *
  * @param   msglevel    The message level to log errors with
@@ -246,6 +257,21 @@ bool dns_domains_copy(const struct dns_domain *d, const char **list, unsigned in
 bool dns_server_addrs_copy(const struct dns_server *s, in_addr_t *dns, unsigned int *dns_len,
                            struct in6_addr *dns6, unsigned int *dns6_len,
                            const unsigned int max_len);
+
+/**
+ * Converts DNS options to equivalent --dhcp-option strings, for peers
+ * that do not understand --dns. Uses the first server that is plain
+ * (no DoT/DoH), on the standard port and without DNSSEC: its addresses
+ * become "dhcp-option DNS/DNS6". The first search domain becomes
+ * "dhcp-option DOMAIN", the others "dhcp-option DOMAIN-SEARCH".
+ * Resolve domains (split DNS) cannot be expressed and are dropped.
+ *
+ * @param   o           Pointer to the DNS options to convert
+ * @param   gc          The gc_arena to allocate the result from
+ * @return              NULL terminated array of strings, or NULL if no
+ *                      server can be converted
+ */
+const char **dns_options_to_dhcp_options(const struct dns_options *o, struct gc_arena *gc);
 
 /**
  * Merges pulled DNS servers with static ones into an ordered list.
