@@ -260,7 +260,12 @@ SCRIPT HOOKS
   available to this hook if no ``--dns`` options exist. If any ``--dns server``
   option is present, DNS-related ``--dhcp-option``\ s will always be ignored.
   If an ``--up`` script is defined, foreign_option env vars will be generated
-  from ``--dns`` options and passed to the script. The default ``--dns-updown``
+  from ``--dns`` options and passed to the script: the addresses of the first
+  ``--dns server`` with plain transport, standard port and no DNSSEC become
+  ``dhcp-option DNS`` and ``dhcp-option DNS6``, the first ``--dns
+  search-domains`` entry becomes ``dhcp-option DOMAIN`` and the others
+  ``dhcp-option DOMAIN-SEARCH``. ``resolve-domains`` cannot be expressed this
+  way and are not passed on. The default ``--dns-updown``
   command is not run if an ``--up`` script is defined. Both is done for backward
   compatibility. In case you want to run the ``--dns-updown`` command even if
   there is an ``--up`` defined, you can define a custom command or use ``force``

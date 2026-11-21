@@ -3030,12 +3030,13 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
     }
     else if (o->up_script && !dns_updown_user_set(dns) && !dns_updown_forced(dns))
     {
-        /* Set foreign option env vars from --dns config */
+        /* Set foreign option env vars from --dns config. The first search
+         * domain is exported as DOMAIN (the connection suffix), the others
+         * as DOMAIN-SEARCH, like a server would push them as --dhcp-option. */
         const struct dns_domain *d = dns->search_domains;
-        while (d)
+        for (bool first = true; d; d = d->next, first = false)
         {
-            setenv_foreign_option(o, "DOMAIN", d->name, es);
-            d = d->next;
+            setenv_foreign_option(o, first ? "DOMAIN" : "DOMAIN-SEARCH", d->name, es);
         }
 
         const struct dns_server *s = dns->servers;
@@ -3058,6 +3059,13 @@ dhcp_options_postprocess_dns(struct options *o, struct env_set *es)
             }
             else
             {
+                if (s->domains)
+                {
+                    msg(D_LOW, "DNS server %ld: resolve-domains (split DNS) cannot be passed "
+                               "to --up scripts as --dhcp-option, the server is used for all "
+                               "names",
+                        s->priority);
+                }
                 for (size_t i = 0; i < s->addr_count; ++i)
                 {
                     const char *option;
