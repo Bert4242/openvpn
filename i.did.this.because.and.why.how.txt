@@ -1,0 +1,82 @@
+options: fix delete_all_dhcp_fo() leaving every second entry and leaking
+========================================================================
+
+Branch:   dns-fix/02-delete-all-dhcp-fo   (based on master 3e2d92c)
+Handoff:  handoff/dns/02-delete-all-dhcp-fo-unlink.md
+Upstream: same problem as PR #1121 (closed, not merged). Still unfixed
+          on upstream master, where the function is shared through
+          reset_dhcp_options().
+
+
+WHAT I DID
+----------
+1. New env_set_del_if(es, match, arg) in env_set.c. It walks the list
+   with a pointer-to-link, so unlinking never touches a detached node,
+   and it frees the removed items when the env set has no gc_arena (the
+   same rule remove_env_item() already follows). It returns the number
+   of removed items.
+
+2. delete_all_dhcp_fo() now takes the struct env_set (it needs es->gc
+   to know how items were allocated) and uses env_set_del_if() with an
+   is_dhcp_foreign_option() predicate ("foreign_option_*=dhcp-option
+   ..."). foreign_option_index is decremented by the number removed,
+   but never below 0: a user can --setenv a foreign_option_N that was
+   never counted.
+
+3. dhcp_options_postprocess_dns(): guard against env_set_get() returning
+   NULL instead of computing strchr(NULL, '=') + 1. It cannot happen
+   with a correct index, but the index was exactly what was broken.
+
+
+WHY
+---
+Old loop:
+
+    for (current = *list, prev = NULL; current; current = current->next)
+    {
+        if (match) { if (prev) prev->next = current->next; else ...; }
+        prev = current;      /* prev = the node that was just unlinked */
+    }
+
+When two matching nodes are next to each other, the second unlink only
+updates the detached first node. Pushed dhcp-options are always next to
+each other (add_env_item() adds at the head). So every second entry
+stayed, --up scripts / plugins saw stale "dhcp-option ..." values, and
+when the new push had fewer entries the leftovers were never
+overwritten. Removed items were never freed; c2.es is created with
+env_set_create(NULL), so every PUSH_UPDATE with dhcp-options leaked.
+
+
+HOW IT WAS TESTED
+-----------------
+Old function copied verbatim, run under ASan on 3 adjacent entries:
+    left: foreign_option_2=dhcp-option DOMAIN-SEARCH old.corp
+    left: dev=tun0
+    SUMMARY: AddressSanitizer: 119 byte(s) leaked in 4 allocation(s).
+
+End to end (server + client in a network namespace, client --up script
+dumping foreign_option_*), server pushes "dhcp-option NTP 10.0.0.1",
+"dhcp-option WINS 10.0.0.2", "dhcp-option NBT 2", then
+push-update-cid <cid> "dhcp-option NTP 10.0.0.9":
+
+  master: foreign_option_1=dhcp-option NTP 10.0.0.9
+          foreign_option_2=dhcp-option WINS 10.0.0.2      <- stale
+  fixed:  foreign_option_1=dhcp-option NTP 10.0.0.9
+
+(Non-DNS dhcp-options are used on purpose: with "dhcp-option DNS" the
+stale DNS server problem fixed in dns-fix/01 hides this one, because the
+env is rebuilt from that stale server.)
+
+Unit test: new tests/unit_tests/openvpn/test_env_set.c (automake and
+CMake): adjacent matches, gc and no-gc env sets, removing everything.
+Clean under ASan/LSan.
+Windows: options.c and env_set.c compile with mingw (-fsyntax-only).
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- env_set_del_if() is generic on purpose; the dhcp-option matching rule
+  stays in options.c.
+- On upstream master, change the call in reset_dhcp_options() (it
+  passes &es->list today) to pass es.
+- Add your Signed-off-by: the commit has none.
