@@ -1,0 +1,91 @@
+dns: do not trust the vars file in the privileged dns-updown runner
+==================================================================
+
+Branch:   dns-fix/08-dns-vars-file-hardening   (based on master 3e2d92c)
+Handoff:  handoff/dns/08-dns-vars-file-privsep-hardening.md
+Upstream: no issue or PR found.
+
+!! SECURITY RELATED: the handoff recommends reporting this privately to
+!! security@openvpn.net first, NOT as a public PR / mailing list post.
+!! It is defence in depth (it only matters after the unprivileged
+!! OpenVPN process is already compromised), but it is a privilege
+!! escalation path from the "nobody" process to root. Ask the security
+!! contact how they want to receive it.
+
+
+WHAT I DID
+----------
+In run_updown_runner() (dns.c, the child that keeps root when --user
+is used):
+
+1. Path check before anything else (dns_vars_file_path_valid()): the
+   path must be directly inside --tmp-dir and named
+   openvpn_dvf_<random>.tmp, which is exactly what
+   platform_create_temp_file(o->tmp_dir, "dvf") produces. Anything else
+   is refused and NOT unlinked. Before, the runner unlinked any path it
+   received.
+2. The file is opened with O_NOFOLLOW and must be a regular file with
+   one link (no symlink, no hard link to something else).
+3. Every line is checked (dns_vars_line_valid()):
+     names:  dev | script_type | dns_[a-z0-9_]+
+     values: [A-Za-z0-9._:+@%,=-] and bytes >= 0x80 (validate_domain()
+             allows those), i.e. nothing that means anything to sh in
+             an unquoted assignment ($ ` ; | & space quotes ~ ...)
+   One bad line rejects the whole file (status -1, logged).
+4. The checked lines are written to a NEW file created by the runner
+   (openvpn_dvr_*.tmp, root-owned, 0600). That copy is what the script
+   sources. The unprivileged process cannot change it, so there is no
+   race between check and use. Both files are removed afterwards.
+5. The path is read from the pipe until its terminating NUL, also when
+   it arrives in several read()s. Before, a single read() was assumed
+   to return all of it.
+
+Unchanged on purpose: the scripts still source $dns_vars_file, and the
+non-privsep path (no --user) is untouched. Custom --dns-updown scripts
+keep working.
+
+
+WHY
+---
+Whoever controls the unprivileged process controls the vars file, and
+every shipped script runs ". $dns_vars_file" as root. Pushed values are
+safe today only because validate_domain() and numeric address parsing
+happen to restrict them; any future free-text dns_* value would be a
+shell injection. The unlink of an arbitrary received path is a root
+"delete any file" primitive.
+
+
+HOW IT WAS TESTED
+-----------------
+Real server + client, client with "user nobody / group nogroup" and a
+logging --dns-updown, so the runner is used:
+  master: script sources /tmp/openvpn_dvf_<x>.tmp (written by nobody)
+  fixed:  script sources /tmp/openvpn_dvr_<x>.tmp (runner's own copy),
+          same variables, dns up/down exit 0, no openvpn_* files left
+          in /tmp afterwards
+
+Unit tests (test_dns.c, not built on Windows):
+  path:  accepted /tmp/openvpn_dvf_<x>.tmp with dir "/tmp" and "/tmp/";
+         refused /etc/shadow, /tmp/../etc/..., subdirectories, /tmpx/...,
+         the dvr prefix, a wrong suffix, an empty random part, an empty
+         dir, NULL
+  lines: accepted normal dev/script_type/dns_* lines, IPv6 with scope,
+         UTF-8 domains, empty values;
+         refused $(touch /tmp/x), `id`, ;, |, space, quotes, ~,
+         PATH=, LD_PRELOAD=, malformed names
+Windows: dns.c compiles with mingw (this code is non-Windows only).
+
+Not tested: an actually compromised parent writing a hostile file
+end to end. The checks that would stop it are unit tested.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- A design that removes the file completely (send the variables over
+  the pipe, length-prefixed) is even simpler to reason about, but it
+  changes what custom scripts see (no $dns_vars_file). I kept the file
+  for compatibility; the maintainers may prefer the other way.
+- The allowed value characters might be too strict for exotic
+  interface names (dev=...). If so, widen the set but keep $ ` ; | & <
+  > ( ) quotes, whitespace and ~ out.
+- Add your Signed-off-by: the commit has none.
