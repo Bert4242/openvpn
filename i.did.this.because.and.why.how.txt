@@ -1,0 +1,118 @@
+dns: keep --dns-updown and local --dns options on PUSH_UPDATE
+==============================================================
+
+Branch:   dns-fix/01-push-update-dns-reset   (based on master 3e2d92c)
+Handoff:  handoff/dns/01-push-update-dns-wipes-updown.md
+Upstream: same problem as PR #1122 (closed, not merged).
+          Upstream commit 7c1328a moved the faulty code into
+          reset_dns_options() without fixing it, so a port to current
+          upstream master replaces the body of that helper.
+
+
+WHAT I DID
+----------
+1. New dns_options_reset_pulled() in dns.c. It resets only what came
+   from the server:
+     - local --dns server entries come back (from pre_connect, in
+       servers_prepull, ready for the merge in
+       dns_options_postprocess_pull())
+     - local --dns search-domains come back
+     - updown, updown_flags and from_dhcp are kept
+   options.c calls it (through reset_pulled_dns_options()) for "-dns"
+   in remove_option() and for the first "dns" line of a PUSH_UPDATE in
+   update_option().
+
+2. update_option(): the reset now happens BEFORE the option is added.
+   The old code called check_dns_option() first, which appended the new
+   addresses to the server that was about to be replaced, and then threw
+   the result away. 5 old + 4 new addresses > 8 failed with "malformed
+   address or maximum exceeded", although the update was valid.
+
+3. dns-down undoes what dns-up applied. run_dns_up_down() keeps a copy
+   of the DNS options it brought up, in struct dns_updown_runner_info
+   (c->persist.duri, already passed on every call). dns-down uses that
+   copy instead of c->options, which a PUSH_UPDATE has already changed
+   by the time do_update() closes the tun. This fixes:
+     - a custom --dns-updown getting the NEW values in its dns-down call
+     - Windows: "-dns" with no replacement left the NRPT rule in place,
+       because the server list was empty when the down action ran, so
+       msg_del_nrpt_cfg was never sent (maybe related to #1047)
+   run_up_down_service(), run_up_down_command() and run_updown_runner()
+   now take the struct dns_options to act on, instead of reading
+   o->dns_options.
+
+4. Found while testing, same area (Unix only): when no --dns servers
+   exist, the --dhcp-option DNS values are converted into a dns server
+   (dhcp_options_postprocess_dns()). After that, a PUSH_UPDATE with only
+   "dhcp-option DNS x" was ignored: dns->servers was already set, so the
+   conversion did not run again, and the old server stayed. The fix
+   marks converted servers (servers_from_dhcp) and resets them when the
+   dhcp-options are reset. The Unix dhcp-option reset now also clears
+   from_dhcp, as Windows already did.
+
+
+WHY
+---
+After any PUSH_UPDATE that touched "dns" on Unix:
+  - the old resolver settings stayed (no dns-down)
+  - the new ones were never applied (no dns-up)
+  - the dns-down at disconnect did not run either, leaving resolv.conf /
+    resolved / scutil changes behind
+  - "--dns server -1 ..." local overrides were dropped for the rest of
+    the session
+All because CLEAR(options->dns_options) also wiped dns->updown, and
+run_up_down_command() returns early when it is NULL.
+
+
+HOW IT WAS TESTED
+-----------------
+Real server and client (built from this tree), client in its own network
+namespace, --dns-updown pointing to a script that logs script_type and
+the dns_* variables, updates sent with push-update-cid on the server's
+management interface.
+
+Server pushes "dns server 0 address 10.8.0.1", "dns search-domains
+a.example"; client has "dns server -1 address 192.0.2.53".
+push-update-cid <cid> "dns server 0 address 10.8.0.2", then "-dns":
+
+  master:  dns-up (old) ... and nothing else, not even at disconnect
+  fixed:   dns-up   192.0.2.53, 10.8.0.1, a.example
+           dns-down 192.0.2.53, 10.8.0.1, a.example     <- old values
+           dns-up   192.0.2.53, 10.8.0.2                <- local -1 kept
+           dns-down 192.0.2.53, 10.8.0.2                (-dns)
+           dns-up   192.0.2.53                          (local only)
+           dns-down 192.0.2.53                          (disconnect)
+
+Server pushes server 0 with 5 addresses, update with 4 new addresses:
+  master:  "Options error: --dns server 0: malformed address or maximum
+           exceeded" and a server with 8 mixed old/new addresses
+  fixed:   the 4 new addresses
+
+Server pushes "dhcp-option DNS 10.0.0.1"; update "dhcp-option DNS
+10.0.0.2" (no --dns at all):
+  master:  keeps 10.0.0.1
+  fixed:   10.0.0.2
+
+Unit test: new tests/unit_tests/openvpn/test_dns.c (automake and CMake)
+tests dns_options_reset_pulled() with and without a pre-pull copy,
+including the 5 + 4 addresses case.
+Windows: dns.c/options.c/init.c/tun.c compile with mingw (-fsyntax-only);
+not run on Windows.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- Can be split into 3 patches if reviewers prefer: (a) reset helper +
+  update_option() ordering, (b) dns-down uses the applied copy,
+  (c) dhcp-option -> dns conversion reset.
+- The applied copy lives in struct dns_updown_runner_info because that
+  struct is already in c->persist and passed to every
+  run_dns_up_down() call. It could get a more general name.
+- Unrelated issue seen while testing (NOT fixed here): when a
+  PUSH_UPDATE is sent with push-update-cid while the link is idle, the
+  server logs "SENT CONTROL ... PUSH_UPDATE" but the packet only goes
+  out with the next event for that client (e.g. a keepalive ping).
+  Without --keepalive the second of two updates never arrived during
+  the test. Worth a separate look (instance not rescheduled after the
+  management command?).
+- Add your Signed-off-by: the commit has none.
