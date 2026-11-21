@@ -1,0 +1,71 @@
+dns: fix small issues in --dns option parsing
+=============================================
+
+Branch:   dns-fix/10-dns-option-parsing   (based on master 3e2d92c)
+Handoff:  handoff/dns/10-dns-option-parsing-nits.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID / WHY
+----------------
+10a dns_server_priority_parse(): also fail when strtol() consumed
+    nothing (endptr == str) or set errno. Before, "" was server 0.
+    "-0" is still accepted (it is 0).
+
+10b dns_server_addr_parse(): "[addr]" (brackets, no port) is accepted
+    and parsed as addr without port. Before, brackets always required
+    ":port", although the man page only requires brackets when a port is
+    given. "[::1]:" and "[]" stay invalid; "::1:53" is still the IPv6
+    address ::1:53 (as documented).
+
+10c check_dns_option() "address": the addresses are parsed into a copy
+    of the server and copied back only if all of them are valid. Before,
+    "address a b BAD" kept a and b (pushed options are non-fatal, so this
+    stuck). A detail the handoff did not mention: if the bad line was
+    the one that created the server, an empty server stayed in the list
+    and dns_options_verify() then failed the whole pull ("does not have
+    an address assigned"). So a server created by a failing line is
+    removed again (new helper dns_server_remove() in dns.c).
+
+10d dns_options_verify(): warns (does not fail) when a server has sni
+    without transport DoT/DoH.
+
+
+HOW IT WAS TESTED
+-----------------
+Unit tests (test_dns.c, automake + CMake):
+  - priorities "0", "-0", "127", "-128" (local) accepted; "" (pulled
+    and local), "128", "-1" (pulled), "1x", huge value rejected, and the
+    output is not touched on failure
+  - "[::1]" -> ::1 port 0; "[::1]:53" -> port 53; "::1:53" -> address,
+    no port; "[::1]:", "[]", "[::1", "[::1]:0" rejected;
+    "10.0.0.1:853" unchanged
+  - dns_server_remove(): middle, head, last, not in list
+
+Real binary, local config:
+  dns server "" address 10.0.0.1   master: accepted as server #1
+                                   fixed:  "invalid priority value ''"
+  dns server 0 address [::1]       master: "malformed address"
+                                   fixed:  address = ::1
+  ... sni foo.example (no transport)  fixed: WARNING ... sni is only used
+                                      with transport DoT or DoH
+
+Real server + client, pushed:
+  dns server 0 address 10.8.0.1
+  dns server 0 address 10.8.0.2 BAD
+  dns server 1 address 10.8.1.1 10.8.1.2 BAD
+    master: dns-up gets 10.8.0.1, 10.8.0.2 and server 2 with
+            10.8.1.1, 10.8.1.2 (half-applied lines)
+    fixed:  dns-up gets only 10.8.0.1; both errors are logged; the
+            connection still completes
+Windows: dns.c and options.c compile with mingw.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- 4 small changes in one commit; easy to split per bullet if reviewers
+  prefer.
+- On upstream master the parser may have moved (see dns-fix/07, which
+  moves check_dns_option() into dns.c as dns_option_parse()); the 10c
+  hunk moves with it.
+- Add your Signed-off-by: the commit has none.
