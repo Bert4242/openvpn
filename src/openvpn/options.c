@@ -2635,6 +2635,27 @@ options_postprocess_verify(const struct options *o)
 
     dns_options_verify(M_FATAL, &o->dns_options);
 
+    /* --dns and --dhcp-option in a server config configure the DNS of the
+     * server itself, which is rarely what is wanted. Only warn: an error
+     * would break existing server configs on upgrade. */
+    if (o->mode == MODE_SERVER)
+    {
+        const struct dns_options *dns = &o->dns_options;
+        if (dns->servers || dns->search_domains)
+        {
+            msg(M_WARN, "WARNING: --dns option found in server config. This configures "
+                        "DNS on the server itself. To propagate DNS settings to clients, "
+                        "use push \"dns ...\" instead.");
+        }
+        if (dns->from_dhcp.dns_len || dns->from_dhcp.dns6_len || dns->from_dhcp.domain
+            || dns->from_dhcp.domain_search_list_len)
+        {
+            msg(M_WARN, "WARNING: DNS related --dhcp-option found in server config. This "
+                        "configures DNS on the server itself. To propagate DNS settings to "
+                        "clients, use push \"dhcp-option ...\" or push \"dns ...\" instead.");
+        }
+    }
+
     if (dco_enabled(o))
     {
         if (o->enable_c2c)
