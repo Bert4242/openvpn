@@ -1,0 +1,122 @@
+DNS handling fixes: overview of all branches
+============================================
+
+Branch:  ccr-90b9f36d-shja61 = all 12 fixes below combined on master
+         3e2d92c, plus one commit that merges their unit tests.
+Source:  the handoff notes in handoff/dns/ on branch
+         ccr-3a553326-ir0004 (a code review of the DNS handling).
+
+Each fix also has its own branch, based on master, with its own
+i.did.this.because.and.why.how.txt (what / why / how it was tested /
+notes for upstream). Send patches from THOSE branches; this combined
+branch exists to prove that they work together.
+
+No upstream MR / patch was sent.
+
+
+HOW UPSTREAM TAKES PATCHES
+--------------------------
+OpenVPN does not merge GitHub PRs (see .github/PULL_REQUEST_TEMPLATE.md
+and CONTRIBUTING.rst): send to openvpn-devel@lists.sourceforge.net with
+git send-email (subject "[PATCH] ..."), or use gerrit.openvpn.net.
+Every commit needs your Signed-off-by: line; none of these commits has
+one. Code style: clang-format with the repo's .clang-format (needs
+clang-format >= 20; Ubuntu's 18 cannot read it). All commits pass
+"git clang-format --diff master".
+
+
+THE BRANCHES
+------------
+ #  branch                                    sev.     verified by
+ 01 dns-fix/01-push-update-dns-reset          High     real client/server + unit
+    PUSH_UPDATE "dns"/"-dns" wiped --dns-updown and local --dns:
+    no dns-down/up after an update or at disconnect. Also: validation
+    against the old list (5+4 > 8), dns-down using the NEW values,
+    Windows stale NRPT on "-dns". New finding: a "dhcp-option DNS"
+    only update was ignored (stale converted server).
+ 02 dns-fix/02-delete-all-dhcp-fo             High     real + unit + ASan
+    every second foreign_option_* survived, plus a memory leak.
+ 03 dns-fix/03-null-domain-search-domains     Medium   real (+ shipped script) + unit
+    DOMAIN-SEARCH without DOMAIN -> no dns_search_domain_1 -> the
+    shipped scripts applied no search domain at all.
+ 04 dns-fix/04-tuntap-dns-copy                Medium   unit + demo of old code
+    Windows/Android: the 4th IPv4 DNS server became IPv6 "a00:4::";
+    limits off by one.
+ 05 dns-fix/05-adapter-domain-suffix          Low      real
+    ADAPTER_DOMAIN_SUFFIX not removed (dash/underscore mismatch).
+ 06 dns-fix/06-android-search-domains         Medium   compile only
+    Android got no search domains. Uses repeated DNSDOMAIN, NOT a new
+    command: ics-openvpn does not answer unknown NEED-OK commands, so
+    the connection would hang.
+ 07 dns-fix/07-server-dns-capability          Low/Med  real + unit
+    3 commits: IV_PROTO docs (bit 6 historic, 11 and 12 added, plus a
+    --client-connect example); startup warning for --dns/dhcp-option in
+    a server config (#1062); opt-in --push-dns-compat (needs maintainer
+    agreement).
+ 08 dns-fix/08-dns-vars-file-hardening        Hardening real + unit
+    The privileged runner validated nothing: root shell injection via
+    the vars file, unlink of any path. !! Report privately to
+    security@openvpn.net first.
+ 09 dns-fix/09-dns-updown-script-nits         Low      stub tests + real
+    systemd domain order (_1,_10,_2), openresolv off-by-one + one search
+    line; new: "sed -i" broke symlinked resolv.conf and does not exist
+    on Solaris/AIX.
+ 10 dns-fix/10-dns-option-parsing             Low      real + unit
+    "" priority accepted, [::1] rejected, half-applied address lists
+    (and the empty server that could fail the whole pull), sni warning.
+ 11 dns-fix/11-windows-domain-handling        Low/Med  compile only
+    !! Not run on Windows. DOMAIN dropped with search domains, stale DHCP
+    search list after PUSH_UPDATE, logging.
+ 12 dns-fix/12-up-script-foreign-options      Low      real
+    --dns search domains for --up scripts: DOMAIN + DOMAIN-SEARCH. Note:
+    the common scripts already coped with several DOMAINs; the handoff
+    overstated the impact.
+
+
+SUGGESTED ORDER FOR UPSTREAM
+----------------------------
+ 1. 02, 05, 10, 03, 04          small, self-contained, clearly bugs
+ 2. 01                          high impact, needs a careful review
+ 3. 09 (after 03), 12           script / script-env behaviour
+ 4. 07 docs commit
+ 5. 06 (ask the ics-openvpn maintainer), 11 (needs Windows testing)
+ 6. 07 #1062 warning and --push-dns-compat (discussion first)
+ 08: security contact, not the public list.
+
+
+HOW EVERYTHING WAS TESTED
+-------------------------
+- Build: autotools with --enable-werror, no warnings. CMake
+  (-DUNSUPPORTED_BUILDS=ON -DENABLE_PKCS11=OFF): 19/19 ctest pass.
+- Unit tests: 19/19 drivers pass (make check); two new drivers,
+  test_dns (17 cases on this branch) and test_env_set.
+- AddressSanitizer + UBSan build (whole tree): 19/19 unit test drivers
+  pass with no sanitizer report; the PUSH_UPDATE scenarios of 01 and 02
+  run end to end with the sanitized binary as server and client, with
+  no report either.
+- Windows: dns.c, options.c, tun.c, push.c, init.c, env_set.c compile
+  with mingw-w64 (-fsyntax-only, a hand-made config.h).
+  Android: options.c/dns.c/tun.c with -DTARGET_ANDROID (-fsyntax-only).
+  Neither was run on a device.
+- End to end on Linux: an OpenVPN server and a client (client in its
+  own network namespace, veth link, real tun devices), built from this
+  tree and from master, with logging --up / --dns-updown scripts and
+  PUSH_UPDATE sent via the management interface (push-update-cid).
+  Every scenario of every note was run against master (to see the bug)
+  and against the fix; the combined branch re-ran all of them with the
+  same results as the separate branches.
+- "Old client" simulation for 07: master built without the
+  IV_PROTO_DNS_OPTION_V2 line.
+
+
+THINGS SEEN WHILE TESTING, NOT FIXED (separate issues)
+------------------------------------------------------
+1. Server: a PUSH_UPDATE sent with push-update-cid while the link is
+   idle is logged as "SENT CONTROL" but only goes out with the next
+   event for that client (e.g. a keepalive ping). Without --keepalive,
+   the second of two updates never arrived during a 10 s test.
+2. Client with --user/--group: ANY PUSH_UPDATE (also e.g. a "route"
+   one) makes the client exit: do_update() force-closes and reopens the
+   tun device, which fails as the unprivileged user ("Cannot open
+   TUN/TAP dev /dev/net/tun: Permission denied ... Exiting due to fatal
+   error"). Same on master.
