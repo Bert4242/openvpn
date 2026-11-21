@@ -1,0 +1,73 @@
+dns-scripts: fix search domain order and limits, keep resolv.conf symlinks
+=========================================================================
+
+Branch:   dns-fix/09-dns-updown-script-nits   (based on master 3e2d92c)
+Handoff:  handoff/dns/09-dns-updown-script-nits.md
+Upstream: no issue or PR found. #1135 (OpenBSD script) touches the same
+          directory; expect a trivial rebase.
+
+
+WHAT I DID
+----------
+9a systemd-dns-updown.sh: new search_domains [max] helper that walks
+   dns_search_domain_1, _2, ... numerically. Used by the resolved path,
+   the resolvconf path and the resolv.conf fallback (the fallback keeps
+   its old cap of 6).
+9b openresolv-dns-updown.sh: "while [ $i -le 3 ]" / "-le 6" instead of
+   decrementing the counter before the check.
+9c openresolv-dns-updown.sh: one "search d1 d2 ..." line instead of one
+   "search" line per domain. I could not verify how openresolv merges
+   several search lines (not installable here), but a single line is
+   correct for every consumer, including a plain resolv.conf, which only
+   uses the last one.
+
+Extra findings, same files:
+ - resolvconf_file-dns-updown.sh (Solaris, OpenBSD, AIX and "other" per
+   configure.ac), haikuos_file-dns-updown.sh and the systemd fallback
+   removed their block with "sed -i". Solaris/AIX sed has no -i, and GNU
+   sed -i replaces a symlinked /etc/resolv.conf with a regular file
+   (common: NetworkManager / resolved stubs). Now: sed to a variable,
+   then printf back through the file. The systemd fallback's "up" used
+   "sed -i 1i...", which is replaced the same way.
+ - the "for i in $(seq 1 6)" domain loop needed seq (not everywhere),
+   and appended empty entries ("search a b    "); now a while loop that
+   stops at the first missing entry.
+
+
+HOW IT WAS TESTED
+-----------------
+Stub tests (scripts copied with /etc/resolv.conf and /sbin/resolvconf
+pointed to temp files, PATH stubs for resolvectl/resolvconf). 4 servers,
+11 search domains:
+
+  A systemd-resolved, "resolvectl domain":
+    master: d1 d10 d11 d2 d3 ... d9 ~.
+    fixed:  d1 d2 ... d9 d10 d11 ~.
+  B openresolv, resolvconf -a input:
+    master: 2 nameservers, 5 x "search dN"
+    fixed:  3 nameservers, "search d1 ... d6"
+  C resolvconf_file / haikuos_file / systemd fallback, resolv.conf
+    being a symlink:
+    master: up OK, down OK but the symlink is now a regular file
+    fixed:  up OK, down OK, still a symlink, content restored
+
+Real run: OpenVPN client in a network namespace (resolv.conf bind
+mounted from /etc/netns/<ns>/) with resolvconf_file-dns-updown.sh:
+    master script: dns-down exit status 4 (sed -i cannot replace a bind
+                   mounted file), the openvpn block stays in resolv.conf
+    fixed script:  dns-down exit status 0, resolv.conf restored
+
+bash -n / sh -n pass; shellcheck -S warning shows no new warnings (the
+counts go down for the changed scripts).
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- The numeric loops stop at the first gap. That is only safe together
+  with dns-fix/03 (no NULL dns_search_domain_1); send 03 first or in the
+  same series.
+- macos-dns-updown.sh was not touched.
+- The stub test harness is not part of the commit (upstream has no
+  shell test setup for these scripts). It is easy to add under tests/
+  if wanted.
+- Add your Signed-off-by: the commit has none.
