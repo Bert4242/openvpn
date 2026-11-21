@@ -73,18 +73,24 @@ dns-up)
     test -z "$addr2" || text="${text}nameserver $addr2\n"
     test -z "$addr3" || text="${text}nameserver $addr3\n"
 
-    test -z "$dns_search_domain_1" || {
-        for i in $(seq 1 6); do
-            eval domains=\"$domains\$dns_search_domain_${i} \" || break
-        done
-        text="${text}search $domains\n"
-    }
+    i=1
+    domains=""
+    while [ $i -le 6 ]; do
+        eval domain=\"\$dns_search_domain_${i}\"
+        [ -n "$domain" ] || break
+        domains="${domains:+${domains} }${domain}"
+        i=$(expr $i + 1)
+    done
+    test -z "$domains" || text="${text}search $domains\n"
     text="${text}### openvpn ${dev} end ###"
     text="${text}\n$(cat ${conf})"
 
     echo "${text}" > "${conf}"
     ;;
 dns-down)
-    sed -i'' -e "/### openvpn ${dev} begin ###/,/### openvpn ${dev} end ###/d" "$conf"
+    # No sed -i: it is not available everywhere, and it would replace a
+    # symlinked resolv.conf with a regular file. Write back through it.
+    remaining="$(sed -e "/### openvpn ${dev} begin ###/,/### openvpn ${dev} end ###/d" "$conf")" \
+        && printf '%s\n' "$remaining" > "$conf"
     ;;
 esac

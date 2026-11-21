@@ -66,26 +66,24 @@ dns-up)
     done
 
     {
+        # at most 3 name servers and 6 search domains, like resolv.conf
         i=1
-        maxns=3
-        while :; do
-            maxns=$((maxns - 1))
-            [ $maxns -gt 0 ] || break
+        while [ $i -le 3 ]; do
             eval option=\"\$dns_server_${n}_address_${i}\" || break
             [ "${option}" ] || break
-            i=$((i + 1))
             echo "nameserver ${option}"
+            i=$((i + 1))
         done
         i=1
-        maxdom=6
-        while :; do
-            maxdom=$((maxdom - 1))
-            [ $maxdom -gt 0 ] || break
+        domains=""
+        while [ $i -le 6 ]; do
             eval option=\"\$dns_search_domain_${i}\" || break
             [ "${option}" ] || break
+            domains="${domains:+${domains} }${option}"
             i=$((i + 1))
-            echo "search ${option}"
         done
+        # one search line: resolv.conf only uses the last one
+        [ -z "${domains}" ] || echo "search ${domains}"
     } | /sbin/resolvconf -a "${dev}"
     ;;
 dns-down)
