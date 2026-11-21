@@ -781,7 +781,20 @@ run_up_down_service(bool add, const struct options *o, const struct dns_options 
             break; /* found compatible server */
         }
 
+        if (add)
+        {
+            msg(D_LOW, "DNS server %ld skipped: NRPT supports neither DoT/DoH nor a port other "
+                       "than 53",
+                server->priority);
+        }
         server = server->next;
+    }
+
+    if (add && server->dnssec == DNS_SECURITY_OPTIONAL)
+    {
+        msg(D_LOW, "DNS server %ld: dnssec optional is not applied, NRPT only supports "
+                   "requiring DNSSEC",
+            server->priority);
     }
 
     ack_message_t ack;

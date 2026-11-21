@@ -190,8 +190,9 @@ do_dns_domain_service(bool add, const struct tuntap *tt)
     /* interface name is required */
     strlcpy(dns.iface.name, tt->actual_name, sizeof(dns.iface.name));
 
-    /* only use domain when there are no search domains */
-    if (o->domain && !o->domain_search_list[0])
+    /* The service handles the list as search domains. Put the domain
+     * first, so that it is not lost when there are search domains too. */
+    if (o->domain)
     {
         strlcpy(dns.domains, o->domain, sizeof(dns.domains));
     }
@@ -199,6 +200,10 @@ do_dns_domain_service(bool add, const struct tuntap *tt)
     /* Create a comma separated list of search domains */
     for (int i = 0; i < N_SEARCH_LIST_LEN && o->domain_search_list[i]; ++i)
     {
+        if (o->domain && streq(o->domain_search_list[i], o->domain))
+        {
+            continue; /* already added */
+        }
         size_t dstlen = strlen(dns.domains);
         size_t srclen = strlen(o->domain_search_list[i]);
         size_t extra = dstlen ? 2 : 1; /* space for comma and NUL */
@@ -405,6 +410,12 @@ out:
 static void
 do_dns_domain_pwsh(bool add, const struct tuntap *tt)
 {
+    if (add && tt->options.domain_search_list_len > 0)
+    {
+        msg(M_WARN, "WARNING: DNS search domains (DOMAIN-SEARCH) can only be set using "
+                    "the interactive service, they are ignored");
+    }
+
     if (!tt->options.domain)
     {
         return;
