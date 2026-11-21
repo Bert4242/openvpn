@@ -1,0 +1,73 @@
+dns: do not add a NULL search domain when converting --dhcp-option
+==================================================================
+
+Branch:   dns-fix/03-null-domain-search-domains   (based on master 3e2d92c)
+Handoff:  handoff/dns/03-null-domain-drops-search-domains.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID
+----------
+- Moved the --dhcp-option -> --dns conversion out of
+  dhcp_options_postprocess_dns() (options.c, static, untestable) into
+  dns_options_from_dhcp() in dns.c. options.c just calls it when there
+  are no --dns servers, as before.
+- The first search domain entry is only created when dhcp-option DOMAIN
+  is set. Before, it was always created, with name = NULL when only
+  DOMAIN-SEARCH was pushed.
+- A DOMAIN-SEARCH entry equal to DOMAIN is skipped (it was listed twice
+  before: "corp.example corp.example second.example").
+
+
+WHY
+---
+setenv_str(es, "dns_search_domain_1", NULL) deletes the variable, so
+dns-updown got dns_search_domain_2..N but no _1. The shipped scripts
+stop at a missing _1:
+  - openresolv-dns-updown.sh   (loop from 1, break on empty)
+  - macos-dns-updown.sh
+  - resolvconf_file / haikuos_file  (test -z "$dns_search_domain_1" ||)
+  - systemd-dns-updown.sh, resolv.conf fallback
+Only the systemd-resolved path (${!dns_search_domain_*}) was not
+affected. show_dns_options() could also pass NULL to %s.
+
+This hits a very common server config:
+    push "dhcp-option DNS 10.8.0.1"
+    push "dhcp-option DOMAIN-SEARCH corp.example"
+
+
+HOW IT WAS TESTED
+-----------------
+Real server + client (client in a network namespace), server pushes
+DNS 10.8.0.1 + DOMAIN-SEARCH corp.example + DOMAIN-SEARCH
+second.example, no DOMAIN.
+
+Logging --dns-updown:
+  master: dns_search_domain_2=corp.example
+          dns_search_domain_3=second.example        (no _1)
+  fixed:  dns_search_domain_1=corp.example
+          dns_search_domain_2=second.example
+
+Shipped distro/dns-scripts/resolvconf_file-dns-updown.sh as
+--dns-updown (resolv.conf of the namespace via /etc/netns/<ns>/):
+  master: nameserver 10.8.0.1                       (no search line)
+  fixed:  nameserver 10.8.0.1
+          search corp.example second.example
+
+With DOMAIN corp.example + DOMAIN-SEARCH corp.example + second.example:
+  master: corp.example, corp.example, second.example
+  fixed:  corp.example, second.example
+
+Unit tests (tests/unit_tests/openvpn/test_dns.c, new driver, automake +
+CMake): search without DOMAIN, DOMAIN + search with a repeat, DOMAIN
+only with an IPv6 server, no DNS value -> nothing converted.
+Windows: dns.c and options.c compile with mingw (-fsyntax-only).
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- test_dns.c and its build entries are also added by the dns-fix/01
+  branch; if both go upstream, the second one only adds test cases.
+- Behaviour change: the duplicate skip is new. Drop that hunk if
+  reviewers prefer the minimal fix.
+- Add your Signed-off-by: the commit has none.
