@@ -250,6 +250,25 @@ configuration.
   so that ``--dns`` overrides ``--dhcp-option``. Thus, ``--dns`` can be used today
   to migrate from ``--dhcp-option``.
 
+  Clients that do not set bit 11 in :code:`IV_PROTO` (see ``--push-peer-info``)
+  do not understand pushed ``--dns`` options. They log an option error for each
+  of them and get no DNS configuration from them. To support such clients, push
+  both ``--dns`` and the equivalent ``--dhcp-option``\ s: clients that understand
+  ``--dns`` ignore the DNS related ``--dhcp-option``\ s when ``--dns`` servers
+  are present. Or decide per client in a ``--client-connect`` script, which
+  gets :code:`IV_PROTO` in its environment, for example:
+  ::
+
+     #!/bin/sh
+     # $1 is the file to write the client specific config to
+     if [ $(( ${IV_PROTO:-0} & 2048 )) -ne 0 ]; then
+         echo 'push "dns server 0 address 10.8.0.1"' >> "$1"
+         echo 'push "dns search-domains corp.example"' >> "$1"
+     else
+         echo 'push "dhcp-option DNS 10.8.0.1"' >> "$1"
+         echo 'push "dhcp-option DOMAIN-SEARCH corp.example"' >> "$1"
+     fi
+
   Windows only:
 
   #. If tap-windows6 is in use, dns servers are set by DHCP by default.
@@ -408,11 +427,18 @@ configuration.
     - bit 4: The client is capable of accepting additional arguments
       to the ``AUTH_PENDING`` message.
     - bit 5: The client supports doing feature negotiation in P2P mode
-    - bit 6: The client is capable of parsing and receiving the ``--dns`` pushed option
+    - bit 6: Historic. Was sent by OpenVPN 2.6 clients that supported an
+      early, incompatible form of the ``--dns`` option. Current clients do not
+      send it anymore, use bit 11 instead.
     - bit 7: The client is capable of sending exit notification via control channel using ``EXIT`` message. Also, the client is accepting the protocol-flags pushed option for the EKM capability
     - bit 8: The client is capable of accepting ``AUTH_FAILED,TEMP`` messages
     - bit 9: The client is capable of dynamic tls-crypt
     - bit 10: The client is capable of data epoch keys
+    - bit 11: The client is capable of parsing and receiving the ``--dns``
+      pushed option in its current form, as documented in this manual.
+    - bit 12: The client supports ``PUSH_UPDATE`` messages (see
+      ``push-update-broad`` and ``push-update-cid`` in the management
+      interface documentation).
 
   :code:`IV_NCP=2`
         Negotiable ciphers, client supports ``--cipher`` pushed by
