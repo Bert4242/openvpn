@@ -252,8 +252,9 @@ SCRIPT HOOKS
   can be configured, apply them in the order they are listed in.
 
   Note that ``--dns-updown`` is not supported on all platforms. On Windows DNS
-  will always be set by the service. On Android DNS will be passed via management
-  interface.
+  will always be set by the service. On Android DNS servers and search domains
+  will be passed via management interface. Split DNS (``resolve-domains``) is
+  not supported there.
 
   Note that DNS-related ``--dhcp-option``\ s might be converted so that they are
   available to this hook if no ``--dns`` options exist. If any ``--dns server``
