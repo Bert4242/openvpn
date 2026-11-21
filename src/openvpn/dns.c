@@ -905,9 +905,181 @@ do_run_up_down_command(bool up, const char *vars_file, const struct dns_options 
     return res;
 }
 
+bool
+dns_vars_file_path_valid(const char *path, const char *dir)
+{
+    static const char prefix[] = PACKAGE "_dvf_";
+    static const char suffix[] = ".tmp";
+
+    if (!path || !dir || !*dir)
+    {
+        return false;
+    }
+    const size_t dir_len = strlen(dir);
+    if (strncmp(path, dir, dir_len) != 0)
+    {
+        return false;
+    }
+    const char *name = path + dir_len;
+    /* platform_gen_path() adds a '/' unless dir already ends with one */
+    if (dir[dir_len - 1] != '/')
+    {
+        if (*name != '/')
+        {
+            return false;
+        }
+        name++;
+    }
+    const size_t name_len = strlen(name);
+    return !strchr(name, '/') && name_len > sizeof(prefix) - 1 + sizeof(suffix) - 1
+           && strncmp(name, prefix, sizeof(prefix) - 1) == 0
+           && strcmp(name + name_len - (sizeof(suffix) - 1), suffix) == 0;
+}
+
+bool
+dns_vars_line_valid(const char *line)
+{
+    const char *eq = strchr(line, '=');
+    if (!eq || eq == line)
+    {
+        return false;
+    }
+
+    /* name: dev, script_type or dns_[a-z0-9_]+ */
+    const size_t name_len = eq - line;
+    if (!(name_len == 3 && !strncmp(line, "dev", 3))
+        && !(name_len == 11 && !strncmp(line, "script_type", 11)))
+    {
+        if (name_len <= 4 || strncmp(line, "dns_", 4) != 0)
+        {
+            return false;
+        }
+        for (const char *c = line + 4; c < eq; ++c)
+        {
+            if (!((*c >= 'a' && *c <= 'z') || (*c >= '0' && *c <= '9') || *c == '_'))
+            {
+                return false;
+            }
+        }
+    }
+
+    /* value: only characters that have no special meaning in an unquoted
+     * sh assignment. Bytes >= 0x80 are allowed, like validate_domain() does. */
+    for (const unsigned char *c = (const unsigned char *)eq + 1; *c; ++c)
+    {
+        if (!(isalnum(*c) || *c >= 0x80 || strchr("._:-+@%,=", *c)))
+        {
+            return false;
+        }
+    }
+    return true;
+}
+
+/**
+ * Called in the privileged runner: copies the variables from the file the
+ * unprivileged process wrote into a new file created by the runner, after
+ * checking the path, the file type and every line. The file written by the
+ * unprivileged process is never sourced, so changing it afterwards has no
+ * effect.
+ *
+ * @return  the path of the checked copy, or NULL on error
+ */
+static const char *
+dns_vars_file_check_copy(const char *path, const char *tmp_dir, struct gc_arena *gc)
+{
+    if (!dns_vars_file_path_valid(path, tmp_dir))
+    {
+        msg(M_WARN, "dns updown runner: refusing unexpected vars file path '%s'", path);
+        return NULL;
+    }
+
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    struct stat st;
+    if (fd < 0 || fstat(fd, &st) != 0 || !S_ISREG(st.st_mode) || st.st_nlink != 1)
+    {
+        msg(M_WARN | M_ERRNO, "dns updown runner: refusing vars file '%s'", path);
+        if (fd >= 0)
+        {
+            close(fd);
+        }
+        return NULL;
+    }
+    FILE *in = fdopen(fd, "r");
+    if (!in)
+    {
+        close(fd);
+        return NULL;
+    }
+
+    struct env_set *es = env_set_create(gc);
+    char line[512];
+    bool ok = true;
+    while (fgets(line, sizeof(line), in))
+    {
+        size_t len = strlen(line);
+        if (len == 0 || line[len - 1] != '\n')
+        {
+            ok = false; /* too long or not terminated */
+            break;
+        }
+        line[len - 1] = '\0';
+        if (!dns_vars_line_valid(line))
+        {
+            ok = false;
+            break;
+        }
+        env_set_add(es, line);
+    }
+    fclose(in);
+
+    if (!ok)
+    {
+        msg(M_WARN, "dns updown runner: invalid content in vars file '%s'", path);
+        return NULL;
+    }
+
+    const char *copy = platform_create_temp_file(tmp_dir, "dvr", gc);
+    if (!copy)
+    {
+        return NULL;
+    }
+    env_set_write_file(copy, es);
+    return copy;
+}
+
+/**
+ * Reads a NUL terminated path from the pipe, also if it arrives in
+ * several parts.
+ *
+ * @return  1 on success, 0 on EOF, -1 on error
+ */
+static int
+read_vars_file_path(int fd, char *path, size_t size)
+{
+    size_t len = 0;
+    while (len < size)
+    {
+        ssize_t rlen = read(fd, path + len, size - len);
+        if (rlen == -1 && errno == EINTR)
+        {
+            continue;
+        }
+        if (rlen < 1)
+        {
+            return rlen == 0 && len == 0 ? 0 : -1;
+        }
+        if (memchr(path + len, '\0', (size_t)rlen))
+        {
+            return 1;
+        }
+        len += (size_t)rlen;
+    }
+    return -1; /* no terminating NUL */
+}
+
 static bool
-run_updown_runner(bool up, const struct dns_options *dns, const struct tuntap *tt,
-                  struct dns_updown_runner_info *updown_runner)
+run_updown_runner(bool up, const struct dns_options *dns, const char *tmp_dir,
+                  const struct tuntap *tt, struct dns_updown_runner_info *updown_runner)
 {
     int dns_pipe_fd[2];
     int ack_pipe_fd[2];
@@ -958,21 +1130,27 @@ run_updown_runner(bool up, const struct dns_options *dns, const struct tuntap *t
             char path[PATH_MAX];
 
             /* Block here until parent sends a path */
-            ssize_t rlen = read(dns_pipe_fd[0], &path, sizeof(path));
-            if (rlen < 1)
+            if (read_vars_file_path(dns_pipe_fd[0], path, sizeof(path)) < 1)
             {
-                if (rlen == -1 && errno == EINTR)
-                {
-                    continue;
-                }
                 close(dns_pipe_fd[0]);
                 close(ack_pipe_fd[1]);
                 exit(0);
             }
 
-            path[sizeof(path) - 1] = '\0';
-            int res = do_run_up_down_command(up, path, dns, tt);
-            platform_unlink(path);
+            int res = -1;
+            struct gc_arena gc = gc_new();
+            const char *checked = dns_vars_file_check_copy(path, tmp_dir, &gc);
+            if (checked)
+            {
+                res = do_run_up_down_command(up, checked, dns, tt);
+                platform_unlink(checked);
+            }
+            /* Only remove what passed the path check, never any path */
+            if (dns_vars_file_path_valid(path, tmp_dir))
+            {
+                platform_unlink(path);
+            }
+            gc_free(&gc);
 
             /* Unblock parent process */
             while (1)
@@ -1019,7 +1197,7 @@ run_up_down_command(bool up, const struct options *o, const struct dns_options *
         if (updown_runner->pid < 1)
         {
             /* Need to set up privilege preserving child first */
-            if (!run_updown_runner(up, dns, tt, updown_runner))
+            if (!run_updown_runner(up, dns, o->tmp_dir, tt, updown_runner))
             {
                 return;
             }

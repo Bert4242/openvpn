@@ -280,6 +280,28 @@ const char **dns_options_to_dhcp_options(const struct dns_options *o, struct gc_
  */
 void dns_options_postprocess_pull(struct dns_options *o);
 
+#ifndef _WIN32
+/**
+ * Checks that a dns vars file path is one the unprivileged process creates:
+ * directly in dir, named PACKAGE "_dvf_*.tmp".
+ *
+ * @param   path        The path to check
+ * @param   dir         The --tmp-dir
+ * @return              True if the path has the expected form
+ */
+bool dns_vars_file_path_valid(const char *path, const char *dir);
+
+/**
+ * Checks one "name=value" line of a dns vars file. Names must be dev,
+ * script_type or dns_[a-z0-9_]+, values may only contain characters that
+ * are not special in an unquoted sh assignment.
+ *
+ * @param   line        The line, without newline
+ * @return              True if the line is acceptable
+ */
+bool dns_vars_line_valid(const char *line);
+#endif
+
 /**
  * Invokes the action associated with bringing DNS up or down
  * @param   up          Boolean to set this call to "up" when true
