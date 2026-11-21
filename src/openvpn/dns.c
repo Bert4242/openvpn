@@ -89,8 +89,19 @@ dns_server_addr_parse(struct dns_server *server, const char *addr)
     }
     else
     {
-        /* IPv6 address with optional port, e.g. ab::cd or [ab::cd]:853 */
-        if (addr[0] == '[')
+        /* IPv6 address with optional port, e.g. ab::cd, [ab::cd] or [ab::cd]:853 */
+        const size_t addr_len = strlen(addr);
+        if (addr[0] == '[' && addr[addr_len - 1] == ']')
+        {
+            /* brackets without a port */
+            addr += 1;
+            copylen = addr_len - 2;
+            if (copylen == 0)
+            {
+                return false;
+            }
+        }
+        else if (addr[0] == '[')
         {
             addr += 1;
             const char *bracket = last_colon - 1;
@@ -177,8 +188,9 @@ dns_server_priority_parse(long *priority, const char *str, bool pulled)
     char *endptr;
     const long min = pulled ? 0 : INT8_MIN;
     const long max = INT8_MAX;
+    errno = 0;
     long prio = strtol(str, &endptr, 10);
-    if (*endptr != '\0' || prio < min || prio > max)
+    if (endptr == str || *endptr != '\0' || errno || prio < min || prio > max)
     {
         return false;
     }
@@ -207,20 +219,33 @@ dns_option_parse(struct dns_options *o, char *p[], const msglvl_t msglevel, bool
             return false;
         }
 
-        struct dns_server *server =
-            dns_server_get(&o->servers, priority, &o->gc);
+        bool server_existed = false;
+        for (const struct dns_server *srv = o->servers; srv; srv = srv->next)
+        {
+            server_existed |= srv->priority == priority;
+        }
+        struct dns_server *server = dns_server_get(&o->servers, priority, &o->gc);
 
         if (streq(p[3], "address"))
         {
+            /* Parse into a copy, so that a bad address does not leave the
+             * addresses before it added */
+            struct dns_server tmp = *server;
             for (int i = 4; p[i]; ++i)
             {
-                if (!dns_server_addr_parse(server, p[i]))
+                if (!dns_server_addr_parse(&tmp, p[i]))
                 {
                     msg(msglevel, "--dns server %ld: malformed address or maximum exceeded '%s'",
                         priority, p[i]);
+                    if (!server_existed)
+                    {
+                        dns_server_remove(&o->servers, server);
+                    }
                     return false;
                 }
             }
+            server->addr_count = tmp.addr_count;
+            memcpy(server->addr, tmp.addr, sizeof(server->addr));
         }
         else if (streq(p[3], "resolve-domains"))
         {
@@ -317,6 +342,19 @@ dns_server_get(struct dns_server **entry, long priority, struct gc_arena *gc)
     }
 }
 
+void
+dns_server_remove(struct dns_server **entry, const struct dns_server *server)
+{
+    for (; *entry; entry = &(*entry)->next)
+    {
+        if (*entry == server)
+        {
+            *entry = server->next;
+            return;
+        }
+    }
+}
+
 bool
 dns_options_verify(msglvl_t msglevel, const struct dns_options *o)
 {
@@ -328,6 +366,12 @@ dns_options_verify(msglvl_t msglevel, const struct dns_options *o)
             msg(msglevel, "ERROR: dns server %ld does not have an address assigned",
                 server->priority);
             return false;
+        }
+        if (server->sni && server->transport != DNS_TRANSPORT_TLS
+            && server->transport != DNS_TRANSPORT_HTTPS)
+        {
+            msg(M_WARN, "WARNING: dns server %ld: sni is only used with transport DoT or DoH",
+                server->priority);
         }
         server = server->next;
     }

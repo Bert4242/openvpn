@@ -157,6 +157,15 @@ struct dns_server *dns_server_get(struct dns_server **entry, long priority, stru
  * @param   gc          The gc the new list items should be allocated in
  * @return              True if domains were appended and don't contain invalid characters
  */
+/**
+ * Removes a server from a server list. The memory belongs to the gc_arena
+ * it was allocated from and is not freed.
+ *
+ * @param   entry       Address of the server list
+ * @param   server      The server to remove
+ */
+void dns_server_remove(struct dns_server **entry, const struct dns_server *server);
+
 bool dns_domain_list_append(struct dns_domain **entry, char **domains, struct gc_arena *gc);
 
 /**
