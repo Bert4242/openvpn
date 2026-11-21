@@ -1,0 +1,109 @@
+server/doc: --dns for clients that do not support it, IV_PROTO docs, #1062
+=========================================================================
+
+Branch:   dns-fix/07-server-dns-capability   (based on master 3e2d92c)
+Handoff:  handoff/dns/07-server-dns-capability-and-docs.md
+Upstream: related to #937 (improve --dns docs) and #1062 (warn on
+          dns/dhcp-option in a server config). Both are still open.
+
+Three independent commits; upstream can take any subset:
+
+  f3da65a doc: update IV_PROTO bits, explain pushing --dns to older clients
+  0654748 options: warn about --dns and --dhcp-option in a server config
+  28b069d server: add --push-dns-compat for clients without --dns support
+
+
+1) DOCS (safe, no code)
+-----------------------
+client-options.rst, IV_PROTO list:
+  - bit 6 is now marked historic: current clients do not send it
+    (ssl.h says "Not sent anymore"). It was documented as THE way to
+    detect --dns support, which is wrong today.
+  - added bit 11 (IV_PROTO_DNS_OPTION_V2) and bit 12 (PUSH_UPDATE),
+    which were missing.
+--dns section: a paragraph on clients without bit 11, plus a short
+--client-connect example that picks --dns or --dhcp-option from
+$IV_PROTO.
+
+Tested: the doc builds with rst2html --halt=warning. The example
+script, run as a real --client-connect: a current client got
+"dns server 0 ... / dns search-domains ..." and a client built without
+bit 11 got "dhcp-option DNS ... / dhcp-option DOMAIN-SEARCH ...".
+
+To check before sending: I did not state from which 2.6.x release on
+bit 11 is sent (it is not visible in this shallow clone). A maintainer
+may want to add it.
+
+
+2) WARNING FOR #1062
+--------------------
+At startup in --mode server, if --dns (servers or search-domains) or a
+DNS related --dhcp-option is in the config:
+
+  WARNING: --dns option found in server config. This configures DNS on
+  the server itself. To propagate DNS settings to clients, use push
+  "dns ..." instead.
+
+(and the same for dhcp-option). This follows cron2's comment in #1062:
+"I would not go there [error out] because it will break
+existing-if-wrong server configs on upgrade ... a clear warning". The
+issue has no agreed conclusion yet, so this is a proposal.
+
+Tested: a real server with "dns server 0 ..." and "dhcp-option DNS ..."
+logs both warnings. A server that only uses push "dns ..." logs none.
+
+
+3) --push-dns-compat (NEEDS MAINTAINER AGREEMENT)
+------------------------------------------------
+Problem: the server pushes "dns ..." to every client without checking
+IV_PROTO. Pre-2.6 and early 2.6 clients log option errors and get no
+DNS. Operators must write a --client-connect script (see 1).
+
+What it does, opt-in, in send_push_reply() (push.c):
+  - only if --push-dns-compat is set (global or per client via ccd)
+  - only for clients WITHOUT IV_PROTO_DNS_OPTION_V2
+  - only if the push lists contain "dns ..." and NO DNS related
+    "dhcp-option" (configs that already push both are left alone)
+  - the pushed "dns" lines are parsed, and dhcp-option equivalents are
+    appended: addresses of the first plain/port-53/no-DNSSEC server ->
+    DNS / DNS6, first search domain -> DOMAIN, the rest ->
+    DOMAIN-SEARCH. resolve-domains cannot be expressed and are dropped.
+  - the "dns" lines are still sent unchanged
+  - each added option is logged at D_PUSH
+
+Why opt-in and not automatic: other implementations (OpenVPN 3 / Connect)
+may understand --dns without setting bit 11. They would suddenly get
+extra dhcp-options. Making it the default is a maintainer decision.
+
+To reuse the parser, check_dns_option() moved from options.c to dns.c as
+dns_option_parse(); options.c keeps a one-line wrapper. The conversion
+is dns_options_to_dhcp_options() in dns.c.
+
+Tested:
+  - unit tests (test_dns.c): DoT server skipped, next server converted
+    with v4+v6, DOMAIN + DOMAIN-SEARCH mapping, resolve-domains dropped;
+    nothing convertible (port 5353, dnssec yes) -> NULL
+  - real server with --push-dns-compat; client built from master with
+    the bit 11 line removed (simulated old client):
+      PUSH_REPLY ...,dhcp-option DNS 10.8.0.1,dhcp-option DNS6 fd00::1,
+                     dhcp-option DOMAIN corp.example,
+                     dhcp-option DOMAIN-SEARCH second.example
+    current client: no extra options
+    old client with pull-filter ignore "dns " (behaves like a pre-2.6
+    client): --up script gets foreign_option_1..4 = the four options
+    above
+    push list that already has "dhcp-option DNS": nothing added, logged
+  - full unit test suite (18 drivers) passes; push.c, options.c and
+    dns.c compile with mingw
+
+Limits: PUSH_UPDATE messages are not converted (they are built by the
+management code, not send_push_reply()).
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- Send 1) first; 2) and 3) need discussion (#1062 is open, 3) is a new
+  option).
+- If 3) is accepted, the parser move could be a separate preparatory
+  patch.
+- Add your Signed-off-by: the commits have none.
