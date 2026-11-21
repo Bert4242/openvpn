@@ -1,0 +1,72 @@
+dns: fix copying --dns to TUN/TAP options on Windows and Android
+================================================================
+
+Branch:   dns-fix/04-tuntap-dns-copy   (based on master 3e2d92c)
+Handoff:  handoff/dns/04-windows-dns-array-overflow.md
+Upstream: no issue or PR found.
+
+
+WHAT I DID
+----------
+tuntap_options_postprocess_dns() (options.c, built for _WIN32 ||
+TARGET_ANDROID) now uses two helpers added to dns.c:
+
+  dns_domains_copy(d, list, &len, max)
+  dns_server_addrs_copy(s, dns, &dns_len, dns6, &dns6_len, max)
+
+Each address family is checked against its own array: an IPv4 address
+that does not fit is dropped (and reported), never stored as IPv6. The
+limits are the real array sizes (N_DHCP_ADDR = 4, N_SEARCH_LIST_LEN =
+10), the same as for --dhcp-option. The helpers return false when
+something did not fit, so the existing warnings now also show for an
+IPv4-only overflow.
+
+The helpers take plain arrays, not struct tuntap_options (which has no
+DNS fields on Linux), so they build and are unit tested on every
+platform.
+
+
+WHY
+---
+Old code:
+
+    if (family == AF_INET && dns_len + 1 < N_DHCP_ADDR)  dns[...]  = v4;
+    else if (dns6_len + 1 < N_DHCP_ADDR)                  dns6[...] = in.a6;
+
+- The 4th IPv4 address failed the first check and fell into the IPv6
+  branch: its union was read as in6_addr. 10.0.0.4 became the IPv6 DNS
+  server a00:4:: (Android: DNS6SERVER via management; Windows DHCP mode:
+  DHCP option / netsh IPv6 DNS list).
+- "+ 1 <" capped --dns at 3 IPv4, 3 IPv6 and 9 search domains.
+- The overflow warning was only set when both checks failed.
+
+
+HOW IT WAS TESTED
+-----------------
+The verbatim old condition, run on 4 IPv4 addresses:
+    dns_len=3 dns6_len=1 dns6[0]=a00:4::
+
+New unit tests (tests/unit_tests/openvpn/test_dns.c, automake + CMake):
+  - 4 IPv4 addresses: all 4 copied, no IPv6
+  - 5 IPv4 addresses: 4 copied, returns false, still no IPv6
+  - mixed v4/v6 with 5 IPv6: 2 + 4, returns false, correct v6 address
+  - 10 search domains: all copied; 11: 10 copied, returns false
+
+Compile checks: options.c and dns.c with mingw (-fsyntax-only) and with
+-DTARGET_ANDROID. Not run on Windows or Android: I had neither.
+
+Consumers checked for a fully used domain_search_list (10 entries, no
+NULL terminator): do_dns_domain_service() in tun.c loops
+"i < N_SEARCH_LIST_LEN && list[i]" and dhcp.c uses
+domain_search_list_len. Both are fine.
+
+
+NOTES FOR THE UPSTREAM MR
+-------------------------
+- To verify on Android: "dns server 0 address 10.0.0.1 10.0.0.2
+  10.0.0.3 10.0.0.4". Before: DNS6SERVER a00:4:: in the management log.
+  After: four DNSSERVER lines.
+- Windows: tap-windows6 with "ip-win32 dynamic" and the same option;
+  check the DHCP option dump at --verb 4.
+- test_dns.c is also added by other dns-fix branches; merge the cases.
+- Add your Signed-off-by: the commit has none.
